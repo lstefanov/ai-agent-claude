@@ -57,7 +57,7 @@ $cfg     = $agent->config ?? [];
 
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Промпт шаблон</label>
-            <p class="text-xs text-gray-400 mb-1">Използвай <code class="bg-gray-100 px-1 rounded">{{'{{'}}AgentName{{'}}'}}</code> за контекст от предишен агент</p>
+            <p class="text-xs text-gray-400 mb-1">Използвай <code class="bg-gray-100 px-1 rounded">@{{AgentName}}</code> за контекст от предишен агент</p>
             <textarea name="prompt_template" rows="8"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       required>{{ old('prompt_template', $agent->prompt_template) }}</textarea>
