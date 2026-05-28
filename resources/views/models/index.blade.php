@@ -188,12 +188,12 @@
             <template x-if="status === 'pulling'">
                 <div class="mt-3">
                     <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
-                        <span>Изтегляне...</span>
-                        <span x-text="progress + '%'"></span>
+                        <span x-text="pullPhase || 'Изтегляне…'" class="animate-pulse"></span>
+                        <span x-text="progress + '%'" class="tabular-nums"></span>
                     </div>
                     <div class="w-full bg-gray-100 rounded-full h-1.5">
                         <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
-                             :style="'width: ' + progress + '%'"></div>
+                             :style="'width: ' + (progress || 1) + '%'"></div>
                     </div>
                 </div>
             </template>
@@ -237,6 +237,7 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable, ini
         progress:    initialProgress,
         isAvailable: initialAvailable,
         pullError:   initialPullError || '',
+        pullPhase:   '',
         testing:     false,
         testResult:  '',
         testOk:      false,
@@ -251,6 +252,7 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable, ini
             this.status    = 'pulling';
             this.progress  = 0;
             this.pullError = '';
+            this.pullPhase = '';
             await fetch(`/models/${this.id}/pull`, {
                 method:  'POST',
                 headers: { 'X-CSRF-TOKEN': this.csrf },
@@ -276,7 +278,8 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable, ini
                 this.status      = data.status;
                 this.progress    = data.progress;
                 this.isAvailable = data.is_available;
-                if (data.pull_error) this.pullError = data.pull_error;
+                if (data.pull_error)  this.pullError  = data.pull_error;
+                if (data.pull_phase)  this.pullPhase  = data.pull_phase;
                 if (data.status === 'completed' || data.status === 'failed' || data.is_available) {
                     clearInterval(this.pollTimer);
                     this.pollTimer = null;

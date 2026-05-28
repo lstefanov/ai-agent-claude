@@ -35,7 +35,7 @@ class PullOllamaModel extends Command
         $ping    = @file_get_contents($baseUrl . '/api/tags', false, $pingCtx);
 
         if ($ping === false) {
-            return $this->fail($model, "Не може да се свърже с Ollama на {$baseUrl}. Провери дали Ollama работи.");
+            return $this->pullFail($model, "Не може да се свърже с Ollama на {$baseUrl}. Провери дали Ollama работи.");
         }
         $this->logLine("Ollama is reachable");
 
@@ -53,7 +53,7 @@ class PullOllamaModel extends Command
         $stream = @fopen($baseUrl . '/api/pull', 'r', false, $context);
 
         if (!$stream) {
-            return $this->fail($model, "Не може да се отвори stream към Ollama /api/pull.");
+            return $this->pullFail($model, "Не може да се отвори stream към Ollama /api/pull.");
         }
 
         // ── 3. Read HTTP status from response headers ─────────────────────
@@ -66,7 +66,7 @@ class PullOllamaModel extends Command
             fclose($stream);
             $decoded = json_decode($body, true);
             $errMsg  = $decoded['error'] ?? "HTTP {$httpStatus}: {$body}";
-            return $this->fail($model, $errMsg);
+            return $this->pullFail($model, $errMsg);
         }
 
         // ── 4. Parse streaming JSON lines ─────────────────────────────────
@@ -86,7 +86,7 @@ class PullOllamaModel extends Command
             // Ollama error inside the stream
             if (isset($data['error']) && !empty($data['error'])) {
                 fclose($stream);
-                return $this->fail($model, $data['error']);
+                return $this->pullFail($model, $data['error']);
             }
 
             // Success
@@ -109,12 +109,12 @@ class PullOllamaModel extends Command
                 ];
 
                 $lineCounter++;
-                if ($lineCounter % 20 === 0) {
+                if ($lineCounter % 5 === 0) {
                     $totalBytes     = array_sum(array_column($chunks, 'total'));
                     $completedBytes = array_sum(array_column($chunks, 'completed'));
                     $progress       = $totalBytes > 0 ? (int)(($completedBytes / $totalBytes) * 100) : 0;
 
-                    if (abs($progress - $lastSaved) >= 2) {
+                    if (abs($progress - $lastSaved) >= 1) {
                         $model->update(['pull_progress' => $progress]);
                         $lastSaved = $progress;
                         $this->logLine("Progress: {$progress}%");
@@ -128,13 +128,13 @@ class PullOllamaModel extends Command
         // Stream ended without 'success' — check final state
         $model->refresh();
         if ($model->pull_status !== 'completed') {
-            return $this->fail($model, "Stream приключи без потвърждение за успех. Може да е прекъсната връзката или модела не съществува в Ollama registry.");
+            return $this->pullFail($model, "Stream приключи без потвърждение за успех. Може да е прекъсната връзката или модела не съществува в Ollama registry.");
         }
 
         return Command::SUCCESS;
     }
 
-    private function fail(LlmModel $model, string $message): int
+    private function pullFail(LlmModel $model, string $message): int
     {
         $model->update(['pull_status' => 'failed', 'pull_error' => $message]);
         $this->logLine("FAILED: {$message}");

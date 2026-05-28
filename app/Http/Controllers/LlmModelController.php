@@ -63,13 +63,46 @@ class LlmModelController extends Controller
     public function pullStatus(LlmModel $model)
     {
         $model->refresh();
+
+        // Read last meaningful line from the pull log to show live phase
+        $phase   = null;
+        $logFile = storage_path("logs/pull-{$model->id}.log");
+        if (file_exists($logFile)) {
+            $lines = array_filter(array_map('trim', file($logFile)));
+            // Walk backwards to find the last stream line (starts with "< ")
+            foreach (array_reverse($lines) as $line) {
+                // Strip timestamp: "[HH:MM:SS] < {json}"
+                if (preg_match('/\] < (.+)$/', $line, $m)) {
+                    $data = json_decode($m[1], true);
+                    if (isset($data['status'])) {
+                        $phase = $this->translateOllamaPhase($data['status']);
+                    }
+                    break;
+                }
+            }
+        }
+
         return response()->json([
             'status'       => $model->pull_status ?? 'idle',
             'progress'     => $model->pull_progress ?? 0,
             'is_available' => (bool) $model->is_available,
             'size_mb'      => $model->size_mb,
             'pull_error'   => $model->pull_error,
+            'pull_phase'   => $phase,
         ]);
+    }
+
+    private function translateOllamaPhase(string $status): string
+    {
+        return match (true) {
+            str_contains($status, 'pulling manifest') => 'Изтегляне на манифест…',
+            str_contains($status, 'pulling fs layer') => 'Изтегляне на слоеве…',
+            str_contains($status, 'downloading')      => 'Изтегляне…',
+            str_contains($status, 'verifying')        => 'Проверка на SHA256…',
+            str_contains($status, 'writing manifest') => 'Запис на манифест…',
+            str_contains($status, 'removing')         => 'Почистване…',
+            default                                    => $status,
+        };
     }
 
     public function store(\Illuminate\Http\Request $request)
