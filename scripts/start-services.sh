@@ -21,7 +21,7 @@ else
 fi
 
 # Start ComfyUI
-if curl -s http://localhost:8188 > /dev/null 2>&1; then
+if curl -s http://localhost:8188/system_stats > /dev/null 2>&1; then
     echo "✓ ComfyUI already running"
 else
     echo "Starting ComfyUI..."
@@ -29,10 +29,16 @@ else
     source venv/bin/activate
     python main.py --listen 127.0.0.1 --port 8188 &> /tmp/comfyui.log &
     COMFY_PID=$!
-    sleep 5
-    if curl -s http://localhost:8188 > /dev/null 2>&1; then
-        echo "✓ ComfyUI started (PID: $COMFY_PID)"
-    else
+    # Wait up to 30s for ComfyUI to be ready (first run loads model)
+    for i in $(seq 1 6); do
+        sleep 5
+        if curl -s http://localhost:8188/system_stats > /dev/null 2>&1; then
+            echo "✓ ComfyUI started (PID: $COMFY_PID)"
+            break
+        fi
+        echo "  Waiting for ComfyUI... (${i}/6)"
+    done
+    if ! curl -s http://localhost:8188/system_stats > /dev/null 2>&1; then
         echo "✗ ComfyUI failed to start — check /tmp/comfyui.log"
     fi
 fi
