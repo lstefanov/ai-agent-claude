@@ -42,8 +42,10 @@ return [
     ],
 
     'comfyui' => [
-        'url'     => env('COMFYUI_URL', 'http://localhost:8188'),
-        'enabled' => env('COMFYUI_ENABLED', true),
+        'url'             => env('COMFYUI_URL', 'http://localhost:8188'),
+        'enabled'         => env('COMFYUI_ENABLED', true),
+        'checkpoint'      => env('COMFYUI_CHECKPOINT', 'sd_xl_base_1.0.safetensors'),
+        'negative_prompt' => env('COMFYUI_NEGATIVE_PROMPT', 'ugly, deformed, noisy, blurry, distorted, low quality, watermark, text, signature'),
     ],
 
 ];
