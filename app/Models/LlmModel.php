@@ -11,7 +11,7 @@ class LlmModel extends Model
     protected $fillable = [
         'ollama_tag', 'display_name', 'category', 'description',
         'strengths', 'ram_required_gb', 'size_mb', 'is_available', 'is_enabled', 'is_default_for',
-        'pull_status', 'pull_progress',
+        'pull_status', 'pull_progress', 'pull_error',
     ];
 
     protected $casts = [

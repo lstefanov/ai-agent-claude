@@ -85,7 +85,7 @@
     <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">{{ $category }}</h2>
     <div class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
         @foreach($categoryModels as $model)
-        <div x-data="modelRow({{ $model->id }}, '{{ addslashes($model->ollama_tag) }}', '{{ $model->pull_status ?? 'idle' }}', {{ $model->pull_progress ?? 0 }}, {{ $model->is_available ? 'true' : 'false' }})"
+        <div x-data="modelRow({{ $model->id }}, '{{ addslashes($model->ollama_tag) }}', '{{ $model->pull_status ?? 'idle' }}', {{ $model->pull_progress ?? 0 }}, {{ $model->is_available ? 'true' : 'false' }}, @js($model->pull_error))"
              x-init="init()"
              :class="!{{ $model->is_enabled ? 'true' : 'false' }} ? 'opacity-50' : ''"
              class="px-6 py-4 transition-opacity">
@@ -150,6 +150,14 @@
                         <span class="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">грешка</span>
                     </template>
 
+                    {{-- Retry button --}}
+                    <template x-if="status === 'failed' && !isAvailable">
+                        <button @click="retryPull()"
+                                class="text-xs bg-orange-50 hover:bg-orange-100 text-orange-600 px-3 py-1 rounded-full transition font-medium">
+                            🔁 Retry
+                        </button>
+                    </template>
+
                     {{-- Test button --}}
                     <template x-if="isAvailable">
                         <button @click="runTest()"
@@ -190,6 +198,20 @@
                 </div>
             </template>
 
+            {{-- Pull error block --}}
+            <template x-if="status === 'failed' && pullError">
+                <div class="mt-3 flex items-start gap-2">
+                    <div class="flex-1 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                        <p class="text-xs font-semibold text-red-700 mb-1">⚠ Грешка при изтегляне</p>
+                        <pre class="text-xs text-red-800 font-mono whitespace-pre-wrap break-all" x-text="pullError"></pre>
+                        <p class="text-xs text-red-500 mt-1.5">
+                            Провери дали тагът е верен на <a href="https://ollama.com/library" target="_blank" class="underline hover:text-red-700">ollama.com/library</a>
+                        </p>
+                    </div>
+                    <button @click="pullError = ''" class="text-gray-300 hover:text-gray-500 text-xs mt-1">✕</button>
+                </div>
+            </template>
+
             {{-- Test result --}}
             <template x-if="testResult !== ''">
                 <div class="mt-3 flex items-start gap-2">
@@ -207,13 +229,14 @@
 @endforeach
 
 <script>
-function modelRow(id, tag, initialStatus, initialProgress, initialAvailable) {
+function modelRow(id, tag, initialStatus, initialProgress, initialAvailable, initialPullError) {
     return {
         id:          id,
         tag:         tag,
         status:      initialStatus,
         progress:    initialProgress,
         isAvailable: initialAvailable,
+        pullError:   initialPullError || '',
         testing:     false,
         testResult:  '',
         testOk:      false,
@@ -225,13 +248,21 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable) {
         },
 
         async startPull() {
-            this.status   = 'pulling';
-            this.progress = 0;
+            this.status    = 'pulling';
+            this.progress  = 0;
+            this.pullError = '';
             await fetch(`/models/${this.id}/pull`, {
                 method:  'POST',
                 headers: { 'X-CSRF-TOKEN': this.csrf },
             });
             this.startPolling();
+        },
+
+        async retryPull() {
+            this.status    = 'idle';
+            this.pullError = '';
+            await this.$nextTick();
+            this.startPull();
         },
 
         startPolling() {
@@ -245,6 +276,7 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable) {
                 this.status      = data.status;
                 this.progress    = data.progress;
                 this.isAvailable = data.is_available;
+                if (data.pull_error) this.pullError = data.pull_error;
                 if (data.status === 'completed' || data.status === 'failed' || data.is_available) {
                     clearInterval(this.pollTimer);
                     this.pollTimer = null;

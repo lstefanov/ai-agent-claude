@@ -54,7 +54,8 @@ class LlmModelController extends Controller
         $artisan = base_path('artisan');
         $tag     = escapeshellarg($model->ollama_tag);
 
-        exec("{$php} {$artisan} models:pull {$tag} > /dev/null 2>&1 &");
+        $logFile = escapeshellarg(storage_path("logs/pull-{$model->id}.log"));
+        exec("{$php} {$artisan} models:pull {$tag} >> {$logFile} 2>&1 &");
 
         return response()->json(['started' => true]);
     }
@@ -67,6 +68,7 @@ class LlmModelController extends Controller
             'progress'     => $model->pull_progress ?? 0,
             'is_available' => (bool) $model->is_available,
             'size_mb'      => $model->size_mb,
+            'pull_error'   => $model->pull_error,
         ]);
     }
 
