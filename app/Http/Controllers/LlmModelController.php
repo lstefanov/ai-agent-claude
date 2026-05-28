@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\LlmModel;
 use App\Services\OllamaService;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 
 class LlmModelController extends Controller
 {
@@ -17,30 +17,71 @@ class LlmModelController extends Controller
 
     public function sync(OllamaService $ollama)
     {
-        $available = collect($ollama->listModels())->pluck('name')->toArray();
+        $available = collect($ollama->listModels());
 
         LlmModel::query()->update(['is_available' => false]);
 
-        foreach ($available as $tag) {
-            LlmModel::where('ollama_tag', $tag)->update(['is_available' => true]);
+        foreach ($available as $item) {
+            $tag = $item['name'] ?? $item['model'] ?? null;
+            if (!$tag) {
+                continue;
+            }
+            $sizeMb = isset($item['size']) ? (int) round($item['size'] / 1024 / 1024) : null;
+
+            LlmModel::where('ollama_tag', $tag)->update(array_filter([
+                'is_available' => true,
+                'size_mb'      => $sizeMb,
+                'pull_status'  => 'completed',
+                'pull_progress' => 100,
+            ], fn($v) => $v !== null));
         }
 
-        $count = count($available);
         return redirect()->route('models.index')
-            ->with('success', "Синхронизирани $count модела от Ollama.");
+            ->with('success', "Синхронизирани {$available->count()} модела от Ollama.");
     }
 
-    public function pull(LlmModel $model, OllamaService $ollama)
+    public function pull(LlmModel $model)
     {
-        $result = $ollama->pull($model->ollama_tag);
-
-        if ($result) {
-            $model->update(['is_available' => true]);
-            return redirect()->route('models.index')
-                ->with('success', "Моделът {$model->display_name} беше изтеглен успешно.");
+        if ($model->pull_status === 'pulling') {
+            return response()->json(['started' => false, 'message' => 'Вече се изтегля']);
         }
 
-        return redirect()->route('models.index')
-            ->with('error', "Грешка при изтегляне на {$model->display_name}.");
+        $model->update(['pull_status' => 'pulling', 'pull_progress' => 0]);
+
+        // Start artisan command as a detached background process
+        // PHP_CLI_BINARY in .env lets you override when web PHP ≠ CLI PHP (e.g. MAMP)
+        $php     = env('PHP_CLI_BINARY', PHP_BINARY);
+        $artisan = base_path('artisan');
+        $tag     = escapeshellarg($model->ollama_tag);
+
+        exec("{$php} {$artisan} models:pull {$tag} > /dev/null 2>&1 &");
+
+        return response()->json(['started' => true]);
+    }
+
+    public function pullStatus(LlmModel $model)
+    {
+        $model->refresh();
+        return response()->json([
+            'status'       => $model->pull_status ?? 'idle',
+            'progress'     => $model->pull_progress ?? 0,
+            'is_available' => (bool) $model->is_available,
+            'size_mb'      => $model->size_mb,
+        ]);
+    }
+
+    public function test(LlmModel $model, OllamaService $ollama)
+    {
+        try {
+            $response = $ollama->chat(
+                model: $model->ollama_tag,
+                systemPrompt: 'You are a test assistant. Answer in one very short sentence.',
+                userMessage: 'Reply with exactly: "OK – ' . $model->display_name . ' works."',
+                options: ['temperature' => 0]
+            );
+            return response()->json(['success' => true, 'response' => trim($response)]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'response' => $e->getMessage()]);
+        }
     }
 }

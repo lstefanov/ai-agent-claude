@@ -28,6 +28,8 @@ Route::put('flows/{flow}/agents/{agent}', [AgentController::class, 'update'])->n
 Route::get('models', [LlmModelController::class, 'index'])->name('models.index');
 Route::post('models/sync', [LlmModelController::class, 'sync'])->name('models.sync');
 Route::post('models/{model}/pull', [LlmModelController::class, 'pull'])->name('models.pull');
+Route::get('models/{model}/pull/status', [LlmModelController::class, 'pullStatus'])->name('models.pull.status');
+Route::post('models/{model}/test', [LlmModelController::class, 'test'])->name('models.test');
 
 // Home
 Route::get('/', [CompanyController::class, 'index'])->name('home');
