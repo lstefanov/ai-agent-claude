@@ -109,6 +109,9 @@ class FlowController extends Controller
 
     public function generateAgents(Request $request)
     {
+        // MAMP default is 30s — generation takes 60-180s with a 12B model
+        set_time_limit(300);
+
         $request->validate([
             'company_id'  => 'required|exists:companies,id',
             'name'        => 'required|string',

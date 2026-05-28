@@ -59,8 +59,11 @@
                     :disabled="isGenerating || !flowDescription.trim() || !flowName.trim()"
                     class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition flex items-center gap-2">
                 <span x-show="isGenerating" class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                <span x-text="isGenerating ? 'Генерирам...' : '✨ Генерирай агенти с AI'"></span>
+                <span x-text="isGenerating ? 'Анализирам и генерирам агенти... (60-120 сек)' : '✨ Генерирай агенти с AI'"></span>
             </button>
+            <p x-show="isGenerating" x-cloak class="mt-2 text-xs text-gray-400 animate-pulse">
+                AI анализира описанието и проектира пълния pipeline — изчакай, не затваряй страницата.
+            </p>
 
             <div x-show="errorMessage" x-cloak class="mt-4 bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-lg text-sm">
                 <span x-text="errorMessage"></span>
@@ -214,10 +217,17 @@ function flowCreator() {
                     }),
                 });
 
-                const data = await response.json();
+                let data;
+                try {
+                    data = await response.json();
+                } catch (parseErr) {
+                    // Server returned non-JSON — likely PHP timeout (MAMP max_execution_time)
+                    this.errorMessage = `Сървърът не отговори навреме (HTTP ${response.status}). Генерацията отнема 60-120 секунди — опитай отново.`;
+                    return;
+                }
 
                 if (!response.ok) {
-                    this.errorMessage = data.error || 'Грешка при генериране.';
+                    this.errorMessage = data.error || `Грешка при генериране (HTTP ${response.status}).`;
                     return;
                 }
 
@@ -227,7 +237,7 @@ function flowCreator() {
                     this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
                 }
             } catch (e) {
-                this.errorMessage = 'Мрежова грешка. Провери дали Ollama работи.';
+                this.errorMessage = 'Мрежова грешка: ' + e.message;
             } finally {
                 this.isGenerating = false;
             }

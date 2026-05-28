@@ -97,7 +97,7 @@ MSG;
             model: $generatorModel,
             systemPrompt: $systemPrompt,
             userMessage: $userMessage,
-            options: ['temperature' => 0.2, 'num_predict' => 4000]
+            options: ['temperature' => 0.2, 'num_predict' => 2000]
         );
 
         Log::info('[AgentGenerator] Raw response length: ' . strlen($raw));
