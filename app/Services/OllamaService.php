@@ -41,6 +41,20 @@ class OllamaService
         return $response->json('models', []);
     }
 
+    public function pull(string $tag): bool
+    {
+        try {
+            // stream:false waits for the full pull to complete (can take minutes for large models)
+            $response = Http::timeout(600)->post($this->baseUrl . '/api/pull', [
+                'name'   => $tag,
+                'stream' => false,
+            ]);
+            return $response->successful();
+        } catch (\Exception) {
+            return false;
+        }
+    }
+
     public function isAvailable(): bool
     {
         try {

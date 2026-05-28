@@ -27,6 +27,7 @@ Route::put('flows/{flow}/agents/{agent}', [AgentController::class, 'update'])->n
 // LLM Models
 Route::get('models', [LlmModelController::class, 'index'])->name('models.index');
 Route::post('models/sync', [LlmModelController::class, 'sync'])->name('models.sync');
+Route::post('models/{model}/pull', [LlmModelController::class, 'pull'])->name('models.pull');
 
 // Home
 Route::get('/', [CompanyController::class, 'index'])->name('home');

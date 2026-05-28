@@ -29,4 +29,18 @@ class LlmModelController extends Controller
         return redirect()->route('models.index')
             ->with('success', "Синхронизирани $count модела от Ollama.");
     }
+
+    public function pull(LlmModel $model, OllamaService $ollama)
+    {
+        $result = $ollama->pull($model->ollama_tag);
+
+        if ($result) {
+            $model->update(['is_available' => true]);
+            return redirect()->route('models.index')
+                ->with('success', "Моделът {$model->display_name} беше изтеглен успешно.");
+        }
+
+        return redirect()->route('models.index')
+            ->with('error', "Грешка при изтегляне на {$model->display_name}.");
+    }
 }

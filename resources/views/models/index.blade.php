@@ -33,7 +33,14 @@
             @if($model->is_available)
                 <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full shrink-0">наличен</span>
             @else
-                <span class="text-xs bg-gray-100 text-gray-400 px-2 py-1 rounded-full shrink-0">недостъпен</span>
+                <form action="{{ route('models.pull', $model) }}" method="POST">
+                    @csrf
+                    <button type="submit"
+                            class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full shrink-0 transition"
+                            onclick="return confirm('Изтегли {{ $model->display_name }}? Може да отнеме няколко минути.')">
+                        ⬇ Изтегли
+                    </button>
+                </form>
             @endif
         </div>
         @endforeach
