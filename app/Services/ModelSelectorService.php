@@ -29,6 +29,7 @@ class ModelSelectorService
 
         $available = LlmModel::where('ollama_tag', $preferred)
             ->where('is_available', true)
+            ->where('is_enabled', true)
             ->exists();
 
         return $available ? $preferred : $this->getFallback($agentType);

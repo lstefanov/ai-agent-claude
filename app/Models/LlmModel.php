@@ -10,12 +10,14 @@ class LlmModel extends Model
 
     protected $fillable = [
         'ollama_tag', 'display_name', 'category', 'description',
-        'strengths', 'ram_required_gb', 'is_available', 'is_default_for',
+        'strengths', 'ram_required_gb', 'size_mb', 'is_available', 'is_enabled', 'is_default_for',
+        'pull_status', 'pull_progress',
     ];
 
     protected $casts = [
         'strengths'      => 'array',
         'is_default_for' => 'array',
         'is_available'   => 'boolean',
+        'is_enabled'     => 'boolean',
     ];
 }

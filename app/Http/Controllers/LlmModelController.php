@@ -70,6 +70,35 @@ class LlmModelController extends Controller
         ]);
     }
 
+    public function store(\Illuminate\Http\Request $request)
+    {
+        $validated = $request->validate([
+            'ollama_tag'     => 'required|string|max:100|unique:llm_models,ollama_tag',
+            'display_name'   => 'required|string|max:255',
+            'category'       => 'required|string|max:50',
+            'description'    => 'nullable|string',
+            'ram_required_gb'=> 'nullable|numeric|min:0',
+            'size_mb'        => 'nullable|integer|min:0',
+        ]);
+
+        LlmModel::create(array_merge($validated, [
+            'is_available' => false,
+            'is_enabled'   => true,
+        ]));
+
+        return redirect()->route('models.index')
+            ->with('success', "Моделът {$validated['display_name']} беше добавен. Можеш да го изтеглиш с ⬇ Изтегли.");
+    }
+
+    public function toggle(LlmModel $model)
+    {
+        $model->update(['is_enabled' => !$model->is_enabled]);
+
+        $state = $model->is_enabled ? 'включен' : 'изключен';
+        return redirect()->route('models.index')
+            ->with('success', "{$model->display_name} е {$state}.");
+    }
+
     public function test(LlmModel $model, OllamaService $ollama)
     {
         try {
