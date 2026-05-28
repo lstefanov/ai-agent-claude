@@ -117,12 +117,13 @@
                                 {{-- Model selector --}}
                                 <div class="flex items-center gap-3 flex-wrap">
                                     <label class="text-xs font-medium text-gray-500">Модел:</label>
-                                    <select :name="'agents['+index+'][model]'" x-model="agent.model"
+                                    {{-- Hidden input always carries the value — select updates it --}}
+                                    <input type="hidden" :name="'agents['+index+'][model]'" :value="agent.model">
+                                    <select x-model="agent.model"
                                             class="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500">
                                         @foreach($models as $m)
-                                            <option value="{{ $m->ollama_tag }}"
-                                                    @if(!$m->is_available) disabled @endif>
-                                                {{ $m->display_name }} ({{ $m->ollama_tag }}){{ !$m->is_available ? ' — недостъпен' : '' }}
+                                            <option value="{{ $m->ollama_tag }}">
+                                                {{ !$m->is_available ? '⚠ ' : '' }}{{ $m->display_name }} ({{ $m->ollama_tag }}){{ !$m->is_available ? ' — не е изтеглен' : '' }}
                                             </option>
                                         @endforeach
                                     </select>
@@ -181,6 +182,11 @@
 </div>
 
 <script>
+// Available model tags from server (for fallback logic)
+const AVAILABLE_MODELS = @json($models->where('is_available', true)->pluck('ollama_tag')->values());
+const ALL_MODEL_TAGS   = @json($models->pluck('ollama_tag')->values());
+const STORAGE_KEY      = 'flowai_draft_{{ $company->id }}';
+
 function flowCreator() {
     return {
         flowName: '',
@@ -190,11 +196,37 @@ function flowCreator() {
         errorMessage: '',
 
         init() {
-            // Pre-fill if old values exist (after validation error)
-            const nameEl = document.querySelector('input[name="name"]');
-            const descEl = document.querySelector('textarea[name="description"]');
-            if (nameEl) this.flowName = nameEl.value;
-            if (descEl) this.flowDescription = descEl.value;
+            // ── Restore from sessionStorage (after validation error redirect) ──
+            const saved = sessionStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    const draft = JSON.parse(saved);
+                    this.flowName        = draft.name        || '';
+                    this.flowDescription = draft.description || '';
+                    this.agents          = draft.agents      || [];
+                    // Clear only after successful restore; keep for next reload if needed
+                    // sessionStorage.removeItem(STORAGE_KEY); // cleared on success in store()
+                } catch (e) { sessionStorage.removeItem(STORAGE_KEY); }
+            }
+
+            // Also sync text inputs with x-model values (Blade old() doesn't work with Alpine)
+            if (!this.flowName) {
+                const nameEl = document.querySelector('input[name="name"]');
+                if (nameEl?.value) this.flowName = nameEl.value;
+            }
+            if (!this.flowDescription) {
+                const descEl = document.querySelector('textarea[name="description"]');
+                if (descEl?.value) this.flowDescription = descEl.value;
+            }
+
+            // ── Save to sessionStorage before any form submit ─────────────
+            document.getElementById('flow-form').addEventListener('submit', () => {
+                sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+                    name:        this.flowName,
+                    description: this.flowDescription,
+                    agents:      this.agents,
+                }));
+            });
         },
 
         async generateAgents() {
@@ -252,7 +284,16 @@ function flowCreator() {
                     }
 
                     if (data.status === 'completed') {
-                        this.agents = data.agents || [];
+                        this.agents = (data.agents || []).map(agent => {
+                            // If AI suggested a model that isn't in our list at all,
+                            // or the model tag doesn't exist, fall back to first available.
+                            if (!ALL_MODEL_TAGS.includes(agent.model)) {
+                                const fallback = AVAILABLE_MODELS[0] || ALL_MODEL_TAGS[0];
+                                agent.model_reason = `(Оригинален модел "${agent.model}" не е в списъка — заменен с ${fallback}) ${agent.model_reason || ''}`;
+                                agent.model = fallback;
+                            }
+                            return agent;
+                        });
                         if (this.agents.length === 0) {
                             this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
                         }
