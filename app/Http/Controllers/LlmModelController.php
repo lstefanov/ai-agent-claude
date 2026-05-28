@@ -28,12 +28,24 @@ class LlmModelController extends Controller
             }
             $sizeMb = isset($item['size']) ? (int) round($item['size'] / 1024 / 1024) : null;
 
-            LlmModel::where('ollama_tag', $tag)->update(array_filter([
-                'is_available' => true,
-                'size_mb'      => $sizeMb,
-                'pull_status'  => 'completed',
+            // Ollama appends :latest to tags stored without an explicit version.
+            // Match both the full tag (e.g. phi3.5:latest) and the bare tag (phi3.5).
+            $bareTag = str_ends_with($tag, ':latest')
+                ? substr($tag, 0, -strlen(':latest'))
+                : null;
+
+            $query = LlmModel::where('ollama_tag', $tag);
+            if ($bareTag) {
+                $query->orWhere('ollama_tag', $bareTag);
+            }
+
+            $query->update([
+                'is_available'  => true,
+                'size_mb'       => $sizeMb,
+                'pull_status'   => 'completed',
                 'pull_progress' => 100,
-            ], fn($v) => $v !== null));
+                'pull_error'    => null,
+            ]);
         }
 
         return redirect()->route('models.index')
