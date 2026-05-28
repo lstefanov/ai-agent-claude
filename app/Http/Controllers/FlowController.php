@@ -8,6 +8,8 @@ use App\Models\Flow;
 use App\Models\LlmModel;
 use App\Services\AgentGeneratorService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class FlowController extends Controller
 {
@@ -107,34 +109,54 @@ class FlowController extends Controller
             ->with('success', 'Flow е изтрит.');
     }
 
+    /**
+     * Start agent generation in a background process and return a token.
+     * The client polls generationStatus() every 2 seconds.
+     */
     public function generateAgents(Request $request)
     {
-        // MAMP default is 30s — generation takes 60-180s with a 12B model
-        set_time_limit(300);
-
         $request->validate([
             'company_id'  => 'required|exists:companies,id',
             'name'        => 'required|string',
             'description' => 'required|string|min:10',
         ]);
 
-        $company = Company::findOrFail($request->company_id);
+        $token = Str::uuid()->toString();
 
-        // Temporary unsaved flow for context
-        $flow              = new Flow(['name' => $request->name, 'description' => $request->description]);
-        $flow->company_id  = $company->id;
-        $flow->setRelation('company', $company);
+        // Store request data so the background command can read it
+        Cache::put("agent_gen_request_{$token}", [
+            'company_id'  => $request->company_id,
+            'name'        => $request->name,
+            'description' => $request->description,
+        ], now()->addMinutes(15));
 
-        try {
-            $agents = $this->generator->generate($flow);
+        // Initialise status so the poller immediately sees 'pending'
+        Cache::put("agent_gen_{$token}", [
+            'status' => 'pending',
+            'agents' => [],
+            'error'  => null,
+        ], now()->addMinutes(15));
 
-            if (empty($agents)) {
-                return response()->json(['error' => 'AI не върна валиден отговор. Опитай отново.'], 422);
-            }
+        // Launch background artisan command (won't be killed by Apache timeout)
+        $php     = env('PHP_CLI_BINARY', PHP_BINARY);
+        $artisan = base_path('artisan');
+        $tok     = escapeshellarg($token);
+        exec("{$php} {$artisan} flows:generate-agents {$tok} >> " . escapeshellarg(storage_path('logs/agent-gen.log')) . " 2>&1 &");
 
-            return response()->json(['agents' => $agents]);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Грешка при генериране: ' . $e->getMessage()], 500);
+        return response()->json(['token' => $token]);
+    }
+
+    /**
+     * Poll endpoint: returns {status, agents, error} for a generation token.
+     */
+    public function generationStatus(string $token)
+    {
+        $result = Cache::get("agent_gen_{$token}");
+
+        if (!$result) {
+            return response()->json(['status' => 'expired', 'error' => 'Токенът е изтекъл. Опитай отново.'], 404);
         }
+
+        return response()->json($result);
     }
 }

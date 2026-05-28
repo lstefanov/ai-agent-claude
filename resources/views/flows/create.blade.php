@@ -198,49 +198,79 @@ function flowCreator() {
         },
 
         async generateAgents() {
-            this.isGenerating  = true;
-            this.errorMessage  = '';
-            this.agents        = [];
+            this.isGenerating = true;
+            this.errorMessage = '';
+            this.agents       = [];
 
+            const csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+            // ── Step 1: start the background job, get token ───────────────
+            let token;
             try {
-                const response = await fetch('{{ route('flows.generate-agents') }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        'Accept': 'application/json',
-                    },
+                const resp = await fetch('{{ route('flows.generate-agents') }}', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
                     body: JSON.stringify({
                         company_id:  {{ $company->id }},
                         name:        this.flowName,
                         description: this.flowDescription,
                     }),
                 });
-
-                let data;
-                try {
-                    data = await response.json();
-                } catch (parseErr) {
-                    // Server returned non-JSON — likely PHP timeout (MAMP max_execution_time)
-                    this.errorMessage = `Сървърът не отговори навреме (HTTP ${response.status}). Генерацията отнема 60-120 секунди — опитай отново.`;
-                    return;
-                }
-
-                if (!response.ok) {
-                    this.errorMessage = data.error || `Грешка при генериране (HTTP ${response.status}).`;
-                    return;
-                }
-
-                this.agents = data.agents || [];
-
-                if (this.agents.length === 0) {
-                    this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
-                }
+                const data = await resp.json();
+                if (!resp.ok) { this.errorMessage = data.error || 'Грешка при стартиране.'; this.isGenerating = false; return; }
+                token = data.token;
             } catch (e) {
                 this.errorMessage = 'Мрежова грешка: ' + e.message;
-            } finally {
                 this.isGenerating = false;
+                return;
             }
+
+            // ── Step 2: poll every 2 seconds until completed/failed ───────
+            const maxWait = 300; // seconds
+            const started = Date.now();
+
+            const poll = async () => {
+                if ((Date.now() - started) / 1000 > maxWait) {
+                    this.errorMessage = 'Генерацията отне прекалено дълго. Провери дали Ollama работи и опитай отново.';
+                    this.isGenerating = false;
+                    return;
+                }
+
+                try {
+                    const resp = await fetch(`/flows/generation-status/${token}`, { headers: { 'Accept': 'application/json' } });
+                    const data = await resp.json();
+
+                    if (data.status === 'pending') {
+                        setTimeout(poll, 2000); // still running — check again
+                        return;
+                    }
+
+                    if (data.status === 'failed') {
+                        this.errorMessage = data.error || 'Генерацията се провали. Опитай отново.';
+                        this.isGenerating = false;
+                        return;
+                    }
+
+                    if (data.status === 'completed') {
+                        this.agents = data.agents || [];
+                        if (this.agents.length === 0) {
+                            this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
+                        }
+                        this.isGenerating = false;
+                        return;
+                    }
+
+                    // Expired or unknown
+                    this.errorMessage = data.error || 'Неочаквана грешка.';
+                    this.isGenerating = false;
+
+                } catch (e) {
+                    this.errorMessage = 'Грешка при polling: ' + e.message;
+                    this.isGenerating = false;
+                }
+            };
+
+            setTimeout(poll, 2000);
         },
     };
 }

@@ -13,8 +13,10 @@ Route::resource('companies', CompanyController::class);
 // Flows — nested under company for create, shallow for the rest
 Route::resource('companies.flows', FlowController::class)->shallow();
 
-// AJAX: generate agents (must be before {flow} wildcard)
+// AJAX: generate agents — starts background job, returns token
 Route::post('flows/generate-agents', [FlowController::class, 'generateAgents'])->name('flows.generate-agents');
+// AJAX: poll generation status by token
+Route::get('flows/generation-status/{token}', [FlowController::class, 'generationStatus'])->name('flows.generation-status');
 
 // Flow runs
 Route::post('flows/{flow}/run', [FlowRunController::class, 'store'])->name('flow-runs.store');
