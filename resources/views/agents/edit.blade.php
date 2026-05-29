@@ -105,6 +105,19 @@ $cfg     = $agent->config ?? [];
                    class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
             <label for="is_active" class="text-sm font-medium text-gray-700">Активен</label>
         </div>
+
+        @if(!$agent->is_verifier)
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Роля в изхода</label>
+            <select name="output_role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">{{ '(авто от тип)' }}</option>
+                <option value="body" {{ old('output_role', $agent->output_role) === 'body' ? 'selected' : '' }}>Основно съдържание</option>
+                <option value="appendix" {{ old('output_role', $agent->output_role) === 'appendix' ? 'selected' : '' }}>Добавка (хаштагове, SEO)</option>
+                <option value="hidden" {{ old('output_role', $agent->output_role) === 'hidden' ? 'selected' : '' }}>Скрит (изследване, анализ)</option>
+            </select>
+            @error('output_role') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+        </div>
+        @endif
     </div>
 
     {{-- ── TAB: OUTPUT PREFERENCES ──────────────────────────────── --}}
