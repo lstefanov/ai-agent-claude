@@ -99,7 +99,7 @@
                                 <label class="text-sm text-gray-600 whitespace-nowrap">Ден от месеца:</label>
                                 <select x-model="schedule.dayOfMonth"
                                         class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                    <template x-for="d in Array.from({length:28},(_,i)=>i+1)" :key="d">
+                                    <template x-for="d in Array.from({length:31},(_,i)=>i+1)" :key="d">
                                         <option :value="d" x-text="d"></option>
                                     </template>
                                 </select>
