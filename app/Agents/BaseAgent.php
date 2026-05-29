@@ -2,15 +2,38 @@
 
 namespace App\Agents;
 
+use App\Agents\Tools\AgentTool;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Services\OllamaService;
 
 abstract class BaseAgent
 {
+    /** @var AgentTool[] */
+    protected array $tools = [];
+
     public function __construct(
-        protected OllamaService $ollama
-    ) {}
+        protected OllamaService $ollama,
+        array $tools = []
+    ) {
+        foreach ($tools as $tool) {
+            $this->tools[$tool->name()] = $tool;
+        }
+    }
+
+    /**
+     * Execute a registered tool by name. Returns null if the tool is not registered.
+     *
+     * @param array<string, mixed> $params
+     */
+    protected function useTool(string $name, array $params): ?string
+    {
+        if (!isset($this->tools[$name])) {
+            return null;
+        }
+
+        return $this->tools[$name]->execute($params);
+    }
 
     abstract public function run(Agent $agent, AgentRun $agentRun, array $context): string;
 
@@ -27,9 +50,9 @@ abstract class BaseAgent
         return $prompt;
     }
 
-    protected function chat(Agent $agent, string $userMessage): string
+    protected function chat(Agent $agent, string $userMessage, string $extraSystemContext = ''): string
     {
-        $systemPrompt = $agent->role . $this->buildOutputInstructions($agent);
+        $systemPrompt = $agent->role . $this->buildOutputInstructions($agent) . $extraSystemContext;
 
         return $this->ollama->chat(
             model: $agent->model,
