@@ -28,9 +28,35 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Описание на flow-а</label>
-                    <textarea name="description" x-model="flowDescription" rows="4" required
-                              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                              placeholder="Опиши подробно какво трябва да прави flow-ът. Колкото по-детайлно, толкова по-добри агенти ще генерира AI."></textarea>
+                    <div class="relative">
+                        <textarea name="description" x-model="flowDescription" rows="4" required
+                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 pb-10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                  placeholder="Опиши подробно какво трябва да прави flow-ът. Колкото по-детайлно, толкова по-добри агенти ще генерира AI."></textarea>
+                        <button type="button"
+                                @click="improveDescription"
+                                :disabled="isImproving || !flowDescription.trim()"
+                                class="absolute bottom-2 right-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+                            <span x-show="isImproving" class="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            <span x-text="isImproving ? 'Подобрявам...' : '✨ Подобри с AI'"></span>
+                        </button>
+                    </div>
+
+                    {{-- AI preview panel --}}
+                    <div x-show="showImprovePreview" x-cloak
+                         class="mt-3 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                        <p class="text-xs font-semibold text-indigo-700 mb-2">✨ AI предлага подобрено описание:</p>
+                        <p class="text-sm text-gray-700 leading-relaxed mb-3" x-text="improvedDescription"></p>
+                        <div class="flex gap-2">
+                            <button type="button" @click="acceptImprovedDescription"
+                                    class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition">
+                                ✓ Приеми
+                            </button>
+                            <button type="button" @click="showImprovePreview = false"
+                                    class="bg-white border border-gray-300 text-gray-600 text-sm px-4 py-1.5 rounded-lg hover:bg-gray-50 transition">
+                                ✕ Откажи
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
@@ -300,6 +326,9 @@ function flowCreator() {
         agents: [],
         isGenerating: false,
         errorMessage: '',
+        isImproving: false,
+        improvedDescription: '',
+        showImprovePreview: false,
         schedule: {
             preset: 'none',
             hour: '10',
@@ -354,6 +383,43 @@ function flowCreator() {
                     schedule:    this.schedule,
                 }));
             });
+        },
+
+        async improveDescription() {
+            if (!this.flowDescription.trim()) return;
+            this.isImproving = true;
+            this.showImprovePreview = false;
+            this.improvedDescription = '';
+
+            const csrf = document.querySelector('meta[name="csrf-token"]').content;
+            try {
+                const resp = await fetch('{{ route('flows.improve-description') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        description: this.flowDescription,
+                        name: this.flowName,
+                        company_id: {{ $company->id }},
+                    }),
+                });
+                const data = await resp.json();
+                if (resp.ok && data.improved) {
+                    this.improvedDescription = data.improved;
+                    this.showImprovePreview = true;
+                } else {
+                    alert(data.error || 'Грешка при подобряването. Опитай отново.');
+                }
+            } catch (e) {
+                alert('Мрежова грешка: ' + e.message);
+            } finally {
+                this.isImproving = false;
+            }
+        },
+
+        acceptImprovedDescription() {
+            this.flowDescription = this.improvedDescription;
+            this.showImprovePreview = false;
+            this.improvedDescription = '';
         },
 
         async generateAgents() {
