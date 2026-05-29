@@ -175,8 +175,8 @@ window.__runData = {
                         x-text="copied ? '✓ Копирано' : '📋 Копирай'"></button>
             </div>
             <div class="px-4 py-3">
-                <p class="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed"
-                   x-text="formatPostText(finalOutput)"></p>
+                <div class="md-output text-sm text-gray-800 leading-relaxed"
+                     x-html="renderMd(formatPostText(finalOutput))"></div>
             </div>
             <template x-if="hasImage(finalOutput)">
                 <div class="border-t border-gray-100">
@@ -220,7 +220,7 @@ window.__runData = {
                 <img :src="extractImageUrl(finalOutput)" class="w-full aspect-square object-cover" alt="">
             </template>
             <div class="px-3 py-2.5">
-                <p class="text-sm text-gray-800 whitespace-pre-line leading-relaxed" x-text="formatPostText(finalOutput)"></p>
+                <div class="md-output text-sm text-gray-800 leading-relaxed" x-html="renderMd(formatPostText(finalOutput))"></div>
                 <div class="flex flex-wrap gap-1 mt-1">
                     <template x-for="tag in extractHashtags(finalOutput)" :key="tag">
                         <span class="text-sm text-indigo-600 cursor-pointer hover:underline" x-text="tag"></span>
@@ -240,7 +240,7 @@ window.__runData = {
                         <button @click="copyFinalOutput()" class="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
                                 x-text="copied ? '✓ Копирано' : '📋'"></button>
                     </div>
-                    <p class="text-sm text-gray-900 whitespace-pre-line leading-relaxed" x-text="formatPostText(finalOutput)"></p>
+                    <div class="md-output text-sm text-gray-900 leading-relaxed" x-html="renderMd(formatPostText(finalOutput))"></div>
                     <template x-if="hasImage(finalOutput)">
                         <img :src="extractImageUrl(finalOutput)" class="mt-2 rounded-xl max-h-48 w-full object-cover border border-gray-100" alt="">
                     </template>
@@ -264,8 +264,8 @@ window.__runData = {
                     <img :src="extractImageUrl(finalOutput)" class="rounded-lg max-h-56 object-cover border border-gray-200" alt="">
                 </div>
             </template>
-            <pre class="px-5 py-4 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed font-sans"
-                 x-text="stripImageMarkdown(finalOutput)"></pre>
+            <div class="md-output px-5 py-4 text-sm text-gray-800 leading-relaxed"
+                 x-html="renderMd(finalOutput)"></div>
         </div>
         @endif
 
@@ -384,14 +384,14 @@ window.__runData = {
                                     <span class="text-xs text-gray-300"
                                           x-text="getRun(agent.id).started_at + ' → ' + (getRun(agent.id).completed_at || '')"></span>
                                 </template>
-                                <button @click="navigator.clipboard.writeText(getRun(agent.id).output || ''); copiedAgent=true; setTimeout(()=>copiedAgent=false,2000)"
+                                <button @click="navigator.clipboard.writeText(plainText(getRun(agent.id).output || '')); copiedAgent=true; setTimeout(()=>copiedAgent=false,2000)"
                                         class="text-xs text-gray-400 hover:text-gray-600 transition"
                                         x-text="copiedAgent ? '✓ Копирано' : '📋 Копирай'">
                                 </button>
                             </div>
                         </div>
-                        <pre class="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 overflow-auto max-h-60 whitespace-pre-wrap font-mono leading-relaxed border border-gray-100"
-                             x-text="stripImageMarkdown(getRun(agent.id).output)"></pre>
+                        <div class="md-output bg-gray-50 rounded-lg p-3 text-xs text-gray-700 overflow-auto max-h-60 leading-relaxed border border-gray-100"
+                             x-html="renderMd(getRun(agent.id).output)"></div>
                     </div>
                 </template>
 
@@ -441,7 +441,17 @@ window.__runData = {
 @endsection
 
 @push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
+/* Markdown rendered output */
+.md-output h1,.md-output h2,.md-output h3{font-weight:600;color:#111827;margin-top:.6em;margin-bottom:.2em}
+.md-output h1{font-size:1.15em}.md-output h2{font-size:1.05em}.md-output h3{font-size:1em}
+.md-output p{margin-bottom:.5em}.md-output strong{font-weight:600}.md-output em{font-style:italic}
+.md-output ul,.md-output ol{padding-left:1.4em;margin-bottom:.5em}
+.md-output ul{list-style-type:disc}.md-output ol{list-style-type:decimal}
+.md-output li{margin-bottom:.15em}
+.md-output hr{border:none;border-top:1px solid #e5e7eb;margin:.75em 0}
+.md-output code{font-family:monospace;background:#f3f4f6;padding:.1em .3em;border-radius:3px;font-size:.9em}
 @keyframes shimmer {
     0%   { transform: translateX(-100%); }
     100% { transform: translateX(200%); }
@@ -723,8 +733,28 @@ function flowRunMonitor() {
             return output ? output.replace(/!\[.*?\]\(https?:\/\/[^)]+\)\n?/g, '').trim() : '';
         },
 
+        // Render Markdown as safe HTML (strips image syntax first)
+        renderMd(text) {
+            if (!text) return '';
+            const clean = text.replace(/!\[.*?\]\(https?:\/\/[^)]+\)\n?/g, '').trim();
+            if (typeof marked === 'undefined') return clean.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+            return marked.parse(clean, { breaks: false, gfm: true });
+        },
+
+        // Strip Markdown syntax to plain text (for clipboard copy)
+        plainText(text) {
+            if (!text) return '';
+            return text
+                .replace(/!\[.*?\]\(https?:\/\/[^)]+\)\n?/g, '')
+                .replace(/\*\*(.*?)\*\*/gs, '$1')
+                .replace(/\*(.*?)\*/gs, '$1')
+                .replace(/^#{1,6}\s+/gm, '')
+                .replace(/^[-*]\s+/gm, '')
+                .trim();
+        },
+
         copyFinalOutput() {
-            const text = this.finalOutput ? this.stripImageMarkdown(this.finalOutput) : '';
+            const text = this.finalOutput ? this.plainText(this.finalOutput) : '';
             navigator.clipboard.writeText(text);
             this.copied = true;
             setTimeout(() => this.copied = false, 2000);
