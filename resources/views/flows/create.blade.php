@@ -212,7 +212,7 @@
             </div>
 
             <div id="agent-sortable-list" class="divide-y divide-gray-50">
-                <template x-for="(agent, index) in agents" :key="index">
+                <template x-for="(agent, index) in agents" :key="agent._uid || index">
                     <div>
                         {{-- Hidden inputs for form submission --}}
                         <input type="hidden" :name="'agents['+index+'][name]'"              :value="agent.name">
@@ -400,6 +400,7 @@ function flowCreator() {
         improvedDescription: '',
         showImprovePreview: false,
         editingIndex: null,
+        _sortable: null,
         schedule: {
             preset: 'none',
             hour: '10',
@@ -456,9 +457,6 @@ function flowCreator() {
             });
 
             this.$nextTick(() => this.initSortable());
-            this.$watch('agents', () => {
-                this.$nextTick(() => this.initSortable());
-            });
         },
 
         async improveDescription() {
@@ -561,6 +559,7 @@ function flowCreator() {
                                 agent.model_reason = `(Оригинален модел "${agent.model}" не е в списъка — заменен с ${fallback}) ${agent.model_reason || ''}`;
                                 agent.model = fallback;
                             }
+                            agent._uid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random();
                             return agent;
                         });
                         if (this.agents.length === 0) {
@@ -600,12 +599,18 @@ function flowCreator() {
             if (confirm('Изтрий агент "' + this.agents[index].name + '"?')) {
                 this.agents.splice(index, 1);
                 this.renumberAgents();
-                if (this.editingIndex === index) this.editingIndex = null;
+                if (this.editingIndex === index) {
+                    this.editingIndex = null;
+                } else if (this.editingIndex !== null && this.editingIndex > index) {
+                    this.editingIndex--;
+                }
+                this.$nextTick(() => this.initSortable());
             }
         },
 
         addAgent() {
             const newAgent = {
+                _uid: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random(),
                 name: 'Нов агент',
                 type: 'content_bg',
                 role: '',
@@ -625,6 +630,7 @@ function flowCreator() {
             };
             this.agents.push(newAgent);
             this.editingIndex = this.agents.length - 1;
+            this.$nextTick(() => this.initSortable());
         },
 
         moveAgent(index, direction) {
@@ -644,13 +650,16 @@ function flowCreator() {
         initSortable() {
             const el = document.getElementById('agent-sortable-list');
             if (!el || typeof Sortable === 'undefined') return;
-            Sortable.create(el, {
+            if (this._sortable) { this._sortable.destroy(); this._sortable = null; }
+            this._sortable = Sortable.create(el, {
                 handle: '.drag-handle',
                 animation: 150,
                 onEnd: (evt) => {
+                    if (evt.oldIndex === evt.newIndex) return;
                     const moved = this.agents.splice(evt.oldIndex, 1)[0];
                     this.agents.splice(evt.newIndex, 0, moved);
                     this.renumberAgents();
+                    this.$nextTick(() => this.initSortable());
                 },
             });
         },
