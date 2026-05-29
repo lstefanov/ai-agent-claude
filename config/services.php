@@ -41,6 +41,11 @@ return [
         'fallback_model'  => env('OLLAMA_DEFAULT_FALLBACK', 'llama3.1:8b'),
     ],
 
+    'brave' => [
+        'api_key'       => env('BRAVE_SEARCH_API_KEY'),
+        'results_count' => env('BRAVE_RESULTS_COUNT', 10),
+    ],
+
     'comfyui' => [
         'url'             => env('COMFYUI_URL', 'http://localhost:8188'),
         'enabled'         => env('COMFYUI_ENABLED', true),
