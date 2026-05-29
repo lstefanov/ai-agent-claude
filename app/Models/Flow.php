@@ -8,9 +8,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Flow extends Model
 {
-    protected $fillable = ['company_id', 'name', 'description', 'status', 'schedule_cron', 'last_run_at'];
+    protected $fillable = ['company_id', 'name', 'description', 'status', 'schedule_cron', 'last_run_at', 'is_archived', 'archived_at'];
 
-    protected $casts = ['last_run_at' => 'datetime'];
+    protected $casts = [
+        'last_run_at'  => 'datetime',
+        'archived_at'  => 'datetime',
+        'is_archived'  => 'boolean',
+    ];
 
     public function company(): BelongsTo
     {

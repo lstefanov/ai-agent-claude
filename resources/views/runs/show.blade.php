@@ -10,6 +10,7 @@ $initialAgents = $flowRun->flow->agents
         'id'           => $a->id,
         'name'         => $a->name,
         'type'         => $a->type,
+        'output_role'  => $a->effectiveOutputRole(),
         'is_verifier'  => (bool) $a->is_verifier,
         'qa_threshold' => $a->qa_threshold,
         'model'        => $a->model,
@@ -155,7 +156,7 @@ window.__runData = {
     <div class="mb-6">
         <h2 class="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
             🎯 Финален резултат
-            <span class="text-xs text-gray-400 font-normal">— изходът на последния агент</span>
+            <span class="text-xs text-gray-400 font-normal">— обединен изход от агентите</span>
         </h2>
 
         @if($postPlatform === 'facebook')
@@ -254,7 +255,7 @@ window.__runData = {
         {{-- Generic output --}}
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm max-w-2xl">
             <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
-                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Изход на последния агент</p>
+                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Финален изход</p>
                 <button @click="copyFinalOutput()" class="text-xs text-gray-400 hover:text-gray-600 transition"
                         x-text="copied ? '✓ Копирано' : '📋 Копирай'"></button>
             </div>
@@ -573,18 +574,41 @@ function flowRunMonitor() {
             return r ? r.status : 'pending';
         },
 
-        // ── Final output: last completed non-QA agent ─────────────
+        // ── Final output: body agents + appendix agents combined ─────
         get finalOutput() {
             const reversed = [...this.agents].reverse();
-            // First pass: skip verifiers AND qa_verifier type
+
+            // Find the last 'body' agent's output (primary content)
+            let bodyOutput = null;
             for (const a of reversed) {
-                if (a.is_verifier || a.type === 'qa_verifier') continue;
+                if (a.output_role !== 'body') continue;
                 const r = this.getRun(a.id);
-                if (r && r.status === 'completed' && r.output) return r.output;
+                if (r && r.status === 'completed' && r.output) {
+                    bodyOutput = r.output;
+                    break;
+                }
             }
-            // Second pass: any completed agent that isn't a QA verifier
+
+            // Collect all 'appendix' agents' outputs in original order
+            const appendixParts = [];
+            for (const a of this.agents) {
+                if (a.output_role !== 'appendix') continue;
+                const r = this.getRun(a.id);
+                if (r && r.status === 'completed' && r.output) {
+                    appendixParts.push(r.output);
+                }
+            }
+
+            // Combine: body + separator + appendix
+            if (bodyOutput && appendixParts.length > 0) {
+                return bodyOutput + '\n\n---\n\n' + appendixParts.join('\n\n');
+            }
+            if (bodyOutput) return bodyOutput;
+            if (appendixParts.length > 0) return appendixParts.join('\n\n');
+
+            // Fallback: last non-quality completed agent (for simple flows without body agents)
             for (const a of reversed) {
-                if (a.type === 'qa_verifier') continue;
+                if (a.output_role === 'quality') continue;
                 const r = this.getRun(a.id);
                 if (r && r.status === 'completed' && r.output) return r.output;
             }

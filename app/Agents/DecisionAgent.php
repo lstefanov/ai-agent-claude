@@ -9,7 +9,6 @@ class DecisionAgent extends BaseAgent
 {
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
-        $prompt = $this->buildPrompt($agent, $context);
-        return $this->chat($agent, $prompt);
+        return $this->chat($agent, $agentRun->input);
     }
 }

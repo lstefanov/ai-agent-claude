@@ -16,11 +16,11 @@ abstract class BaseAgent
 
     protected function buildPrompt(Agent $agent, array $context): string
     {
-        $prompt = $agent->prompt_template;
+        $prompt = $agent->prompt_template ?? '';
 
         foreach ($context as $key => $value) {
             if (is_string($value)) {
-                $prompt = str_replace("{{{$key}}}", $value, $prompt);
+                $prompt = str_replace('{{' . $key . '}}', $value, $prompt);
             }
         }
 

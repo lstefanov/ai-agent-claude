@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowAI — Агенти с drag reorder</title>
+<script defer src="/_/helper.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f7; color: #1d1d1f; }
+  .page { max-width: 780px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  .design-banner { background: #5856d6; color: white; border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; font-size: 13px; }
+  .design-banner strong { font-size: 14px; }
+
+  .card { background: white; border-radius: 16px; border: 1px solid #e5e5e7; overflow: hidden; }
+  .card-header { padding: 18px 20px 14px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 10px; }
+  .card-header .step-num { width: 26px; height: 26px; background: #5856d6; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+  .card-header h3 { font-size: 15px; font-weight: 600; }
+
+  .change-tag { display: inline-flex; align-items: center; gap: 4px; background: #ede9fe; border: 1px solid #c4b5fd; color: #6d28d9; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 600; margin-left: 6px; }
+
+  /* ── Drag handle ── */
+  .agent-list { display: flex; flex-direction: column; }
+
+  .agent-item {
+    padding: 14px 18px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: white;
+    transition: background 0.15s;
+    position: relative;
+  }
+  .agent-item:last-child { border-bottom: none; }
+
+  /* Drag handle — big, obvious */
+  .drag-handle {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    cursor: grab;
+    padding: 4px 4px;
+    align-self: center;
+    flex-shrink: 0;
+    opacity: 0.35;
+    transition: opacity 0.15s;
+  }
+  .drag-handle:hover { opacity: 1; }
+  .drag-handle span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: #1d1d1f;
+    border-radius: 2px;
+  }
+
+  /* ── Dragging state (агент 3 е вдигнат) ── */
+  .agent-item.dragging {
+    background: #ede9fe;
+    border: 2px dashed #5856d6;
+    border-radius: 12px;
+    opacity: 0.9;
+    box-shadow: 0 8px 24px rgba(88,86,214,0.18);
+    z-index: 10;
+  }
+  .agent-item.dragging .drag-handle { opacity: 1; cursor: grabbing; }
+
+  /* Drop target hint */
+  .drop-hint {
+    height: 3px;
+    background: #5856d6;
+    border-radius: 2px;
+    margin: 0 18px;
+    animation: pulse 1s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+  .agent-order {
+    width: 28px; height: 28px;
+    background: #ede9fe; color: #5856d6;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-name { font-weight: 600; font-size: 14px; }
+  .agent-type { font-size: 11px; background: #f0f0f0; color: #6e6e73; border-radius: 5px; padding: 1px 7px; font-family: monospace; display: inline-block; }
+  .agent-role { font-size: 12px; color: #6e6e73; margin-top: 4px; line-height: 1.4; }
+
+  .agent-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+  .btn-edit { background: #f0f0f0; border: none; border-radius: 8px; padding: 6px 10px; font-size: 11px; cursor: pointer; }
+  .btn-delete { background: none; border: none; color: #ff3b30; font-size: 14px; cursor: pointer; padding: 4px 6px; }
+  .btn-up, .btn-down {
+    background: #f0f0f0; border: none; border-radius: 8px;
+    padding: 5px 8px; font-size: 12px; cursor: pointer;
+    color: #6e6e73; line-height: 1;
+  }
+  .btn-up:hover, .btn-down:hover { background: #e0e0e5; color: #1d1d1f; }
+
+  /* Arrow buttons note */
+  .note-box { background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px 16px; margin: 16px 20px 0; font-size: 12px; color: #1e40af; display: flex; gap: 8px; }
+
+  .qa-badge { background: #fff3e0; color: #e65100; border-radius: 5px; padding: 1px 7px; font-size: 10px; font-weight: 600; }
+  .new-badge { background: #dcfce7; color: #166534; border: 1px solid #86efac; border-radius: 5px; padding: 1px 7px; font-size: 10px; font-weight: 600; }
+
+  .add-agent-row { padding: 14px 18px; display: flex; align-items: center; justify-content: center; border-top: 1px dashed #d2d2d7; }
+  .btn-add-agent { background: none; border: none; color: #5856d6; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; }
+
+  /* Tooltip on drag handle */
+  .drag-tooltip {
+    position: absolute;
+    left: 36px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #1d1d1f;
+    color: white;
+    font-size: 11px;
+    border-radius: 6px;
+    padding: 4px 10px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .drag-tooltip::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 5px solid transparent;
+    border-right-color: #1d1d1f;
+    border-left: none;
+  }
+
+  h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { font-size: 13px; color: #6e6e73; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="design-banner">
+    <strong>🔀 Преместване на агенти</strong>
+    <span style="display:block;opacity:0.8;font-size:12px;margin-top:2px;">Drag handle вляво (три черти) + стрелки ↑↓ за достъпност. Агент 3 е в drag state.</span>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="step-num">3</div>
+      <h3>Агенти (6) <span class="change-tag">drag-to-reorder + ↑↓</span></h3>
+    </div>
+
+    <div class="note-box">
+      <span>💡</span>
+      <span>Хвани <strong>трите хоризонтални черти</strong> вляво от агента и влачи нагоре или надолу. Можеш да използваш и бутоните <strong>↑ ↓</strong> за прецизно преместване.</span>
+    </div>
+
+    <div class="agent-list" style="margin-top:14px;">
+
+      <!-- Agent 1 -->
+      <div class="agent-item">
+        <div class="drag-handle"><span></span><span></span><span></span></div>
+        <span class="agent-order">1</span>
+        <div class="agent-info">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+            <span class="agent-name">Изследовател на тенденции</span>
+            <span class="agent-type">researcher</span>
+          </div>
+          <div class="agent-role">Събира актуални тенденции в здравословния начин на живот и фитнес.</div>
+        </div>
+        <div class="agent-actions">
+          <button class="btn-up" title="Премести нагоре">↑</button>
+          <button class="btn-down" title="Премести надолу">↓</button>
+          <button class="btn-edit">✏</button>
+          <button class="btn-delete">✕</button>
+        </div>
+      </div>
+
+      <!-- Agent 2 -->
+      <div class="agent-item">
+        <div class="drag-handle"><span></span><span></span><span></span></div>
+        <span class="agent-order">2</span>
+        <div class="agent-info">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+            <span class="agent-name">Анализатор на съдържание</span>
+            <span class="agent-type">analyzer</span>
+          </div>
+          <div class="agent-role">Анализира тенденциите и извлича ключови инсайти за целевата аудитория.</div>
+        </div>
+        <div class="agent-actions">
+          <button class="btn-up">↑</button>
+          <button class="btn-down">↓</button>
+          <button class="btn-edit">✏</button>
+          <button class="btn-delete">✕</button>
+        </div>
+      </div>
+
+      <!-- Drop hint — показва се по време на drag -->
+      <div class="drop-hint"></div>
+
+      <!-- Agent 3 — DRAGGING STATE -->
+      <div class="agent-item dragging" style="position:relative;">
+        <div class="drag-tooltip">Пусни тук за да преместиш</div>
+        <div class="drag-handle"><span></span><span></span><span></span></div>
+        <span class="agent-order" style="background:#5856d6;color:white;">3</span>
+        <div class="agent-info">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+            <span class="agent-name" style="color:#5856d6;">Автор на Facebook постове</span>
+            <span class="agent-type">content_bg</span>
+          </div>
+          <div class="agent-role">Пише ангажиращи мотивационни постове на български.</div>
+        </div>
+        <div class="agent-actions">
+          <button class="btn-up">↑</button>
+          <button class="btn-down">↓</button>
+          <button class="btn-edit">✏</button>
+          <button class="btn-delete">✕</button>
+        </div>
+      </div>
+
+      <!-- Agent 4 -->
+      <div class="agent-item">
+        <div class="drag-handle"><span></span><span></span><span></span></div>
+        <span class="agent-order">4</span>
+        <div class="agent-info">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+            <span class="agent-name">Генератор на хаштагове</span>
+            <span class="agent-type">hashtag</span>
+          </div>
+          <div class="agent-role">Генерира релевантни хаштагове за максимален reach.</div>
+        </div>
+        <div class="agent-actions">
+          <button class="btn-up">↑</button>
+          <button class="btn-down">↓</button>
+          <button class="btn-edit">✏</button>
+          <button class="btn-delete">✕</button>
+        </div>
+      </div>
+
+      <!-- Agent 5 — NEW (добавен) -->
+      <div class="agent-item" style="background:#f0fdf4;">
+        <div class="drag-handle"><span></span><span></span><span></span></div>
+        <span class="agent-order" style="background:#dcfce7;color:#166534;">5</span>
+        <div class="agent-info">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+            <span class="agent-name">Проверител на граматика</span>
+            <span class="agent-type">qa_verifier</span>
+            <span class="new-badge">⊕ Нов</span>
+          </div>
+          <div class="agent-role">Новодобавен агент — влачи го до желаната позиция.</div>
+        </div>
+        <div class="agent-actions">
+          <button class="btn-up">↑</button>
+          <button class="btn-down">↓</button>
+          <button class="btn-edit">✏</button>
+          <button class="btn-delete">✕</button>
+        </div>
+      </div>
+
+      <!-- Agent 6 — QA -->
+      <div class="agent-item">
+        <div class="drag-handle"><span></span><span></span><span></span></div>
+        <span class="agent-order">6</span>
+        <div class="agent-info">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+            <span class="agent-name">Проверител на качеството</span>
+            <span class="agent-type">qa_verifier</span>
+            <span class="qa-badge">QA · мин. 75/100</span>
+          </div>
+          <div class="agent-role">Оценява финалния пост по 100-точкова скала.</div>
+        </div>
+        <div class="agent-actions">
+          <button class="btn-up">↑</button>
+          <button class="btn-down">↓</button>
+          <button class="btn-edit">✏</button>
+          <button class="btn-delete">✕</button>
+        </div>
+      </div>
+
+      <div class="add-agent-row">
+        <button class="btn-add-agent">＋ Добави агент</button>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

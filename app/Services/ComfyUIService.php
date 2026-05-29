@@ -29,26 +29,41 @@ class ComfyUIService
     public function buildWorkflow(string $positivePrompt): array
     {
         $templatePath = resource_path('comfyui/workflow_sdxl.json');
-        $template     = file_get_contents($templatePath);
+
+        if (! file_exists($templatePath)) {
+            throw new \RuntimeException("ComfyUI workflow template not found: {$templatePath}");
+        }
+
+        $template = file_get_contents($templatePath);
+
+        // json_encode() produces a properly-escaped JSON string (with outer quotes).
+        // Strip the outer quotes to get a bare value safe for insertion into JSON.
+        $jsonStr  = fn (string $s): string => substr(json_encode($s, JSON_UNESCAPED_UNICODE), 1, -1);
 
         $workflow = str_replace(
             ['__CHECKPOINT__', '__POSITIVE__', '__NEGATIVE__'],
             [
-                $this->checkpoint,
-                addslashes($positivePrompt),
-                addslashes($this->negativePrompt),
+                $jsonStr($this->checkpoint),
+                $jsonStr($positivePrompt),
+                $jsonStr($this->negativePrompt),
             ],
             $template
         );
 
-        $workflow = json_decode($workflow, true);
+        $decoded = json_decode($workflow, true);
 
-        // Randomise seed so every run is unique
-        if (isset($workflow['3']['inputs']['seed'])) {
-            $workflow['3']['inputs']['seed'] = rand(1, 999999999);
+        if ($decoded === null) {
+            throw new \RuntimeException('Failed to parse ComfyUI workflow JSON after substitution: ' . json_last_error_msg());
         }
 
-        return $workflow;
+        // Randomise seed so every run is unique
+        foreach ($decoded as &$node) {
+            if (isset($node['inputs']['seed'])) {
+                $node['inputs']['seed'] = rand(1, 999_999_999);
+            }
+        }
+
+        return $decoded;
     }
 
     /**

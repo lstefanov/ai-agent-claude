@@ -23,9 +23,9 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
         </h1>
         <p class="text-gray-500 mt-1 max-w-2xl">{{ $flow->description }}</p>
     </div>
-    <div class="flex gap-2 shrink-0">
+    <div class="flex items-start gap-2 shrink-0">
         <a href="{{ route('flows.edit', $flow) }}"
-           class="bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+           class="inline-flex items-center justify-center bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
             ✏ Редактирай
         </a>
         <form action="{{ route('flow-runs.store', $flow) }}" method="POST">

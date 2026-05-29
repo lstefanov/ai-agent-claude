@@ -35,8 +35,10 @@ class CompanyController extends Controller
 
     public function show(Company $company)
     {
-        $flows = $company->flows()->withCount('agents')->latest()->get();
-        return view('companies.show', compact('company', 'flows'));
+        $flows         = $company->flows()->withCount('agents')->where('is_archived', false)->latest()->get();
+        $archivedFlows = $company->flows()->withCount('agents')->where('is_archived', true)->latest()->get();
+
+        return view('companies.show', compact('company', 'flows', 'archivedFlows'));
     }
 
     public function edit(Company $company)
