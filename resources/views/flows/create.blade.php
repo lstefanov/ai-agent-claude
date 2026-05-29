@@ -202,99 +202,168 @@
             </div>
         </div>
 
-        {{-- Step 3: Agent Preview --}}
+        {{-- Step 3: Agent Preview + Inline Editor --}}
         <div x-show="agents.length > 0" x-cloak class="bg-white rounded-xl border border-gray-200 mb-6">
             <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h2 class="text-lg font-semibold text-gray-900">
-                    3. Преглед на агентите (<span x-text="agents.length"></span>)
+                    3. Агенти (<span x-text="agents.length"></span>)
                 </h2>
-                <span class="text-sm text-gray-400">Можеш да промениш модела на всеки агент</span>
+                <span class="text-sm text-gray-400">Влачи за пренареждане или използвай ↑↓</span>
             </div>
 
-            <div class="divide-y divide-gray-50">
+            <div id="agent-sortable-list" class="divide-y divide-gray-50">
                 <template x-for="(agent, index) in agents" :key="index">
-                    <div class="p-6" x-data="{ expanded: false }">
+                    <div>
                         {{-- Hidden inputs for form submission --}}
-                        <input type="hidden" :name="'agents['+index+'][name]'"             :value="agent.name">
-                        <input type="hidden" :name="'agents['+index+'][type]'"             :value="agent.type">
-                        <input type="hidden" :name="'agents['+index+'][role]'"             :value="agent.role">
-                        <input type="hidden" :name="'agents['+index+'][strengths]'"        :value="agent.strengths">
-                        <input type="hidden" :name="'agents['+index+'][limitations]'"      :value="agent.limitations">
+                        <input type="hidden" :name="'agents['+index+'][name]'"              :value="agent.name">
+                        <input type="hidden" :name="'agents['+index+'][type]'"              :value="agent.type">
+                        <input type="hidden" :name="'agents['+index+'][role]'"              :value="agent.role">
+                        <input type="hidden" :name="'agents['+index+'][system_prompt]'"     :value="agent.system_prompt">
+                        <input type="hidden" :name="'agents['+index+'][strengths]'"         :value="agent.strengths">
+                        <input type="hidden" :name="'agents['+index+'][limitations]'"       :value="agent.limitations">
                         <input type="hidden" :name="'agents['+index+'][input_description]'" :value="agent.input_description">
                         <input type="hidden" :name="'agents['+index+'][output_description]'" :value="agent.output_description">
-                        <input type="hidden" :name="'agents['+index+'][prompt_template]'"  :value="agent.prompt_template">
-                        <input type="hidden" :name="'agents['+index+'][model_reason]'"     :value="agent.model_reason">
-                        <input type="hidden" :name="'agents['+index+'][order]'"            :value="agent.order">
-                        <input type="hidden" :name="'agents['+index+'][is_verifier]'"      :value="agent.is_verifier ? '1' : '0'">
-                        <input type="hidden" :name="'agents['+index+'][qa_threshold]'"     :value="agent.qa_threshold">
+                        <input type="hidden" :name="'agents['+index+'][prompt_template]'"   :value="agent.prompt_template">
+                        <input type="hidden" :name="'agents['+index+'][model_reason]'"      :value="agent.model_reason">
+                        <input type="hidden" :name="'agents['+index+'][order]'"             :value="agent.order">
+                        <input type="hidden" :name="'agents['+index+'][is_verifier]'"       :value="agent.is_verifier ? '1' : '0'">
+                        <input type="hidden" :name="'agents['+index+'][qa_threshold]'"      :value="agent.qa_threshold">
                         <input type="hidden" :name="'agents['+index+'][config][temperature]'" :value="agent.config ? agent.config.temperature : 0.7">
-                        <input type="hidden" :name="'agents['+index+'][config][max_tokens]'"  :value="agent.config ? agent.config.max_tokens : 500">
+                        <input type="hidden" :name="'agents['+index+'][config][num_predict]'" :value="agent.config ? agent.config.num_predict : 1000">
+                        <input type="hidden" :name="'agents['+index+'][model]'"             :value="agent.model">
                         <template x-if="agent.capabilities">
                             <template x-for="(cap, ci) in agent.capabilities" :key="ci">
                                 <input type="hidden" :name="'agents['+index+'][capabilities]['+ci+']'" :value="cap">
                             </template>
                         </template>
 
-                        <div class="flex items-start gap-4">
-                            <span class="w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-sm font-bold shrink-0 mt-0.5"
+                        {{-- Agent card row --}}
+                        <div class="p-4 flex gap-3 items-start">
+                            {{-- Drag handle --}}
+                            <div class="drag-handle flex flex-col gap-1 cursor-grab pt-1 opacity-30 hover:opacity-100 transition shrink-0"
+                                 title="Влачи за пренареждане">
+                                <span class="block w-4 h-0.5 bg-gray-600 rounded"></span>
+                                <span class="block w-4 h-0.5 bg-gray-600 rounded"></span>
+                                <span class="block w-4 h-0.5 bg-gray-600 rounded"></span>
+                            </div>
+
+                            {{-- Order badge --}}
+                            <span class="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5"
                                   x-text="agent.order"></span>
+
+                            {{-- Info --}}
                             <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2 mb-1 flex-wrap">
-                                    <span class="font-semibold text-gray-900" x-text="agent.name"></span>
+                                <div class="flex items-center gap-2 flex-wrap mb-1">
+                                    <span class="font-semibold text-gray-900 text-sm" x-text="agent.name"></span>
                                     <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono" x-text="agent.type"></span>
                                     <span x-show="agent.is_verifier" class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">QA verifier</span>
                                 </div>
-                                <p class="text-sm text-gray-600 mb-3" x-text="agent.role.substring(0, 140) + (agent.role.length > 140 ? '...' : '')"></p>
+                                <p class="text-xs text-gray-500 leading-relaxed" x-text="(agent.role || '').substring(0,120) + ((agent.role||'').length > 120 ? '...' : '')"></p>
+                            </div>
 
-                                {{-- Model selector --}}
-                                <div class="flex items-center gap-3 flex-wrap">
-                                    <label class="text-xs font-medium text-gray-500">Модел:</label>
-                                    {{-- Hidden input always carries the value — select updates it --}}
-                                    <input type="hidden" :name="'agents['+index+'][model]'" :value="agent.model">
+                            {{-- Actions --}}
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button type="button" @click="moveAgent(index, -1)" :disabled="index === 0"
+                                        class="text-gray-400 hover:text-gray-700 disabled:opacity-20 px-1.5 py-1 rounded text-sm transition"
+                                        title="Премести нагоре">↑</button>
+                                <button type="button" @click="moveAgent(index, 1)" :disabled="index === agents.length - 1"
+                                        class="text-gray-400 hover:text-gray-700 disabled:opacity-20 px-1.5 py-1 rounded text-sm transition"
+                                        title="Премести надолу">↓</button>
+                                <button type="button" @click="editingIndex === index ? closeEdit() : openEdit(index)"
+                                        class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg transition">
+                                    <span x-text="editingIndex === index ? '✕ Затвори' : '✏ Редактирай'"></span>
+                                </button>
+                                <button type="button" @click="deleteAgent(index)"
+                                        class="text-red-400 hover:text-red-600 px-1.5 py-1 text-sm transition"
+                                        title="Изтрий агент">✕</button>
+                            </div>
+                        </div>
+
+                        {{-- Inline edit panel --}}
+                        <div x-show="editingIndex === index" x-cloak
+                             class="mx-4 mb-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                            <h4 class="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-3">Редактиране на агент</h4>
+                            <div class="grid grid-cols-2 gap-3 mb-3">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Име</label>
+                                    <input type="text" x-model="agent.name"
+                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Тип</label>
+                                    <select x-model="agent.type"
+                                            class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        <option value="researcher">researcher</option>
+                                        <option value="analyzer">analyzer</option>
+                                        <option value="content_bg">content_bg</option>
+                                        <option value="content_en">content_en</option>
+                                        <option value="hashtag">hashtag</option>
+                                        <option value="image_prompt">image_prompt</option>
+                                        <option value="caption_writer">caption_writer</option>
+                                        <option value="translator">translator</option>
+                                        <option value="qa_verifier">qa_verifier</option>
+                                        <option value="summarizer">summarizer</option>
+                                        <option value="decision">decision</option>
+                                        <option value="publisher">publisher</option>
+                                    </select>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Роля / Описание (BG)</label>
+                                    <textarea x-model="agent.role" rows="2"
+                                              class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">System промпт (BG)</label>
+                                    <textarea x-model="agent.system_prompt" rows="3"
+                                              class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                              placeholder="Ти си специализиран агент за..."></textarea>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Промпт шаблон (BG)</label>
+                                    <textarea x-model="agent.prompt_template" rows="5"
+                                              class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                              placeholder="Инструкции за агента с @{{placeholder}}-и..."></textarea>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
                                     <select x-model="agent.model"
-                                            class="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                                            class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                                         @foreach($models as $m)
                                             <option value="{{ $m->ollama_tag }}">
-                                                {{ !$m->is_available ? '⚠ ' : '' }}{{ $m->display_name }} ({{ $m->ollama_tag }}){{ !$m->is_available ? ' — не е изтеглен' : '' }}
+                                                {{ !$m->is_available ? '⚠ ' : '' }}{{ $m->display_name }} ({{ $m->ollama_tag }})
                                             </option>
                                         @endforeach
                                     </select>
-                                    <span class="text-xs text-gray-400 italic" x-text="'AI: ' + (agent.model_reason || '').substring(0, 60)"></span>
                                 </div>
                             </div>
-                            <button type="button" @click="expanded = !expanded"
-                                    class="text-gray-400 hover:text-gray-600 text-xs transition shrink-0">
-                                <span x-text="expanded ? '▲ Скрий' : '▼ Покажи всичко'"></span>
-                            </button>
-                        </div>
-
-                        {{-- Expanded details --}}
-                        <div x-show="expanded" x-cloak class="mt-4 ml-12 space-y-3 text-sm">
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <p class="text-xs font-medium text-gray-500 uppercase mb-1">Вход</p>
-                                    <p class="text-gray-700" x-text="agent.input_description"></p>
-                                </div>
-                                <div>
-                                    <p class="text-xs font-medium text-gray-500 uppercase mb-1">Изход</p>
-                                    <p class="text-gray-700" x-text="agent.output_description"></p>
-                                </div>
-                            </div>
-                            <div>
-                                <p class="text-xs font-medium text-gray-500 uppercase mb-1">Силни страни</p>
-                                <p class="text-gray-700" x-text="agent.strengths"></p>
-                            </div>
-                            <div x-show="agent.qa_threshold">
-                                <p class="text-xs font-medium text-gray-500 uppercase mb-1">QA праг</p>
-                                <p class="text-gray-700">Минимален score: <strong x-text="agent.qa_threshold"></strong>/100</p>
-                            </div>
-                            <div>
-                                <p class="text-xs font-medium text-gray-500 uppercase mb-1">Prompt шаблон</p>
-                                <pre class="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-600 overflow-auto max-h-32 whitespace-pre-wrap" x-text="agent.prompt_template"></pre>
+                            <div class="flex justify-end gap-2">
+                                <button type="button" @click="closeEdit"
+                                        class="bg-white border border-gray-300 text-gray-600 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
+                                    Откажи
+                                </button>
+                                <button type="button" @click="saveEdit"
+                                        class="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition">
+                                    ✓ Запази
+                                </button>
                             </div>
                         </div>
                     </div>
                 </template>
+            </div>
+
+            {{-- Add agent --}}
+            <div class="px-6 py-3 border-t border-dashed border-gray-200 flex justify-center">
+                <button type="button" @click="addAgent"
+                        class="text-indigo-600 hover:text-indigo-800 text-sm font-semibold flex items-center gap-1.5 px-4 py-2 rounded-lg hover:bg-indigo-50 transition">
+                    ＋ Добави агент
+                </button>
+            </div>
+
+            {{-- QA position warning --}}
+            <div x-show="agents.length > 0 && agents[agents.length-1].type !== 'qa_verifier' && agents.some(a => a.type === 'qa_verifier')"
+                 x-cloak
+                 class="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">
+                ⚠ QA verifier агентът не е последен в pipeline-а. Препоръчително е да е на последна позиция.
             </div>
         </div>
 
@@ -313,6 +382,7 @@
     </form>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
 <script>
 // Available model tags from server (for fallback logic)
 const AVAILABLE_MODELS = @json($models->where('is_available', true)->pluck('ollama_tag')->values());
@@ -329,6 +399,7 @@ function flowCreator() {
         isImproving: false,
         improvedDescription: '',
         showImprovePreview: false,
+        editingIndex: null,
         schedule: {
             preset: 'none',
             hour: '10',
@@ -382,6 +453,11 @@ function flowCreator() {
                     agents:      this.agents,
                     schedule:    this.schedule,
                 }));
+            });
+
+            this.$nextTick(() => this.initSortable());
+            this.$watch('agents', () => {
+                this.$nextTick(() => this.initSortable());
             });
         },
 
@@ -505,6 +581,78 @@ function flowCreator() {
             };
 
             setTimeout(poll, 2000);
+        },
+
+        openEdit(index) {
+            this.editingIndex = index;
+        },
+
+        closeEdit() {
+            this.editingIndex = null;
+        },
+
+        saveEdit() {
+            this.renumberAgents();
+            this.editingIndex = null;
+        },
+
+        deleteAgent(index) {
+            if (confirm('Изтрий агент "' + this.agents[index].name + '"?')) {
+                this.agents.splice(index, 1);
+                this.renumberAgents();
+                if (this.editingIndex === index) this.editingIndex = null;
+            }
+        },
+
+        addAgent() {
+            const newAgent = {
+                name: 'Нов агент',
+                type: 'content_bg',
+                role: '',
+                system_prompt: '',
+                prompt_template: '',
+                model: AVAILABLE_MODELS[0] || ALL_MODEL_TAGS[0] || '',
+                model_reason: '',
+                order: this.agents.length + 1,
+                is_verifier: false,
+                qa_threshold: null,
+                capabilities: [],
+                strengths: '',
+                limitations: '',
+                input_description: '',
+                output_description: '',
+                config: { temperature: 0.7, num_predict: 1000 },
+            };
+            this.agents.push(newAgent);
+            this.editingIndex = this.agents.length - 1;
+        },
+
+        moveAgent(index, direction) {
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= this.agents.length) return;
+            const tmp = this.agents[index];
+            this.agents[index] = this.agents[newIndex];
+            this.agents[newIndex] = tmp;
+            this.renumberAgents();
+            if (this.editingIndex === index) this.editingIndex = newIndex;
+        },
+
+        renumberAgents() {
+            this.agents.forEach((a, i) => { a.order = i + 1; });
+        },
+
+        initSortable() {
+            const el = document.getElementById('agent-sortable-list');
+            if (!el || typeof Sortable === 'undefined') return;
+            Sortable.create(el, {
+                handle: '.drag-handle',
+                animation: 150,
+                onEnd: (evt) => {
+                    const moved = this.agents.splice(evt.oldIndex, 1)[0];
+                    this.agents.splice(evt.newIndex, 0, moved);
+                    this.renumberAgents();
+                },
+            });
         },
     };
 }
