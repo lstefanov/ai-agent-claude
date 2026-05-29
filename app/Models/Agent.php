@@ -10,8 +10,8 @@ class Agent extends Model
 {
     protected $fillable = [
         'flow_id', 'name', 'type', 'role', 'capabilities', 'strengths', 'limitations',
-        'input_description', 'output_description', 'prompt_template', 'model',
-        'model_reason', 'order', 'is_verifier', 'qa_threshold', 'depends_on', 'config', 'is_active',
+        'input_description', 'output_description', 'prompt_template', 'system_prompt',
+        'model', 'model_reason', 'order', 'is_verifier', 'qa_threshold', 'depends_on', 'config', 'is_active',
         'output_language', 'output_tone', 'output_style', 'output_format',
     ];
 
