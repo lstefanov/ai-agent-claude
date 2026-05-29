@@ -34,7 +34,7 @@ class AgentController extends Controller
             'output_tone'           => 'nullable|string|max:30',
             'output_style'          => 'nullable|string|max:30',
             'output_format'         => 'nullable|string|max:30',
-            'output_role'           => 'nullable|in:body,appendix,hidden,quality',
+            'output_role'           => 'nullable|in:body,appendix,hidden', // 'quality' is auto-assigned to verifiers
             // Model parameters (stored in config JSON)
             'config'                => 'nullable|array',
             'config.temperature'    => 'nullable|numeric|min:0|max:2',
