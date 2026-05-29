@@ -19,73 +19,74 @@ class AgentGeneratorService
         $modelsContext = $this->buildModelsContext();
 
         $systemPrompt = <<<PROMPT
-You are an AI pipeline architect for marketing and business automation.
-Your job: design a COMPLETE, production-ready multi-agent pipeline.
+Ти си AI архитект на маркетингови и бизнес автоматизации.
+Твоята задача: проектирай ПЪЛЕН, готов за продукция multi-agent pipeline.
 
-STRICT RULES:
-1. Return ONLY a valid JSON array — no markdown, no explanations, no extra text
-2. MINIMUM 5 agents, ideally 6-8 depending on complexity
-3. Every agent has exactly ONE responsibility
-4. prompt_template must be detailed and specific (minimum 4 sentences)
-5. ALWAYS include: at least one researcher/analyzer, at least one content agent, at least one image_prompt agent for visual content flows, exactly one qa_verifier at the end
-6. Choose models based on task and language — see the model list
+СТРОГИ ПРАВИЛА:
+1. Върни САМО валиден JSON масив — без markdown, без обяснения, без допълнителен текст
+2. МИНИМУМ 5 агента, идеално 6-8 в зависимост от сложността
+3. Всеки агент има ТОЧНО ЕДНА отговорност
+4. system_prompt трябва да е детайлен (минимум 3 изречения) — на български
+5. prompt_template трябва да е детайлен (минимум 5 изречения) — на български, с конкретни placeholder-и като {{company_description}}, {{input}}, {{topic}}
+6. ВИНАГИ включвай: поне един researcher/analyzer, поне един content агент, точно един qa_verifier накрая
+7. Избирай модели според задачата — виж списъка с модели
 
-You MUST generate a complete pipeline. Returning fewer than 5 agents is FORBIDDEN.
+Генерирането на по-малко от 5 агента е ЗАБРАНЕНО.
 PROMPT;
 
         $userMessage = <<<MSG
-Company: {$company->name}
-Industry: {$company->industry}
-Language: {$company->language}
-Company description: {$company->description}
+Компания: {$company->name}
+Индустрия: {$company->industry}
+Описание на компанията: {$company->description}
 
-Flow to build: "{$flow->description}"
+Flow за изграждане: "{$flow->description}"
 
-AVAILABLE MODELS (choose wisely for each agent):
+НАЛИЧНИ МОДЕЛИ (избери внимателно за всеки агент):
 {$modelsContext}
 
-REQUIRED AGENT TYPES for this pipeline (include ALL that apply):
-- researcher     → Collects context, trends, current events, competitor data
-- analyzer       → Analyzes input, extracts key insights, identifies opportunities
-- content_bg     → Writes Bulgarian-language text content
-- content_en     → Writes English-language text content
-- hashtag        → Generates relevant hashtags (local + international)
-- image_prompt   → Writes detailed ComfyUI/Stable Diffusion image generation prompts
-- caption_writer → Assembles final post from all parts (text + hashtags + CTA)
-- translator     → Translates content between languages
-- qa_verifier    → Reviews final output quality, scores 0-100, MUST be last agent
-- summarizer     → Condenses long content into key points
-- decision       → Makes routing/conditional decisions
-- publisher      → Formats output for specific platforms (FB, IG, LinkedIn, etc.)
+НЕОБХОДИМИ ТИПОВЕ АГЕНТИ (включи ВСИЧКИ приложими):
+- researcher     → Събира контекст, тенденции, актуални новини, данни за конкуренти
+- analyzer       → Анализира входа, извлича ключови инсайти, идентифицира възможности
+- content_bg     → Пише текстово съдържание на български език
+- content_en     → Пише текстово съдържание на английски език
+- hashtag        → Генерира релевантни хаштагове (локални + международни)
+- image_prompt   → Пише детайлни промпти за генериране на изображения с ComfyUI/Stable Diffusion
+- caption_writer → Сглобява финалния пост от всички части (текст + хаштагове + CTA)
+- translator     → Превежда съдържание между езици
+- qa_verifier    → Преглежда качеството на финалния изход, оценява 0-100, ТРЯБВА да е последен агент
+- summarizer     → Кондензира дълго съдържание в ключови точки
+- decision       → Взима routing/условни решения
+- publisher      → Форматира изхода за конкретни платформи (FB, IG, LinkedIn и др.)
 
-PIPELINE DESIGN RULES:
-- For social media flows: researcher → content → hashtag → image_prompt → caption_writer → qa_verifier
-- For Bulgarian content: always use todorov/bggpt for text generation
-- For QA/verification: use phi3.5 or phi3:mini (fast, efficient)
-- For JSON/structured output, image prompts, analysis: use mistral-nemo
+ПРАВИЛА ЗА ПРОЕКТИРАНЕ НА PIPELINE:
+- За social media flows: researcher → content → hashtag → image_prompt → caption_writer → qa_verifier
+- За български текст: винаги използвай todorov/bggpt за генериране на текст
+- За QA/верификация: използвай phi3.5 или phi3:mini (бързи, ефективни)
+- За JSON/структуриран изход, image промпти, анализ: използвай mistral-nemo
 
-Return a JSON array where each object has EXACTLY these fields:
+Върни JSON масив, където всеки обект има ТОЧНО тези полета:
 {
-  "name": "snake_case_name",
-  "type": "one of the types listed above",
-  "role": "one-sentence job description",
-  "capabilities": ["array", "of", "capabilities"],
-  "strengths": "what this agent excels at",
-  "limitations": "what it cannot do",
-  "input_description": "what input it receives",
-  "output_description": "what output it produces",
-  "prompt_template": "Detailed system prompt. At least 4 sentences. Include specific instructions about format, tone, language, what to include/exclude.",
-  "model": "exact ollama tag from the list above",
-  "model_reason": "why this model was chosen",
+  "name": "Описателно българско име (напр. 'Изследовател на тенденции', 'Автор на Facebook постове')",
+  "type": "един от типовете изброени по-горе",
+  "role": "2-3 изречения на БЪЛГАРСКИ описващи: какво прави агентът, какъв вход получава и какъв изход произвежда",
+  "capabilities": ["масив", "от", "способности"],
+  "strengths": "в какво е силен агентът — на български",
+  "limitations": "какво не може да прави — на български",
+  "input_description": "описание на входа — на български",
+  "output_description": "описание на изхода — на български",
+  "system_prompt": "System prompt на БЪЛГАРСКИ. Минимум 3 изречения. Описва ролята, стила, езика и ограниченията на агента.",
+  "prompt_template": "Промпт шаблон на БЪЛГАРСКИ. Минимум 5 изречения. Включи конкретни инструкции за формат, тон, дължина, какво да се включи/изключи. Използвай placeholder-и {{company_description}}, {{input}}, {{topic}} където е подходящо.",
+  "model": "точен ollama tag от списъка по-горе",
+  "model_reason": "защо е избран този модел — на български",
   "order": 1,
   "is_verifier": false,
   "qa_threshold": null,
   "config": {"temperature": 0.7, "num_predict": 1000}
 }
 
-For qa_verifier: set is_verifier=true, qa_threshold=75, temperature=0.1
-For image_prompt agents: temperature=0.8, num_predict=500
-For researcher/analyzer: temperature=0.3
+За qa_verifier: is_verifier=true, qa_threshold=75, temperature=0.1
+За image_prompt агенти: temperature=0.8, num_predict=500
+За researcher/analyzer: temperature=0.3
 MSG;
 
         $generatorModel = config('services.ollama.generator_model', 'mistral-nemo');
@@ -239,11 +240,17 @@ MSG;
             'input_description'  => $agent['input_description'] ?? null,
             'output_description' => $agent['output_description'] ?? null,
             'prompt_template'    => $agent['prompt_template'] ?? $agent['role'] ?? '',
+            'system_prompt'      => $agent['system_prompt'] ?? null,
             'model'              => $agent['model'] ?? 'mistral-nemo',
             'model_reason'       => $agent['model_reason'] ?? null,
             'order'              => (int) ($agent['order'] ?? $fallbackOrder),
-            'is_verifier'        => (bool) ($agent['is_verifier'] ?? false),
-            'qa_threshold'       => isset($agent['qa_threshold']) ? (int) $agent['qa_threshold'] : null,
+            // Force qa_verifier type to always be a verifier even if AI forgot the flag
+            'is_verifier'        => ($agent['type'] ?? '') === 'qa_verifier'
+                ? true
+                : (bool) ($agent['is_verifier'] ?? false),
+            'qa_threshold'       => ($agent['type'] ?? '') === 'qa_verifier'
+                ? (int) ($agent['qa_threshold'] ?? 75)
+                : (isset($agent['qa_threshold']) ? (int) $agent['qa_threshold'] : null),
             'config'             => is_array($agent['config'] ?? null)
                 ? $agent['config']
                 : ['temperature' => 0.7, 'num_predict' => 1000],
