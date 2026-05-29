@@ -35,7 +35,7 @@
                 </select>
             </div>
 
-            <div class="col-span-2">
+            <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     График на изпълнение
                     <span class="text-gray-400 font-normal text-xs ml-1">(по избор)</span>
