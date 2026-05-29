@@ -52,7 +52,7 @@ class ResearcherAgentTest extends TestCase
         $result     = $researcher->run(
             $this->makeAgent(),
             $this->makeAgentRun('Изследвай игровите тенденции свързани с video games'),
-            ['topic' => 'video games']
+            ['flow_topic' => 'video games', 'topic' => 'video games']
         );
 
         $this->assertSame('Research output', $result);
@@ -74,7 +74,7 @@ class ResearcherAgentTest extends TestCase
         $researcher->run(
             $this->makeAgent(),
             $this->makeAgentRun('Изследвай игровите тенденции'),
-            ['topic' => '']
+            ['flow_topic' => '', 'topic' => '']
         );
     }
 
@@ -92,7 +92,7 @@ class ResearcherAgentTest extends TestCase
         $result     = $researcher->run(
             $this->makeAgent(),
             $this->makeAgentRun('some input'),
-            ['topic' => 'video games']
+            ['flow_topic' => 'video games', 'topic' => 'video games']
         );
 
         $this->assertSame('output', $result);

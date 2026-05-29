@@ -9,7 +9,7 @@ class ResearcherAgent extends BaseAgent
 {
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
-        $query         = !empty($context['topic']) ? $context['topic'] : mb_substr($agentRun->input, 0, 200);
+        $query         = !empty($context['flow_topic']) ? $context['flow_topic'] : mb_substr($agentRun->input, 0, 200);
         $searchResults = $this->useTool('web_search', ['query' => $query]);
 
         $extraContext = '';

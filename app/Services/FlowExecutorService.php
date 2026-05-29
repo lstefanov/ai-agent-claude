@@ -46,8 +46,9 @@ class FlowExecutorService
             'company_description' => $company?->description ?? '',
             'company_name'        => $company?->name ?? '',
             'company_industry'    => $company?->industry ?? '',
-            'input'               => '',   // alias for previous agent output
-            'topic'               => '',   // alias for previous agent output (same value)
+            'input'               => $flow->topic ?? '',
+            'topic'               => $flow->topic ?? '',
+            'flow_topic'          => $flow->topic ?? '',  // preserved across all agent steps — never overwritten
         ];
 
         $agents = $flow->agents()
