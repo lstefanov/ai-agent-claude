@@ -48,11 +48,20 @@ $cfg     = $agent->config ?? [];
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Роля / System prompt</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Роля / Описание</label>
             <textarea name="role" rows="3"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       required>{{ old('role', $agent->role) }}</textarea>
             @error('role') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">System промпт</label>
+            <p class="text-xs text-gray-400 mb-1">Описва ролята и поведението на агента. Инжектира се автоматично при всяко изпълнение.</p>
+            <textarea name="system_prompt" rows="4"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="Ти си специализиран агент за...">{{ old('system_prompt', $agent->system_prompt) }}</textarea>
+            @error('system_prompt') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
         </div>
 
         <div>

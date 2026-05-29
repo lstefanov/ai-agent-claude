@@ -24,6 +24,7 @@ class AgentController extends Controller
         $validated = $request->validate([
             'name'                  => 'required|string|max:255',
             'role'                  => 'required|string',
+            'system_prompt'         => 'nullable|string',
             'prompt_template'       => 'required|string',
             'model'                 => 'required|string',
             'is_active'             => 'boolean',
