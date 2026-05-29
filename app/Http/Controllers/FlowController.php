@@ -13,7 +13,10 @@ use Illuminate\Support\Str;
 
 class FlowController extends Controller
 {
-    public function __construct(private AgentGeneratorService $generator) {}
+    public function __construct(
+        private AgentGeneratorService $generator,
+        private \App\Services\OllamaService $ollama,
+    ) {}
 
     public function index()
     {
@@ -40,6 +43,7 @@ class FlowController extends Controller
             'agents.*.model'            => 'required|string',
             'agents.*.prompt_template'  => 'required|string',
             'agents.*.order'            => 'required|integer|min:1',
+            'agents.*.system_prompt'    => 'nullable|string',
         ]);
 
         $flow = $company->flows()->create([
@@ -60,6 +64,7 @@ class FlowController extends Controller
                 'input_description' => $agentData['input_description'] ?? null,
                 'output_description'=> $agentData['output_description'] ?? null,
                 'prompt_template'   => $agentData['prompt_template'],
+                'system_prompt'     => $agentData['system_prompt'] ?? null,
                 'model'             => $agentData['model'],
                 'model_reason'      => $agentData['model_reason'] ?? null,
                 'order'             => (int) $agentData['order'],
@@ -101,12 +106,72 @@ class FlowController extends Controller
             ->with('success', 'Flow е обновен.');
     }
 
+    public function archive(Flow $flow)
+    {
+        $flow->update([
+            'is_archived' => true,
+            'archived_at' => now(),
+        ]);
+
+        return back()->with('success', 'Flow "' . $flow->name . '" е архивиран.');
+    }
+
+    public function unarchive(Flow $flow)
+    {
+        $flow->update([
+            'is_archived' => false,
+            'archived_at' => null,
+        ]);
+
+        return back()->with('success', 'Flow "' . $flow->name . '" е възстановен.');
+    }
+
     public function destroy(Flow $flow)
     {
         $company = $flow->company;
+        $name    = $flow->name;
         $flow->delete();
         return redirect()->route('companies.show', $company)
-            ->with('success', 'Flow е изтрит.');
+            ->with('success', 'Flow "' . $name . '" е изтрит.');
+    }
+
+    /**
+     * AJAX: improve a flow description using AI.
+     */
+    public function improveDescription(Request $request)
+    {
+        $request->validate([
+            'description' => 'required|string|min:5',
+            'name'        => 'nullable|string',
+            'company_id'  => 'nullable|exists:companies,id',
+        ]);
+
+        $name        = $request->name ?? '';
+        $description = $request->description;
+
+        $systemPrompt = 'Ти си експерт по бизнес автоматизация и дигитален маркетинг. Подобряваш описания на автоматизирани workflows. Отговаряй САМО с подобреното описание — без въведение, без обяснения, без кавички.';
+
+        $userMessage = <<<MSG
+Подобри следното описание на flow "{$name}".
+
+Оригинално описание:
+{$description}
+
+Изисквания:
+- Напиши 3-5 изречения на български
+- Бъди конкретен за: какво прави flow-ът, за коя аудитория е, на какъв език е изходът, каква е структурата на pipeline-а
+- Запази оригиналния смисъл, но го направи по-детайлен и по-ясен за AI агентите
+- Върни САМО подобреното описание, без допълнителен текст
+MSG;
+
+        $improved = $this->ollama->chat(
+            model: config('services.ollama.generator_model', 'mistral-nemo'),
+            systemPrompt: $systemPrompt,
+            userMessage: $userMessage,
+            options: ['temperature' => 0.4, 'num_predict' => 300]
+        );
+
+        return response()->json(['improved' => trim($improved)]);
     }
 
     /**
