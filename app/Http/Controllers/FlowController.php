@@ -164,12 +164,16 @@ class FlowController extends Controller
 - Върни САМО подобреното описание, без допълнителен текст
 MSG;
 
-        $improved = $this->ollama->chat(
-            model: config('services.ollama.generator_model', 'mistral-nemo'),
-            systemPrompt: $systemPrompt,
-            userMessage: $userMessage,
-            options: ['temperature' => 0.4, 'num_predict' => 300]
-        );
+        try {
+            $improved = $this->ollama->chat(
+                model: config('services.ollama.generator_model', 'mistral-nemo'),
+                systemPrompt: $systemPrompt,
+                userMessage: $userMessage,
+                options: ['temperature' => 0.4, 'num_predict' => 300]
+            );
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'AI услугата не е достъпна. Провери дали Ollama работи.'], 503);
+        }
 
         return response()->json(['improved' => trim($improved)]);
     }
