@@ -60,6 +60,7 @@ Flow за изграждане: "{$flow->description}"
 
 ПРАВИЛА ЗА ПРОЕКТИРАНЕ НА PIPELINE:
 - За social media flows: researcher → content → hashtag → image_prompt → caption_writer → qa_verifier
+- АКО flow-ът изисква актуални новини/web данни: researcher ЗАДЪЛЖИТЕЛНО е на позиция 1 (order: 1)
 - За български текст: винаги използвай todorov/bggpt за генериране на текст
 - За QA/верификация: използвай phi3.5 или phi3:mini (бързи, ефективни)
 - За JSON/структуриран изход, image промпти, анализ: използвай mistral-nemo
@@ -112,6 +113,10 @@ MSG;
         if (count($agents) < 3) {
             Log::warning('[AgentGenerator] Too few agents (' . count($agents) . '), returning empty to trigger retry');
             return [];
+        }
+
+        if ($this->needsWebResearch($flow->description ?? '')) {
+            $agents = $this->ensureResearcherFirst($agents);
         }
 
         return $agents;
@@ -255,5 +260,50 @@ MSG;
                 ? $agent['config']
                 : ['temperature' => 0.7, 'num_predict' => 1000],
         ];
+    }
+
+    private function needsWebResearch(string $description): bool
+    {
+        $keywords = ['новини', 'актуални', 'онлайн', 'web', 'search', 'изследвай', 'сайтове', 'интернет', 'trends', 'scrape'];
+
+        foreach ($keywords as $keyword) {
+            if (mb_stripos($description, $keyword) !== false) {
+                return true;
+            }
+        }
+
+        $response = $this->ollama->chat(
+            model: config('services.ollama.generator_model', 'mistral-nemo'),
+            systemPrompt: 'Answer only YES or NO. No other text.',
+            userMessage: "Does this flow description require fetching real-time web data or current news?\n\n{$description}",
+            options: ['temperature' => 0.0, 'num_predict' => 5]
+        );
+
+        return str_starts_with(strtoupper(trim($response)), 'YES');
+    }
+
+    private function ensureResearcherFirst(array $agents): array
+    {
+        $researcherIndex = null;
+        foreach ($agents as $i => $agent) {
+            if (($agent['type'] ?? '') === 'researcher') {
+                $researcherIndex = $i;
+                break;
+            }
+        }
+
+        if ($researcherIndex === null || $researcherIndex === 0) {
+            return $agents;
+        }
+
+        $researcher = array_splice($agents, $researcherIndex, 1)[0];
+        array_unshift($agents, $researcher);
+
+        foreach ($agents as $i => &$agent) {
+            $agent['order'] = $i + 1;
+        }
+        unset($agent);
+
+        return $agents;
     }
 }
