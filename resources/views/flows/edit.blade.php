@@ -10,7 +10,8 @@
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-        <form action="{{ route('flows.update', $flow) }}" method="POST" class="space-y-6">
+        <form action="{{ route('flows.update', $flow) }}" method="POST" class="space-y-6"
+              x-data="scheduleEditor('{{ old('schedule_cron', $flow->schedule_cron) }}')">
             @csrf @method('PUT')
 
             <div>
@@ -25,20 +26,123 @@
                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('description', $flow->description) }}</textarea>
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Статус</label>
-                    <select name="status" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        @foreach(['draft','active','paused'] as $s)
-                            <option value="{{ $s }}" {{ old('status', $flow->status) === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
-                        @endforeach
-                    </select>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Статус</label>
+                <select name="status" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    @foreach(['draft','active','paused'] as $s)
+                        <option value="{{ $s }}" {{ old('status', $flow->status) === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="col-span-2">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    График на изпълнение
+                    <span class="text-gray-400 font-normal text-xs ml-1">(по избор)</span>
+                </label>
+
+                {{-- Hidden input carries the cron value for form submission --}}
+                <input type="hidden" name="schedule_cron" :value="cronValue">
+
+                {{-- Preset buttons --}}
+                <div class="grid grid-cols-5 gap-2 mb-3">
+                    <template x-for="preset in [
+                        { id: 'none',    icon: '—',  label: 'Никога',   sub: 'само ръчно' },
+                        { id: 'hourly',  icon: '🕐', label: 'На час',   sub: 'всеки час' },
+                        { id: 'daily',   icon: '📅', label: 'Дневно',   sub: 'веднъж/ден' },
+                        { id: 'weekly',  icon: '📆', label: 'Седмично', sub: 'веднъж/седм.' },
+                        { id: 'monthly', icon: '🗓', label: 'Месечно',  sub: 'веднъж/месец' },
+                    ]" :key="preset.id">
+                        <button type="button"
+                                @click="schedule.preset = preset.id; schedule.showCustom = false"
+                                :class="schedule.preset === preset.id
+                                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                                    : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-300'"
+                                class="border rounded-xl p-2.5 text-center cursor-pointer transition text-sm">
+                            <span class="block text-lg leading-none mb-1" x-text="preset.icon"></span>
+                            <span class="block font-semibold text-xs" x-text="preset.label"></span>
+                            <span class="block text-[10px] opacity-70" x-text="preset.sub"></span>
+                        </button>
+                    </template>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Cron разписание</label>
-                    <input type="text" name="schedule_cron" value="{{ old('schedule_cron', $flow->schedule_cron) }}"
-                           placeholder="напр. 0 10 * * *"
-                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+
+                {{-- Time picker — shown for daily/weekly/monthly --}}
+                <div x-show="['daily','weekly','monthly'].includes(schedule.preset)" x-cloak
+                     class="flex flex-wrap items-center gap-3 mb-3">
+
+                    <template x-if="schedule.preset === 'weekly'">
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm text-gray-600 whitespace-nowrap">Ден от седмицата:</label>
+                            <select x-model="schedule.dayOfWeek"
+                                    class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="1">Понеделник</option>
+                                <option value="2">Вторник</option>
+                                <option value="3">Сряда</option>
+                                <option value="4">Четвъртък</option>
+                                <option value="5">Петък</option>
+                                <option value="6">Събота</option>
+                                <option value="0">Неделя</option>
+                            </select>
+                        </div>
+                    </template>
+
+                    <template x-if="schedule.preset === 'monthly'">
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm text-gray-600 whitespace-nowrap">Ден от месеца:</label>
+                            <select x-model="schedule.dayOfMonth"
+                                    class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <template x-for="d in Array.from({length:31},(_,i)=>i+1)" :key="d">
+                                    <option :value="d" x-text="d"></option>
+                                </template>
+                            </select>
+                        </div>
+                    </template>
+
+                    <div class="flex items-center gap-2">
+                        <label class="text-sm text-gray-600 whitespace-nowrap">В колко часа:</label>
+                        <select x-model="schedule.hour"
+                                class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <template x-for="h in Array.from({length:24},(_,i)=>i)" :key="h">
+                                <option :value="h" x-text="String(h).padStart(2,'0') + ':00'"></option>
+                            </template>
+                        </select>
+                    </div>
+                </div>
+
+                {{-- Human-readable summary --}}
+                <div x-show="schedule.preset !== 'none'" x-cloak
+                     class="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-500 flex items-center gap-2 mb-2">
+                    <span>📋</span>
+                    <span>
+                        <template x-if="schedule.preset === 'hourly'">
+                            <span>Ще се изпълнява <strong class="text-gray-700">всеки час</strong></span>
+                        </template>
+                        <template x-if="schedule.preset === 'daily'">
+                            <span>Ще се изпълнява <strong class="text-gray-700">всеки ден в <span x-text="String(schedule.hour).padStart(2,'0') + ':00'"></span></strong></span>
+                        </template>
+                        <template x-if="schedule.preset === 'weekly'">
+                            <span>Ще се изпълнява <strong class="text-gray-700">всяка седмица в <span x-text="String(schedule.hour).padStart(2,'0') + ':00'"></span></strong></span>
+                        </template>
+                        <template x-if="schedule.preset === 'monthly'">
+                            <span>Ще се изпълнява <strong class="text-gray-700">всеки месец на <span x-text="schedule.dayOfMonth"></span>-ти в <span x-text="String(schedule.hour).padStart(2,'0') + ':00'"></span></strong></span>
+                        </template>
+                        <template x-if="schedule.preset === 'custom'">
+                            <span>Cron: <code class="font-mono" x-text="schedule.customCron"></code></span>
+                        </template>
+                        · <code class="font-mono text-gray-400" x-text="cronValue"></code>
+                    </span>
+                </div>
+
+                {{-- Advanced / custom cron --}}
+                <button type="button" @click="schedule.showCustom = !schedule.showCustom; if(schedule.showCustom) schedule.preset = 'custom'"
+                        class="text-xs text-gray-400 hover:text-gray-600 underline transition">
+                    ⚙ По избор (напреднали)
+                </button>
+                <div x-show="schedule.showCustom" x-cloak class="mt-2">
+                    <input type="text" x-model="schedule.customCron"
+                           placeholder="напр. 0 10 * * 1-5"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <p class="text-xs text-gray-400 mt-1">Стандартен cron синтаксис: минута час ден-от-месец месец ден-от-седмица</p>
                 </div>
             </div>
 
@@ -53,4 +157,50 @@
         </form>
     </div>
 </div>
+
+<script>
+function scheduleEditor(existingCron) {
+    return {
+        schedule: { preset: 'none', hour: '10', dayOfWeek: '1', dayOfMonth: '1', customCron: '', showCustom: false },
+
+        get cronValue() {
+            const s = this.schedule;
+            if (s.preset === 'none') return '';
+            if (s.preset === 'hourly') return '0 * * * *';
+            if (s.preset === 'daily') return `0 ${s.hour} * * *`;
+            if (s.preset === 'weekly') return `0 ${s.hour} * * ${s.dayOfWeek}`;
+            if (s.preset === 'monthly') return `0 ${s.hour} ${s.dayOfMonth} * *`;
+            if (s.preset === 'custom') return s.customCron;
+            return '';
+        },
+
+        init() {
+            if (!existingCron) return;
+            const parts = existingCron.trim().split(/\s+/);
+            if (parts.length !== 5) {
+                this.schedule.preset = 'custom';
+                this.schedule.customCron = existingCron;
+                this.schedule.showCustom = true;
+                return;
+            }
+            const [min, hour, dom, month, dow] = parts;
+            if (min==='0' && hour==='*' && dom==='*' && month==='*' && dow==='*') {
+                this.schedule.preset = 'hourly'; return;
+            }
+            if (min==='0' && dom==='*' && month==='*' && dow==='*') {
+                this.schedule.preset = 'daily'; this.schedule.hour = hour; return;
+            }
+            if (min==='0' && dom==='*' && month==='*') {
+                this.schedule.preset = 'weekly'; this.schedule.hour = hour; this.schedule.dayOfWeek = dow; return;
+            }
+            if (min==='0' && month==='*' && dow==='*') {
+                this.schedule.preset = 'monthly'; this.schedule.hour = hour; this.schedule.dayOfMonth = dom; return;
+            }
+            this.schedule.preset = 'custom';
+            this.schedule.customCron = existingCron;
+            this.schedule.showCustom = true;
+        },
+    };
+}
+</script>
 @endsection
