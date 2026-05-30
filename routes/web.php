@@ -33,9 +33,12 @@ Route::get('runs/{flowRun}', [FlowRunController::class, 'show'])->name('flow-run
 Route::get('runs/{flowRun}/poll', [FlowRunController::class, 'poll'])->name('flow-runs.poll');
 Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-runs.log');
 
-// Agent edit
-Route::get('flows/{flow}/agents/{agent}/edit', [AgentController::class, 'edit'])->name('agents.edit');
-Route::put('flows/{flow}/agents/{agent}', [AgentController::class, 'update'])->name('agents.update');
+// Agent management
+Route::post('flows/{flow}/agents',                [AgentController::class, 'store'])->name('agents.store');
+Route::delete('flows/{flow}/agents/{agent}',      [AgentController::class, 'destroy'])->name('agents.destroy');
+Route::post('flows/{flow}/agents/reorder',        [AgentController::class, 'reorder'])->name('agents.reorder');
+Route::get('flows/{flow}/agents/{agent}/edit',    [AgentController::class, 'edit'])->name('agents.edit');
+Route::put('flows/{flow}/agents/{agent}',         [AgentController::class, 'update'])->name('agents.update');
 
 // Agent template picker (AJAX for popup)
 Route::get('agent-templates/picker', [AgentTemplateController::class, 'picker'])->name('agent-templates.picker');

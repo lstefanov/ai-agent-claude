@@ -83,7 +83,8 @@ class FlowController extends Controller
     {
         $flow->load(['company', 'agents' => fn($q) => $q->orderBy('order')]);
         $runs = $flow->flowRuns()->latest()->take(10)->get();
-        return view('flows.show', compact('flow', 'runs'));
+        $models = LlmModel::where('is_enabled', true)->orderBy('category')->orderBy('display_name')->get();
+        return view('flows.show', compact('flow', 'runs', 'models'));
     }
 
     public function edit(Flow $flow)
