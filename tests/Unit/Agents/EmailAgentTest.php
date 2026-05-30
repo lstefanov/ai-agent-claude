@@ -40,7 +40,12 @@ class EmailAgentTest extends TestCase
 
         $result = $emailAgent->run($agent, $agentRun, []);
 
-        Mail::assertSent(FlowRunReport::class, fn ($m) => $m->hasTo('boss@company.bg') && $m->flowRunId === 0);
+        Mail::assertSent(FlowRunReport::class, fn ($m) =>
+            $m->hasTo('boss@company.bg')
+            && $m->flowRunId === 0
+            && $m->reportContent === '## Репорт'
+            && $m->flowName === 'Test Flow'
+        );
         $this->assertStringContainsString('boss@company.bg', $result);
     }
 

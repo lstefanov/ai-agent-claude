@@ -19,10 +19,11 @@ class EmailAgent extends BaseAgent
             model: $agent->model,
             systemPrompt: 'Extract only the email address from the user message. Return the email address and nothing else. If there is no email address, return the word "none".',
             userMessage: $description,
-            options: []
+            options: $this->buildOptions($agent)
         );
 
-        $email = trim($extracted);
+        preg_match('/[\w.+\-]+@[\w\-]+(?:\.[\w\-]+)+/', $extracted, $matches);
+        $email = $matches[0] ?? '';
 
         if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return '⚠ Не е намерен имейл адрес в описанието на Flow-а.';
