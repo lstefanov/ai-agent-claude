@@ -192,10 +192,148 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
 
     {{-- Add agent --}}
     <div class="px-6 py-3 border-t border-dashed border-gray-200 flex justify-center">
-        <button type="button" @click="addAgent()"
+        <button type="button" @click="openAgentPicker()"
                 class="text-indigo-600 hover:text-indigo-800 text-sm font-semibold flex items-center gap-1.5 px-4 py-2 rounded-lg hover:bg-indigo-50 transition">
             ＋ Добави агент
         </button>
+    </div>
+
+    {{-- Agent Picker Modal --}}
+    <div x-show="showPicker" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="showPicker = false">
+        <div class="absolute inset-0 bg-black/40" @click="showPicker = false"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-[820px] overflow-hidden"
+             @click.stop>
+            {{-- Header --}}
+            <div class="px-6 pt-5 pb-0 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Добави агент</h3>
+                <button @click="showPicker = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+
+            {{-- Tabs --}}
+            <div class="flex px-6 pt-3 pb-0 border-b border-gray-200 gap-1">
+                <template x-for="tab in pickerTabs" :key="tab.id">
+                    <button type="button"
+                            @click="activePickerTab = tab.id"
+                            :class="activePickerTab === tab.id
+                                ? 'border-indigo-600 text-indigo-700 font-semibold bg-indigo-50'
+                                : 'border-transparent text-gray-500 hover:text-gray-700'"
+                            class="px-4 py-2 text-sm border-b-2 -mb-px rounded-t-lg transition whitespace-nowrap"
+                            x-text="tab.label">
+                    </button>
+                </template>
+            </div>
+
+            {{-- Body --}}
+            <div class="p-6 max-h-[480px] overflow-y-auto">
+                {{-- Search --}}
+                <div class="mb-4">
+                    <input type="text" x-model="pickerSearch"
+                           placeholder="🔍 Търси по ime или тип..."
+                           class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                {{-- Loading --}}
+                <div x-show="pickerLoading" class="text-center py-8 text-gray-400 text-sm">
+                    <span class="inline-block w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></span>
+                    Зарежда шаблони...
+                </div>
+
+                {{-- "Всички" tab --}}
+                <div x-show="!pickerLoading && activePickerTab === 'all'">
+                    <div class="mb-4">
+                        <div @click="selectTemplate(null)"
+                             class="flex items-center gap-4 p-4 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                            <span class="text-3xl">➕</span>
+                            <div class="flex-1">
+                                <div class="font-semibold text-sm text-gray-900">Нов празен агент</div>
+                                <div class="text-xs text-gray-500">Започни от нулата — всички полета са празни</div>
+                            </div>
+                            <span class="text-indigo-600 text-sm font-semibold">Избери →</span>
+                        </div>
+                    </div>
+
+                    <template x-if="filteredCompanyTemplates.length > 0">
+                        <div class="mb-4">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">🏢 Моите агенти</p>
+                            <div class="grid grid-cols-4 gap-2">
+                                <template x-for="tpl in filteredCompanyTemplates" :key="tpl.id">
+                                    <div @click="selectTemplate(tpl)"
+                                         class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                        <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
+                                        <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
+                                        <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                        <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-100 text-green-700" x-text="tpl.type"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="filteredSystemTemplates.length > 0">
+                        <div>
+                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">⚙ Системни агенти</p>
+                            <div class="grid grid-cols-4 gap-2">
+                                <template x-for="tpl in filteredSystemTemplates" :key="tpl.id">
+                                    <div @click="selectTemplate(tpl)"
+                                         class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                        <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
+                                        <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
+                                        <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                        <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-100 text-violet-700" x-text="tpl.type"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div x-show="filteredCompanyTemplates.length === 0 && filteredSystemTemplates.length === 0 && pickerSearch"
+                         class="text-center py-8 text-gray-400 text-sm">
+                        Няма резултати за "<span x-text="pickerSearch"></span>"
+                    </div>
+                </div>
+
+                {{-- "Моите агенти" tab --}}
+                <div x-show="!pickerLoading && activePickerTab === 'mine'">
+                    <div x-show="filteredCompanyTemplates.length === 0" class="text-center py-8 text-gray-400 text-sm">
+                        <p class="text-3xl mb-2">🏢</p>
+                        Нямате запазени агент шаблони.
+                        <a href="{{ route('companies.agent-templates.index', $flow->company) }}"
+                           class="text-indigo-600 underline block mt-1">Управлявай агентите на компанията →</a>
+                    </div>
+                    <div x-show="filteredCompanyTemplates.length > 0" class="grid grid-cols-4 gap-2">
+                        <template x-for="tpl in filteredCompanyTemplates" :key="tpl.id">
+                            <div @click="selectTemplate(tpl)"
+                                 class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
+                                <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
+                                <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-100 text-green-700" x-text="tpl.type"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- "Системни агенти" tab --}}
+                <div x-show="!pickerLoading && activePickerTab === 'system'">
+                    <div x-show="filteredSystemTemplates.length === 0" class="text-center py-8 text-gray-400 text-sm">
+                        Няма системни агент шаблони.
+                    </div>
+                    <div x-show="filteredSystemTemplates.length > 0" class="grid grid-cols-4 gap-2">
+                        <template x-for="tpl in filteredSystemTemplates" :key="tpl.id">
+                            <div @click="selectTemplate(tpl)"
+                                 class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
+                                <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
+                                <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-100 text-violet-700" x-text="tpl.type"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     {{-- QA position warning --}}
@@ -222,6 +360,19 @@ function flowAgentManager() {
         saveStatus: '',
         _sortable: null,
         _reorderTimer: null,
+
+        // ── Agent Picker ─────────────────────────────────────────
+        showPicker: false,
+        activePickerTab: 'all',
+        pickerSearch: '',
+        pickerLoading: false,
+        pickerLoaded: false,
+        pickerTemplates: { system: [], company: [] },
+        pickerTabs: [
+            { id: 'all',    label: 'Всички' },
+            { id: 'mine',   label: '🏢 Моите агенти' },
+            { id: 'system', label: '⚙ Системни агенти' },
+        ],
 
         init() {
             this.agents = AGENTS_DATA.map(a => ({ ...a }));
@@ -280,6 +431,71 @@ function flowAgentManager() {
                 model: firstModel ? firstModel.ollama_tag : '',
                 type:  'content_bg',
             };
+            this.saving = true;
+            const result = await this.ajax('POST', `/flows/${FLOW_ID}/agents`, data);
+            this.saving = false;
+            if (result) {
+                this.agents.push(result.agent);
+                this.editingIndex = this.agents.length - 1;
+                this.$nextTick(() => this.initSortable());
+            }
+        },
+
+        get filteredSystemTemplates() {
+            const q = this.pickerSearch.toLowerCase();
+            return this.pickerTemplates.system.filter(t =>
+                !q || t.name.toLowerCase().includes(q) || t.type.toLowerCase().includes(q)
+            );
+        },
+
+        get filteredCompanyTemplates() {
+            const q = this.pickerSearch.toLowerCase();
+            return this.pickerTemplates.company.filter(t =>
+                !q || t.name.toLowerCase().includes(q) || t.type.toLowerCase().includes(q)
+            );
+        },
+
+        async openAgentPicker() {
+            this.showPicker = true;
+            this.activePickerTab = 'all';
+            this.pickerSearch = '';
+
+            if (this.pickerLoaded) return;
+
+            this.pickerLoading = true;
+            try {
+                const resp = await fetch(`{{ route('agent-templates.picker') }}?company_id={{ $flow->company_id }}`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (resp.ok) {
+                    this.pickerTemplates = await resp.json();
+                    this.pickerLoaded = true;
+                } else {
+                    console.error('Failed to load templates, status:', resp.status);
+                }
+            } catch (e) {
+                console.error('Failed to load templates', e);
+            } finally {
+                this.pickerLoading = false;
+            }
+        },
+
+        async selectTemplate(tpl) {
+            const firstModel = this.models.find(m => m.is_available) || this.models[0];
+            const resolvedModel = tpl && tpl.model && this.models.find(m => m.ollama_tag === tpl.model)
+                ? tpl.model
+                : (firstModel ? firstModel.ollama_tag : '');
+
+            const data = {
+                name:             tpl ? (tpl.name            || 'Нов агент')   : 'Нов агент',
+                model:            resolvedModel,
+                type:             tpl ? (tpl.type            || 'content_bg')  : 'content_bg',
+                role:             tpl ? (tpl.role            || '')             : '',
+                system_prompt:    tpl ? (tpl.system_prompt   || '')             : '',
+                prompt_template:  tpl ? (tpl.prompt_template || '')             : '',
+            };
+
+            this.showPicker = false;
             this.saving = true;
             const result = await this.ajax('POST', `/flows/${FLOW_ID}/agents`, data);
             this.saving = false;
