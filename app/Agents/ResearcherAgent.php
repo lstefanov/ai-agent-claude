@@ -14,7 +14,7 @@ class ResearcherAgent extends BaseAgent
 
         $extraContext = '';
         if ($searchResults !== null) {
-            $extraContext = "\n\n--- WEB SEARCH RESULTS (use these as your primary source) ---\n" . $searchResults;
+            $extraContext = "\n\n--- WEB SEARCH RESULTS (use these as your primary source. For every fact or news item you include in your report, cite the original source URL in parentheses next to it) ---\n" . $searchResults;
         }
 
         return $this->chat($agent, $agentRun->input, $extraContext);
