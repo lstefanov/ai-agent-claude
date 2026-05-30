@@ -774,31 +774,6 @@ function flowCreator() {
             }
         },
 
-        addAgent() {
-            const newAgent = {
-                _uid: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random(),
-                name: 'Нов агент',
-                type: 'content_bg',
-                role: '',
-                system_prompt: '',
-                prompt_template: '',
-                model: AVAILABLE_MODELS[0] || ALL_MODEL_TAGS[0] || '',
-                model_reason: '',
-                order: this.agents.length + 1,
-                is_verifier: false,
-                qa_threshold: null,
-                capabilities: [],
-                strengths: '',
-                limitations: '',
-                input_description: '',
-                output_description: '',
-                config: { temperature: 0.7, num_predict: 1000 },
-            };
-            this.agents.push(newAgent);
-            this.editingIndex = this.agents.length - 1;
-            this.$nextTick(() => this.initSortable());
-        },
-
         async openAgentPicker() {
             this.showPicker = true;
             this.activePickerTab = 'all';
