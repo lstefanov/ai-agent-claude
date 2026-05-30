@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start Ollama + ComfyUI for FlowAI development
+# Start Ollama + ComfyUI + Crawl4AI for FlowAI development
 
 set -e
 
@@ -43,10 +43,34 @@ else
     fi
 fi
 
+# Start Crawl4AI scraping service
+CRAWL_VENV="$(dirname "$0")/.venv"
+if curl -s http://localhost:8189/health > /dev/null 2>&1; then
+    echo "✓ Crawl4AI already running"
+else
+    echo "Starting Crawl4AI..."
+    if [ ! -f "$CRAWL_VENV/bin/uvicorn" ]; then
+        echo "✗ Crawl4AI venv not found at $CRAWL_VENV — run: pip install crawl4ai fastapi uvicorn"
+    else
+        "$CRAWL_VENV/bin/uvicorn" crawl_service:app \
+            --host 0.0.0.0 --port 8189 \
+            --app-dir "$(dirname "$0")" \
+            &> /tmp/crawl4ai.log &
+        CRAWL_PID=$!
+        sleep 3
+        if curl -s http://localhost:8189/health > /dev/null 2>&1; then
+            echo "✓ Crawl4AI started (PID: $CRAWL_PID)"
+        else
+            echo "✗ Crawl4AI failed to start — check /tmp/crawl4ai.log"
+        fi
+    fi
+fi
+
 echo ""
 echo "Services:"
 echo "  Ollama:   http://localhost:11434"
 echo "  ComfyUI:  http://localhost:8188"
+echo "  Crawl4AI: http://localhost:8189"
 echo "  FlowAI:   http://flowai.local"
 echo ""
 echo "Press Ctrl+C to stop background processes (if started by this script)."
