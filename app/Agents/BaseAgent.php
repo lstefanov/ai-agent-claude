@@ -35,6 +35,11 @@ abstract class BaseAgent
         return $this->tools[$name]->execute($params);
     }
 
+    protected function hasTool(string $name): bool
+    {
+        return isset($this->tools[$name]);
+    }
+
     abstract public function run(Agent $agent, AgentRun $agentRun, array $context): string;
 
     protected function buildPrompt(Agent $agent, array $context): string

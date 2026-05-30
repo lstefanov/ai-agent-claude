@@ -169,7 +169,7 @@ MSG;
                 model: config('services.ollama.generator_model', 'mistral-nemo'),
                 systemPrompt: $systemPrompt,
                 userMessage: $userMessage,
-                options: ['temperature' => 0.4, 'num_predict' => 300]
+                options: ['temperature' => 0.4, 'num_predict' => 600]
             );
         } catch (\Exception $e) {
             return response()->json(['error' => 'AI услугата не е достъпна. Провери дали Ollama работи.'], 503);
