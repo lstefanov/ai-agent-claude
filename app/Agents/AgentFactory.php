@@ -3,6 +3,7 @@
 namespace App\Agents;
 
 use App\Agents\EmailAgent;
+use App\Agents\MultiResearcherAgent;
 use App\Agents\Tools\BraveSearchTool;
 use App\Models\Agent;
 use App\Services\BraveSearchService;
@@ -24,6 +25,7 @@ class AgentFactory
             'qa_verifier'   => new QaVerifierAgent($this->ollama),
             'analyzer'      => new AnalyzerAgent($this->ollama),
             'researcher'    => new ResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
+            'multi_researcher' => new MultiResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
             'summarizer'    => new SummarizerAgent($this->ollama),
             'decision'      => new DecisionAgent($this->ollama),
             'publisher'     => new PublisherAgent($this->ollama),
