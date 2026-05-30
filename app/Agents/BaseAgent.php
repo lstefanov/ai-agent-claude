@@ -57,7 +57,9 @@ abstract class BaseAgent
 
     protected function chat(Agent $agent, string $userMessage, string $extraSystemContext = ''): string
     {
-        $systemPrompt = $agent->role . $this->buildOutputInstructions($agent) . $extraSystemContext;
+        // system_prompt (editable in UI) takes precedence; fall back to role for older agents
+        $base         = !empty($agent->system_prompt) ? $agent->system_prompt : ($agent->role ?? '');
+        $systemPrompt = $base . $this->buildOutputInstructions($agent) . $extraSystemContext;
 
         return $this->ollama->chat(
             model: $agent->model,
