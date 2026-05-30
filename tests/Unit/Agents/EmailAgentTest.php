@@ -38,12 +38,13 @@ class EmailAgentTest extends TestCase
         $agentRun = new AgentRun(['input' => '## Репорт', 'flow_run_id' => 0]);
         $emailAgent = $this->makeEmailAgent('boss@company.bg');
 
-        $result = $emailAgent->run($agent, $agentRun, []);
+        $context = ['input' => '## Репорт от ContentAgent'];
+        $result = $emailAgent->run($agent, $agentRun, $context);
 
         Mail::assertSent(FlowRunReport::class, fn ($m) =>
             $m->hasTo('boss@company.bg')
             && $m->flowRunId === 0
-            && $m->reportContent === '## Репорт'
+            && $m->reportContent === '## Репорт от ContentAgent'
             && $m->flowName === 'Test Flow'
         );
         $this->assertStringContainsString('boss@company.bg', $result);

@@ -25,7 +25,7 @@
     <p>Автоматичен репорт — {{ now()->format('d.m.Y') }}</p>
   </div>
   <div class="body">
-    {!! Str::markdown($reportContent) !!}
+    {!! Str::markdown($reportContent, ['html_input' => 'strip']) !!}
   </div>
   <div class="footer">
     Генериран от <strong>FlowAI</strong> &nbsp;·&nbsp; {{ now()->format('H:i') }}

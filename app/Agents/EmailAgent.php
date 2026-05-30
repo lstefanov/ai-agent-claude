@@ -29,8 +29,10 @@ class EmailAgent extends BaseAgent
             return '⚠ Не е намерен имейл адрес в описанието на Flow-а.';
         }
 
+        $reportContent = $context['input'] ?? $agentRun->input;
+
         Mail::to($email)->send(new FlowRunReport(
-            reportContent: $agentRun->input,
+            reportContent: $reportContent,
             flowName: $flowName,
             flowRunId: $agentRun->flow_run_id,
         ));
