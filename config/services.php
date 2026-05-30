@@ -53,4 +53,11 @@ return [
         'negative_prompt' => env('COMFYUI_NEGATIVE_PROMPT', 'ugly, deformed, noisy, blurry, distorted, low quality, watermark, text, signature'),
     ],
 
+    'crawl' => [
+        'url'       => env('CRAWL_SERVICE_URL', 'http://localhost:8189'),
+        'enabled'   => env('CRAWL_SERVICE_ENABLED', true),
+        'timeout'   => env('CRAWL_SERVICE_TIMEOUT', 15),
+        'max_pages' => env('CRAWL_MAX_PAGES', 3),
+    ],
+
 ];
