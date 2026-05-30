@@ -26,6 +26,7 @@
                     $navItems = [
                         'Фирми'      => ['route' => 'companies.index', 'match' => 'companies.*'],
                         'LLM Модели' => ['route' => 'models.index',    'match' => 'models.*'],
+                        'Admin'      => ['route' => 'admin.login',      'match' => 'admin.*'],
                     ];
                 @endphp
                 @foreach($navItems as $label => $item)

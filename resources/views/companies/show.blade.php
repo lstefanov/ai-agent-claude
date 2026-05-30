@@ -19,8 +19,12 @@
            class="bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
             ✏ Редактирай
         </a>
+        <a href="{{ route('companies.agent-templates.index', $company) }}"
+           class="bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+            🤖 Агенти
+        </a>
         <form action="{{ route('companies.destroy', $company) }}" method="POST"
-              onsubmit="return confirm('Сигурен ли си? Ще се изтрият и всички flows!')">
+              onsubmit="return confirm('Сигурен ли си? Ще се изтрят и всички flows!')">
             @csrf @method('DELETE')
             <button class="bg-white border border-red-200 hover:bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm font-medium transition">
                 Изтрий
