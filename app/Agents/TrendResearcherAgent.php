@@ -13,8 +13,11 @@ class TrendResearcherAgent extends BaseAgent
             ? $context['flow_topic']
             : mb_substr($agentRun->input, 0, 300);
 
+        $year     = date('Y');
+        $prevYear = $year - 1;
+
         $queries = [
-            "trending topics {$topic} 2024 2025",
+            "trending topics {$topic} {$prevYear} {$year}",
             "{$topic} latest trends insights",
         ];
 

@@ -17,6 +17,12 @@ class SlackNotifierAgent extends BaseAgent
             return '⚠ No webhook_url configured in agent config.';
         }
 
+        // Validate URL scheme (SSRF prevention)
+        $parsed = parse_url($webhookUrl);
+        if (!in_array($parsed['scheme'] ?? '', ['http', 'https'], true)) {
+            return '⚠ Invalid webhook_url — must start with http:// or https://.';
+        }
+
         // Generate a brief Slack-formatted summary from the context
         $summaryPrompt = "Write a brief 2-3 line Slack notification summarising the following content. "
             . "Use plain text suitable for Slack. Be concise and informative.\n\n"
@@ -28,10 +34,10 @@ class SlackNotifierAgent extends BaseAgent
             $response = Http::timeout(10)->post($webhookUrl, ['text' => $summary]);
 
             if ($response->successful()) {
-                return "✓ Slack notification sent successfully to {$webhookUrl}.";
+                return "✓ Slack notification sent successfully.";
             }
 
-            return "⚠ Slack notification failed: HTTP {$response->status()} from {$webhookUrl}.";
+            return "⚠ Slack notification failed: HTTP {$response->status()}.";
         } catch (\Exception $e) {
             return "⚠ Slack notification error: " . $e->getMessage();
         }
