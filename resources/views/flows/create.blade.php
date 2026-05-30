@@ -813,7 +813,11 @@ function flowCreator() {
                 const resp = await fetch(`{{ route('agent-templates.picker') }}?company_id={{ $company->id }}`, {
                     headers: { 'Accept': 'application/json' },
                 });
-                this.pickerTemplates = await resp.json();
+                if (resp.ok) {
+                    this.pickerTemplates = await resp.json();
+                } else {
+                    console.error('Failed to load templates, status:', resp.status);
+                }
             } catch (e) {
                 console.error('Failed to load templates', e);
             } finally {
