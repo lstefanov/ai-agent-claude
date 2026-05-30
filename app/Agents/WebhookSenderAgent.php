@@ -31,7 +31,7 @@ class WebhookSenderAgent extends BaseAgent
         ];
 
         // If send_full_context is enabled, include the full context
-        if ($config['send_full_context'] === true) {
+        if (($config['send_full_context'] ?? false) === true) {
             $payload['context'] = $context;
         }
 
