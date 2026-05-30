@@ -6,6 +6,8 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\LlmModelController;
+use App\Http\Controllers\Admin\AdminAuthController;
+use App\Http\Controllers\Admin\AgentTemplateController as AdminAgentTemplateController;
 use Illuminate\Support\Facades\Route;
 
 // Companies
@@ -54,6 +56,21 @@ Route::post('models/{model}/pull', [LlmModelController::class, 'pull'])->name('m
 Route::get('models/{model}/pull/status', [LlmModelController::class, 'pullStatus'])->name('models.pull.status');
 Route::post('models/{model}/test', [LlmModelController::class, 'test'])->name('models.test');
 Route::post('models/{model}/toggle', [LlmModelController::class, 'toggle'])->name('models.toggle');
+
+// Admin auth
+Route::get('admin/login', [AdminAuthController::class, 'showLogin'])->name('admin.login');
+Route::post('admin/login', [AdminAuthController::class, 'login'])->name('admin.login.post');
+Route::post('admin/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
+
+// Admin agent templates (protected)
+Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function () {
+    Route::get('agent-templates', [AdminAgentTemplateController::class, 'index'])->name('agent-templates.index');
+    Route::get('agent-templates/create', [AdminAgentTemplateController::class, 'create'])->name('agent-templates.create');
+    Route::post('agent-templates', [AdminAgentTemplateController::class, 'store'])->name('agent-templates.store');
+    Route::get('agent-templates/{agentTemplate}/edit', [AdminAgentTemplateController::class, 'edit'])->name('agent-templates.edit');
+    Route::put('agent-templates/{agentTemplate}', [AdminAgentTemplateController::class, 'update'])->name('agent-templates.update');
+    Route::delete('agent-templates/{agentTemplate}', [AdminAgentTemplateController::class, 'destroy'])->name('agent-templates.destroy');
+});
 
 // Home
 Route::get('/', [CompanyController::class, 'index'])->name('home');
