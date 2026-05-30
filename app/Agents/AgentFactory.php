@@ -2,6 +2,7 @@
 
 namespace App\Agents;
 
+use App\Agents\EmailAgent;
 use App\Agents\Tools\BraveSearchTool;
 use App\Models\Agent;
 use App\Services\BraveSearchService;
@@ -28,6 +29,7 @@ class AgentFactory
             'publisher'     => new PublisherAgent($this->ollama),
             'translator'    => new TranslatorAgent($this->ollama),
             'orchestrator'  => new OrchestratorAgent($this->ollama),
+            'email'         => new EmailAgent($this->ollama),
             default         => new ContentAgent($this->ollama),
         };
     }

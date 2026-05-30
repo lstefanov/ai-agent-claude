@@ -1,0 +1,83 @@
+<h2>Дизайн на pipeline-а</h2>
+<p class="subtitle">Така ще изглежда Flow-ът за конкурентни цени всяка сутрин</p>
+
+<div class="mockup">
+  <div class="mockup-header">Competitor Pricing Flow — Agent Pipeline</div>
+  <div class="mockup-body">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:8px 0">
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#6366f1;color:white;border-radius:8px;padding:10px 16px;min-width:160px;font-size:13px;font-weight:600">
+          🔍 ResearcherAgent
+        </div>
+        <div style="color:#64748b;font-size:13px">Търси конкурентни цени в интернет чрез Brave Search</div>
+        <div style="margin-left:auto;background:#f1f5f9;border-radius:6px;padding:4px 10px;font-size:11px;color:#94a3b8">hidden</div>
+      </div>
+
+      <div style="display:flex;justify-content:center;color:#94a3b8;font-size:18px">↓</div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#8b5cf6;color:white;border-radius:8px;padding:10px 16px;min-width:160px;font-size:13px;font-weight:600">
+          📊 AnalyzerAgent
+        </div>
+        <div style="color:#64748b;font-size:13px">Анализира намерените данни — цени, тенденции, промени от вчера</div>
+        <div style="margin-left:auto;background:#f1f5f9;border-radius:6px;padding:4px 10px;font-size:11px;color:#94a3b8">hidden</div>
+      </div>
+
+      <div style="display:flex;justify-content:center;color:#94a3b8;font-size:18px">↓</div>
+
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="background:#0ea5e9;color:white;border-radius:8px;padding:10px 16px;min-width:160px;font-size:13px;font-weight:600">
+          📝 ContentAgent
+        </div>
+        <div style="color:#64748b;font-size:13px">Генерира структуриран репорт с цени, тенденции и AI резюме</div>
+        <div style="margin-left:auto;background:#f1f5f9;border-radius:6px;padding:4px 10px;font-size:11px;color:#94a3b8">body</div>
+      </div>
+
+      <div style="display:flex;justify-content:center;color:#94a3b8;font-size:18px">↓</div>
+
+      <div style="display:flex;align-items:center;gap:12px;border:2px solid #22c55e;border-radius:10px;padding:8px 12px;background:#f0fdf4">
+        <div style="background:#22c55e;color:white;border-radius:8px;padding:10px 16px;min-width:160px;font-size:13px;font-weight:600">
+          📧 EmailAgent <span style="font-size:10px;font-weight:400;opacity:0.9">NEW</span>
+        </div>
+        <div style="color:#64748b;font-size:13px">
+          Извлича имейл от описанието на Flow-а с LLM →<br>
+          изпраща <strong>FlowRunReport</strong> Mailable с HTML репорт
+        </div>
+        <div style="margin-left:auto;background:#f1f5f9;border-radius:6px;padding:4px 10px;font-size:11px;color:#94a3b8">appendix</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>Как EmailAgent извлича имейла</h3>
+  <div style="background:#f8fafc;border-radius:10px;padding:16px;font-size:13px;line-height:1.7;border:1px solid #e2e8f0">
+    <strong>Flow описание:</strong><br>
+    <em style="color:#6366f1">"Ежедневен мониторинг на конкурентни цени в IT сектора. Изпрати репорта на <strong>boss@company.bg</strong>."</em>
+    <br><br>
+    <strong>LLM prompt към EmailAgent:</strong><br>
+    <em style="color:#64748b">"Извлечи имейл адреса от следния текст. Върни само имейла, нищо друго: {flow.description}"</em>
+    <br><br>
+    <strong>Резултат:</strong> <code>boss@company.bg</code> → Mailable се изпраща
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px">
+  <h3>Нови файлове за имплементация</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
+    <div style="background:#f8fafc;border-radius:8px;padding:12px;border:1px solid #e2e8f0">
+      <div style="font-weight:600;margin-bottom:6px;color:#6366f1">Нови файлове</div>
+      <div>📄 app/Agents/EmailAgent.php</div>
+      <div>📄 app/Mail/FlowRunReport.php</div>
+      <div>📄 resources/views/mail/flow-run-report.blade.php</div>
+    </div>
+    <div style="background:#f8fafc;border-radius:8px;padding:12px;border:1px solid #e2e8f0">
+      <div style="font-weight:600;margin-bottom:6px;color:#8b5cf6">Модифицирани файлове</div>
+      <div>✏️ app/Agents/AgentFactory.php</div>
+      <div>✏️ app/Models/Agent.php (type enum)</div>
+      <div>✏️ resources/views/agents/edit.blade.php (UI)</div>
+    </div>
+  </div>
+</div>

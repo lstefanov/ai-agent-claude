@@ -47,6 +47,7 @@ class Agent extends Model
         'seo'         => 'appendix',
         'qa_verifier' => 'quality',
         'verifier'    => 'quality',
+        'email'       => 'appendix',
     ];
 
     public function effectiveOutputRole(): string
