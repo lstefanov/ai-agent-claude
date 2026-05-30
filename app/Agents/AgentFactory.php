@@ -5,6 +5,13 @@ namespace App\Agents;
 use App\Agents\EmailAgent;
 use App\Agents\MultiResearcherAgent;
 use App\Agents\DeepResearcherAgent;
+use App\Agents\TrendResearcherAgent;
+use App\Agents\ReviewAnalyzerAgent;
+use App\Agents\CompetitorProfilerAgent;
+use App\Agents\KeywordExtractorAgent;
+use App\Agents\WebhookSenderAgent;
+use App\Agents\SlackNotifierAgent;
+use App\Agents\HashtagGeneratorAgent;
 use App\Agents\Tools\BraveSearchTool;
 use App\Agents\Tools\WebScraperTool;
 use App\Models\Agent;
@@ -39,6 +46,16 @@ class AgentFactory
             'translator'    => new TranslatorAgent($this->ollama),
             'orchestrator'  => new OrchestratorAgent($this->ollama),
             'email'         => new EmailAgent($this->ollama),
+            'trend_researcher'    => new TrendResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
+            'competitor_profiler' => new CompetitorProfilerAgent($this->ollama, [
+                new BraveSearchTool($this->braveSearch),
+                new WebScraperTool(new CrawlService()),
+            ]),
+            'review_analyzer'     => new ReviewAnalyzerAgent($this->ollama, [new WebScraperTool(new CrawlService())]),
+            'keyword_extractor'   => new KeywordExtractorAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
+            'webhook_sender'      => new WebhookSenderAgent($this->ollama),
+            'slack_notifier'      => new SlackNotifierAgent($this->ollama),
+            'hashtag_generator'   => new HashtagGeneratorAgent($this->ollama),
             default         => new ContentAgent($this->ollama),
         };
     }
