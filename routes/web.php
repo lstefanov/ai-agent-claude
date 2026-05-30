@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AgentController;
+use App\Http\Controllers\AgentTemplateController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowRunController;
@@ -33,6 +34,17 @@ Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-
 // Agent edit
 Route::get('flows/{flow}/agents/{agent}/edit', [AgentController::class, 'edit'])->name('agents.edit');
 Route::put('flows/{flow}/agents/{agent}', [AgentController::class, 'update'])->name('agents.update');
+
+// Agent template picker (AJAX for popup)
+Route::get('agent-templates/picker', [AgentTemplateController::class, 'picker'])->name('agent-templates.picker');
+
+// Company agent templates (CRUD)
+Route::get('companies/{company}/agent-templates', [AgentTemplateController::class, 'index'])->name('companies.agent-templates.index');
+Route::get('companies/{company}/agent-templates/create', [AgentTemplateController::class, 'create'])->name('companies.agent-templates.create');
+Route::post('companies/{company}/agent-templates', [AgentTemplateController::class, 'store'])->name('companies.agent-templates.store');
+Route::get('companies/{company}/agent-templates/{agentTemplate}/edit', [AgentTemplateController::class, 'edit'])->name('companies.agent-templates.edit');
+Route::put('companies/{company}/agent-templates/{agentTemplate}', [AgentTemplateController::class, 'update'])->name('companies.agent-templates.update');
+Route::delete('companies/{company}/agent-templates/{agentTemplate}', [AgentTemplateController::class, 'destroy'])->name('companies.agent-templates.destroy');
 
 // LLM Models
 Route::get('models', [LlmModelController::class, 'index'])->name('models.index');
