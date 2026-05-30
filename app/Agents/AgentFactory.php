@@ -4,8 +4,11 @@ namespace App\Agents;
 
 use App\Agents\EmailAgent;
 use App\Agents\MultiResearcherAgent;
+use App\Agents\DeepResearcherAgent;
 use App\Agents\Tools\BraveSearchTool;
+use App\Agents\Tools\WebScraperTool;
 use App\Models\Agent;
+use App\Services\CrawlService;
 use App\Services\BraveSearchService;
 use App\Services\ComfyUIService;
 use App\Services\OllamaService;
@@ -26,6 +29,10 @@ class AgentFactory
             'analyzer'      => new AnalyzerAgent($this->ollama),
             'researcher'    => new ResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
             'multi_researcher' => new MultiResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
+            'deep_researcher'  => new DeepResearcherAgent($this->ollama, [
+                new BraveSearchTool($this->braveSearch),
+                new WebScraperTool(new CrawlService()),
+            ]),
             'summarizer'    => new SummarizerAgent($this->ollama),
             'decision'      => new DecisionAgent($this->ollama),
             'publisher'     => new PublisherAgent($this->ollama),
