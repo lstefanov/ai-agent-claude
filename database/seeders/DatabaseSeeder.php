@@ -15,6 +15,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call(LlmModelSeeder::class);
+        $this->call([
+            LlmModelSeeder::class,
+            AgentTemplateSeeder::class,
+        ]);
     }
 }
