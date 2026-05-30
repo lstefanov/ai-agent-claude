@@ -57,13 +57,41 @@ Flow за изграждане: "{$flow->description}"
 - summarizer     → Кондензира дълго съдържание в ключови точки
 - decision       → Взима routing/условни решения
 - publisher      → Форматира изхода за конкретни платформи (FB, IG, LinkedIn и др.)
+- trend_researcher    → Търси тенденции и вирусни теми в нишата за контент идеи
+- competitor_profiler → Изгражда пълен профил на конкурент (услуги, цени, позициониране, слабости)
+- review_analyzer     → Scrape-ва и анализира ревюта — открива recurring patterns и sentiment
+- keyword_extractor   → Открива SEO ключови думи от SERP анализ с тип на намерение
+- hashtag_generator   → Генерира САМО хаштагове (#тагове), оптимизирани по платформа и нише
+- hook_writer         → Пише attention-grabbing opening изречение за постове
+- ad_copywriter       → Рекламни текстове: headline + body + CTA за Meta Ads или Google Ads
+- swot_builder        → Генерира SWOT анализ (силни/слаби страни, възможности, заплахи) от данни
+- data_extractor      → Извлича структурирани данни (таблици, цени, списъци) от суров текст
+- formatter           → Форматира изход в JSON, CSV, Markdown или HTML по нужда
+- classifier          → Категоризира съдържание по зададени категории
+- sentiment_analyzer  → Анализира тон (позитивен/неутрален/негативен) с числена оценка
+- report_writer       → Оформя formal доклад с executive summary, методология и изводи
+- newsletter_writer   → Съставя email newsletter секции с тема, тяло, CTA и subject line
+- email_composer      → Пише конкретен имейл (outreach, follow-up, оферта) — НЕ го изпраща
+- faq_generator       → Генерира FAQ секция от продуктово описание или research данни
+- seo_writer          → SEO-оптимизирана статия с keywords, headers H2/H3 и вътрешни линкове
+- meta_generator      → Генерира SEO meta title + description + OG tags за уеб страница
+- offer_builder       → Съставя промоционална оферта с цена, бонуси, deadline и USP
+- webhook_sender      → Изпраща резултатите към external URL (CRM, Zapier, n8n, Make) — ЗАДЪЛЖИТЕЛНО config.webhook_url
+- slack_notifier      → Изпраща summary нотификация в Slack канал — ЗАДЪЛЖИТЕЛНО config.webhook_url
+- google_sheets_writer→ Форматира данни като CSV таблица готова за import в Google Sheets
+- image_describer     → Описва изображение с текст (изисква vision-capable Ollama модел като llava)
 
 ПРАВИЛА ЗА ПРОЕКТИРАНЕ НА PIPELINE:
-- За social media flows: researcher → content → hashtag → image_prompt → caption_writer → qa_verifier
-- АКО flow-ът изисква актуални новини/web данни: researcher ЗАДЪЛЖИТЕЛНО е на позиция 1 (order: 1)
+- За social media flows: trend_researcher → hook_writer → content_bg → hashtag_generator → caption_writer → qa_verifier
+- За competitive intelligence: competitor_profiler → swot_builder → report_writer → email
+- За SEO flows: keyword_extractor → seo_writer → meta_generator → qa_verifier
+- За review monitoring: review_analyzer → sentiment_analyzer → report_writer
+- За outreach/email flows: analyzer → email_composer → slack_notifier
+- АКО flow-ът изисква актуални новини/web данни: researcher или trend_researcher ЗАДЪЛЖИТЕЛНО е на позиция 1 (order: 1)
 - За български текст: винаги използвай todorov/bggpt за генериране на текст
 - За QA/верификация: използвай phi3.5 или phi3:mini (бързи, ефективни)
 - За JSON/структуриран изход, image промпти, анализ: използвай mistral-nemo
+- За webhook_sender и slack_notifier: ЗАДЪЛЖИТЕЛНО включи config.webhook_url в agent config
 
 Върни JSON масив, където всеки обект има ТОЧНО тези полета:
 {
@@ -284,9 +312,11 @@ MSG;
 
     private function ensureResearcherFirst(array $agents): array
     {
+        $researcherTypes = ['researcher', 'multi_researcher', 'deep_researcher', 'trend_researcher', 'competitor_profiler', 'review_analyzer', 'keyword_extractor'];
+
         $researcherIndex = null;
         foreach ($agents as $i => $agent) {
-            if (($agent['type'] ?? '') === 'researcher') {
+            if (in_array($agent['type'] ?? '', $researcherTypes, true)) {
                 $researcherIndex = $i;
                 break;
             }
