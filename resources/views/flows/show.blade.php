@@ -185,7 +185,7 @@ $qaThresholdOptions = range(0, 100, 5);
                     </div>
 
                     {{-- Tab: QA Верификация --}}
-                    <div x-show="editTab === 'qa'" x-cloak>
+                    <div x-show="editTab === 'qa'">
                         {{-- Toggle row --}}
                         <div class="flex items-center justify-between mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
                             <div>
@@ -232,7 +232,7 @@ $qaThresholdOptions = range(0, 100, 5);
                                 Какво да проверява QA-то
                                 <span class="font-normal text-gray-400">(по избор — оставете празно за дефолтна проверка)</span>
                             </label>
-                            <textarea x-model="agent.config.qa.custom_prompt" rows="4"
+                            <textarea x-model="agent.config.qa.custom_prompt" rows="4" maxlength="2000"
                                       class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                       placeholder="Провери дали резултатът съдържа..."></textarea>
                             <p class="text-xs text-gray-400 mt-1">Този промпт се изпраща на QA агента заедно с изхода на стъпката.</p>
@@ -562,6 +562,7 @@ function flowAgentManager() {
                     }
                     if (this.agents[index].is_verifier) {
                         this.agents[index].config.qa = { enabled: false };
+                        this.editTab = 'agent';
                     }
                     this.initShowModelSelect(index);
                 });
@@ -708,6 +709,7 @@ function flowAgentManager() {
                 const idx = this.agents.findIndex(a => a.id === agent.id);
                 if (idx !== -1) this.agents[idx] = this.normalizeAgent({ ...this.agents[idx], ...result.agent });
                 this.editingIndex = null;
+                this.editTab = 'agent';
             }
         },
 
