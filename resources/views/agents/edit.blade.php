@@ -165,6 +165,15 @@ $cfg     = $agent->config ?? [];
                 <option value="appendix" {{ old('output_role', $agent->output_role) === 'appendix' ? 'selected' : '' }}>Добавка (хаштагове, SEO)</option>
                 <option value="hidden" {{ old('output_role', $agent->output_role) === 'hidden' ? 'selected' : '' }}>Скрит (изследване, анализ)</option>
             </select>
+            <p class="text-xs text-gray-400 mt-1">
+                Определя къде ще се появи резултатът от този агент във финалния output.
+            </p>
+            <div class="mt-2 rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                <p>Авто от тип: използва ролята по подразбиране за типа агент.</p>
+                <p>Основно съдържание: главният видим резултат.</p>
+                <p>Добавка: добавя се след основния текст.</p>
+                <p>Скрит: използва се като междинен контекст.</p>
+            </div>
             @error('output_role') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
         </div>
         @endif
