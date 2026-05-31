@@ -4,6 +4,7 @@ return [
 
     // --- Researchers / Data Gatherers ---
     'researcher' => ['output_role' => 'hidden',    'label' => 'Изследовател',               'description' => 'Събира контекст, тенденции, актуални новини, данни за конкуренти'],
+    'deep_researcher' => ['output_role' => 'hidden',    'label' => 'Дълбок изследовател',        'description' => 'Търси с Brave + scrape-ва пълното съдържание на намерените страници (цени, услуги)'],
     'trend_researcher' => ['output_role' => 'hidden',    'label' => 'Изследовател на тенденции',  'description' => 'Търси тенденции и вирусни теми в нишата за контент идеи'],
     'competitor_profiler' => ['output_role' => 'hidden',    'label' => 'Профилиращ конкуренти',      'description' => 'Изгражда пълен профил на конкурент (услуги, цени, позициониране, слабости)'],
     'review_analyzer' => ['output_role' => 'hidden',    'label' => 'Анализатор на ревюта',       'description' => 'Scrape-ва и анализира ревюта — открива recurring patterns и sentiment'],

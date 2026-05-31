@@ -4,6 +4,7 @@ namespace App\Agents;
 
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Support\PricingSourceQuality;
 use Illuminate\Support\Facades\Http;
 
 class DeepResearcherAgent extends BaseAgent
@@ -46,7 +47,7 @@ class DeepResearcherAgent extends BaseAgent
             $results = $this->useTool('web_search', ['query' => $query]);
             if ($results !== null) {
                 $num = $i + 1;
-                $allResults .= "\n\n=== SEARCH {$num}: \"{$query}\" ===\n{$results}";
+                $allResults .= "\n\n=== SEARCH {$num}: \"{$query}\" ===\n".PricingSourceQuality::filterSearchResults($results);
             }
         }
 
@@ -84,7 +85,7 @@ class DeepResearcherAgent extends BaseAgent
                 continue;
             }
             $markdown = $this->useTool('scrape_page', ['url' => $pricingUrl]);
-            if ($markdown && $markdown !== 'Scraping not available for this page.') {
+            if ($markdown && $markdown !== 'Scraping not available for this page.' && PricingSourceQuality::hasPricingEvidence($markdown)) {
                 $scraped .= "\n\n=== SCRAPED PRICING PAGE: {$pricingUrl} ===\n{$markdown}";
                 $count++;
             }
@@ -100,13 +101,18 @@ class DeepResearcherAgent extends BaseAgent
     private function extractDomainUrls(string $searchResults): array
     {
         preg_match_all('/URL:\s*(https?:\/\/\S+)/i', $searchResults, $matches);
-        $domainMap = [];
+        $preferredDomains = [];
+        $fallbackDomains = [];
         foreach ($matches[1] as $url) {
             $host = parse_url($url, PHP_URL_HOST) ?? '';
             $domain = strtolower(preg_replace('/^www\./i', '', $host));
             if (! $domain) {
                 continue;
             }
+            $domainMap = PricingSourceQuality::isLowValueDomain($domain)
+                ? $fallbackDomains
+                : $preferredDomains;
+
             // Prefer URLs that already point to a pricing page
             if (! isset($domainMap[$domain])) {
                 $domainMap[$domain] = $url;
@@ -119,9 +125,15 @@ class DeepResearcherAgent extends BaseAgent
                     }
                 }
             }
+
+            if (PricingSourceQuality::isLowValueDomain($domain)) {
+                $fallbackDomains = $domainMap;
+            } else {
+                $preferredDomains = $domainMap;
+            }
         }
 
-        return $domainMap;
+        return $preferredDomains + $fallbackDomains;
     }
 
     /**

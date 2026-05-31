@@ -130,4 +130,49 @@ class FlowExecutorHandoffTest extends TestCase
                 && ! str_contains($message, '--- Context from previous agents ---');
         });
     }
+
+    public function test_executor_persists_quality_metrics_for_completed_agent_output(): void
+    {
+        Http::fake([
+            'localhost:11434/api/chat' => Http::response([
+                'message' => [
+                    'content' => "| Конкурент | Услуга | Цена | Тип | Линк |\n"
+                        ."|-----------|--------|------|-----|------|\n"
+                        ."| V Gym | Месечна карта | 78.23 лв. | фитнес | https://vgym.bg/prices |\n"
+                        .'| Grabo | Оферта | н/д | агрегатор | https://grabo.bg/sport |',
+                ],
+            ]),
+        ]);
+
+        $company = Company::create([
+            'name' => 'Game Sport Center',
+            'description' => 'Sports center',
+            'industry' => 'Fitness',
+            'language' => 'bg',
+        ]);
+
+        $flow = $company->flows()->create([
+            'name' => 'Pricing Metrics Flow',
+            'description' => 'Tests quality metrics',
+            'status' => 'active',
+        ]);
+
+        $agent = $flow->agents()->create([
+            'name' => 'Extractor',
+            'type' => 'content_bg',
+            'role' => 'Extract prices',
+            'prompt_template' => 'Extract {{topic}}',
+            'model' => 'extractor-model',
+            'order' => 1,
+            'is_active' => true,
+        ]);
+
+        app(FlowExecutorService::class)->run($flow);
+
+        $agentRun = AgentRun::where('agent_id', $agent->id)->firstOrFail();
+
+        $this->assertSame(2, $agentRun->quality_metrics['markdown_table_rows']);
+        $this->assertSame(1, $agentRun->quality_metrics['priced_rows']);
+        $this->assertSame(['grabo.bg', 'vgym.bg'], $agentRun->quality_metrics['source_domains']);
+    }
 }

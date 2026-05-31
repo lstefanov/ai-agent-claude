@@ -13,7 +13,7 @@ class BaseAgentOutputGuardTest extends TestCase
 {
     private function makeAgent(): Agent
     {
-        $agent = new Agent();
+        $agent = new Agent;
         $agent->role = 'Report writer';
         $agent->model = 'qwen3:latest';
         $agent->output_language = 'bg';
@@ -24,7 +24,7 @@ class BaseAgentOutputGuardTest extends TestCase
 
     private function makeAgentRun(): AgentRun
     {
-        $run = new AgentRun();
+        $run = new AgentRun;
         $run->input = 'Напиши конкурентен доклад.';
 
         return $run;
@@ -76,5 +76,29 @@ class BaseAgentOutputGuardTest extends TestCase
         $this->expectExceptionMessage('Model returned hidden reasoning instead of a user-facing response.');
 
         $agent->run($this->makeAgent(), $this->makeAgentRun(), []);
+    }
+
+    public function test_passes_deterministic_model_options_from_agent_config(): void
+    {
+        $ollama = \Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')
+            ->once()
+            ->withArgs(function ($model, $systemPrompt, $userMessage, $options) {
+                return $options === [
+                    'temperature' => 0.0,
+                    'num_predict' => 3000.0,
+                    'seed' => 42.0,
+                ];
+            })
+            ->andReturn('Директен отговор.');
+
+        $agent = $this->makeAgent();
+        $agent->config = [
+            'temperature' => 0,
+            'num_predict' => 3000,
+            'seed' => 42,
+        ];
+
+        (new ContentAgent($ollama))->run($agent, $this->makeAgentRun(), []);
     }
 }

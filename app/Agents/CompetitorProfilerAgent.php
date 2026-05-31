@@ -4,6 +4,7 @@ namespace App\Agents;
 
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Support\PricingSourceQuality;
 use Illuminate\Support\Facades\Http;
 
 class CompetitorProfilerAgent extends BaseAgent
@@ -36,6 +37,7 @@ class CompetitorProfilerAgent extends BaseAgent
         $allResults = '';
         if ($searchResults !== null) {
             $allResults = "\n\n=== SEARCH: \"{$searchQuery}\" ===\n{$searchResults}";
+            $allResults = PricingSourceQuality::filterSearchResults($allResults);
         }
 
         // Phase 2: Try to find and scrape their website
@@ -84,7 +86,7 @@ class CompetitorProfilerAgent extends BaseAgent
             }
 
             $markdown = $this->useTool('scrape_page', ['url' => $pricingUrl]);
-            if ($markdown && $markdown !== 'Scraping not available for this page.') {
+            if ($markdown && $markdown !== 'Scraping not available for this page.' && PricingSourceQuality::hasPricingEvidence($markdown)) {
                 $scraped .= "\n\n=== SCRAPED PRICING PAGE: {$pricingUrl} ===\n{$markdown}";
                 $count++;
             }
@@ -96,7 +98,8 @@ class CompetitorProfilerAgent extends BaseAgent
     private function extractDomainUrls(string $searchResults): array
     {
         preg_match_all('/URL:\s*(https?:\/\/\S+)/i', $searchResults, $matches);
-        $domainMap = [];
+        $preferredDomains = [];
+        $fallbackDomains = [];
 
         foreach ($matches[1] as $url) {
             $host = parse_url($url, PHP_URL_HOST) ?? '';
@@ -105,12 +108,22 @@ class CompetitorProfilerAgent extends BaseAgent
                 continue;
             }
 
+            $domainMap = PricingSourceQuality::isLowValueDomain($domain)
+                ? $fallbackDomains
+                : $preferredDomains;
+
             if (! isset($domainMap[$domain]) || $this->isPricingUrl($url)) {
                 $domainMap[$domain] = $url;
             }
+
+            if (PricingSourceQuality::isLowValueDomain($domain)) {
+                $fallbackDomains = $domainMap;
+            } else {
+                $preferredDomains = $domainMap;
+            }
         }
 
-        return $domainMap;
+        return $preferredDomains + $fallbackDomains;
     }
 
     private function findPricingUrl(string $domain, string $knownUrl): ?string

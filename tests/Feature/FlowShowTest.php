@@ -38,4 +38,28 @@ class FlowShowTest extends TestCase
             $response->getContent()
         );
     }
+
+    public function test_newly_added_agents_initialize_inline_type_and_model_selects(): void
+    {
+        $company = Company::create([
+            'name' => 'Спортен Център',
+            'description' => 'Описание',
+            'industry' => 'Sports',
+            'language' => 'bg',
+        ]);
+
+        $flow = $company->flows()->create([
+            'name' => 'Web Game Search',
+            'description' => 'Search for web games.',
+            'status' => 'active',
+        ]);
+
+        $response = $this->get(route('flows.show', $flow));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $this->assertStringContainsString('this.openEdit(newIndex);', $content);
+        $this->assertSame(2, substr_count($content, 'this.openEdit(newIndex);'));
+    }
 }

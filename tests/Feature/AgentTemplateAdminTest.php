@@ -67,6 +67,40 @@ class AgentTemplateAdminTest extends TestCase
         $this->assertDatabaseHas('agent_templates', ['name' => 'Нов Шаблон', 'company_id' => null]);
     }
 
+    public function test_admin_create_form_loads_agent_type_select_assets(): void
+    {
+        $this->actAsAdmin();
+
+        $this->get(route('admin.agent-templates.create'))
+            ->assertOk()
+            ->assertSee('admin-agent-type-select', false)
+            ->assertSee('tom-select@2/dist/css/tom-select.css', false)
+            ->assertSee('tom-select@2/dist/js/tom-select.complete.min.js', false)
+            ->assertSee('window.AGENT_TYPES_DATA', false)
+            ->assertSee("initAgentTypeSelect('admin-agent-type-select'", false);
+    }
+
+    public function test_admin_edit_form_loads_agent_type_select_assets(): void
+    {
+        $this->actAsAdmin();
+        $template = AgentTemplate::create([
+            'company_id' => null,
+            'name' => 'Профилиращ',
+            'description' => 'Описание',
+            'icon' => '🔍',
+            'type' => 'competitor_profiler',
+        ]);
+
+        $this->get(route('admin.agent-templates.edit', $template))
+            ->assertOk()
+            ->assertSee('admin-agent-type-select', false)
+            ->assertSee('value="competitor_profiler" selected', false)
+            ->assertSee('tom-select@2/dist/css/tom-select.css', false)
+            ->assertSee('tom-select@2/dist/js/tom-select.complete.min.js', false)
+            ->assertSee('window.AGENT_TYPES_DATA', false)
+            ->assertSee("initAgentTypeSelect('admin-agent-type-select'", false);
+    }
+
     public function test_admin_can_delete_system_template(): void
     {
         $this->actAsAdmin();

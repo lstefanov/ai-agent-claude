@@ -597,8 +597,11 @@ function flowAgentManager() {
             this.saving = false;
             if (result) {
                 this.agents.push(this.normalizeAgent(result.agent));
-                this.editingIndex = this.agents.length - 1;
-                this.$nextTick(() => this.initSortable());
+                const newIndex = this.agents.length - 1;
+                this.$nextTick(() => {
+                    this.initSortable();
+                    this.openEdit(newIndex);
+                });
             }
         },
 
@@ -665,8 +668,11 @@ function flowAgentManager() {
             this.saving = false;
             if (result) {
                 this.agents.push(this.normalizeAgent(result.agent));
-                this.editingIndex = this.agents.length - 1;
-                this.$nextTick(() => this.initSortable());
+                const newIndex = this.agents.length - 1;
+                this.$nextTick(() => {
+                    this.initSortable();
+                    this.openEdit(newIndex);
+                });
             }
         },
 

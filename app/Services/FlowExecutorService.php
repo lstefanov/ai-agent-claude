@@ -8,6 +8,7 @@ use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Flow;
 use App\Models\FlowRun;
+use App\Support\PricingOutputMetrics;
 use App\Support\ReasoningStripper;
 use Throwable;
 
@@ -258,6 +259,7 @@ class FlowExecutorService
             'status' => 'completed',
             'output' => $output,
             'raw_output' => $rawOutput !== $output ? $rawOutput : null,
+            'quality_metrics' => PricingOutputMetrics::fromOutput($output),
             'duration_ms' => $durationMs,
             'completed_at' => now(),
         ]);

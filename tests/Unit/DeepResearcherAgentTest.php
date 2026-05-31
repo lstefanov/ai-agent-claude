@@ -164,4 +164,130 @@ class DeepResearcherAgentTest extends TestCase
         $deep = new DeepResearcherAgent($ollama, [$this->makeSearchTool($searchResults), $scraperTool]);
         $deep->run($agent, $this->makeAgentRun(), []);
     }
+
+    public function test_skips_low_value_aggregator_domains_when_scraping_pricing_sources(): void
+    {
+        $searchResults = <<<'TEXT'
+[1] Title: Grabo offers
+    URL: https://grabo.bg/ceni
+    Summary: Marketplace offers
+
+[2] Title: V Gym Prices
+    URL: https://vgym.bg/pricing
+    Summary: Official prices
+TEXT;
+
+        $scraperTool = \Mockery::mock(AgentTool::class);
+        $scraperTool->shouldReceive('name')->andReturn('scrape_page');
+        $scraperTool->shouldReceive('execute')
+            ->once()
+            ->with(['url' => 'https://vgym.bg/pricing'])
+            ->andReturn('| V Gym | 79 лв. |');
+
+        $ollama = \Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')
+            ->once()
+            ->withArgs(fn ($model, $systemPrompt) => str_contains($systemPrompt, 'V Gym | 79'))
+            ->andReturn('result');
+
+        $agent = $this->makeAgent(['scrape_pricing_pages' => true, 'max_pages_to_scrape' => 1]);
+        $deep = new DeepResearcherAgent($ollama, [$this->makeSearchTool($searchResults), $scraperTool]);
+        $deep->run($agent, $this->makeAgentRun(), []);
+    }
+
+    public function test_uses_aggregator_fallback_when_direct_sources_have_no_numeric_prices(): void
+    {
+        $searchResults = <<<'TEXT'
+[1] Title: Generic Gym Prices
+    URL: https://generic-gym.bg/prices
+    Summary: Official services page
+
+[2] Title: Grabo offers
+    URL: https://grabo.bg/ceni
+    Summary: Marketplace prices
+TEXT;
+
+        $scraperTool = \Mockery::mock(AgentTool::class);
+        $scraperTool->shouldReceive('name')->andReturn('scrape_page');
+        $scraperTool->shouldReceive('execute')
+            ->once()
+            ->with(['url' => 'https://generic-gym.bg/prices'])
+            ->andReturn('Official services page. Contact us for pricing.');
+        $scraperTool->shouldReceive('execute')
+            ->once()
+            ->with(['url' => 'https://grabo.bg/ceni'])
+            ->andReturn('| Grabo | Карта | 39 лв. |');
+
+        $ollama = \Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')
+            ->once()
+            ->withArgs(fn ($model, $systemPrompt) => str_contains($systemPrompt, 'Grabo | Карта | 39 лв.')
+                && ! str_contains($systemPrompt, 'Contact us for pricing'))
+            ->andReturn('result');
+
+        $agent = $this->makeAgent(['scrape_pricing_pages' => true, 'max_pages_to_scrape' => 1]);
+        $deep = new DeepResearcherAgent($ollama, [$this->makeSearchTool($searchResults), $scraperTool]);
+        $deep->run($agent, $this->makeAgentRun(), []);
+    }
+
+    public function test_uses_low_value_aggregator_domain_as_fallback_when_it_is_the_only_pricing_source(): void
+    {
+        $searchResults = <<<'TEXT'
+[1] Title: Grabo offers
+    URL: https://grabo.bg/ceni
+    Summary: Marketplace prices
+TEXT;
+
+        $scraperTool = \Mockery::mock(AgentTool::class);
+        $scraperTool->shouldReceive('name')->andReturn('scrape_page');
+        $scraperTool->shouldReceive('execute')
+            ->once()
+            ->with(['url' => 'https://grabo.bg/ceni'])
+            ->andReturn('| Grabo | Карта | 39 лв. |');
+
+        $ollama = \Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')
+            ->once()
+            ->withArgs(fn ($model, $systemPrompt) => str_contains($systemPrompt, 'Grabo | Карта | 39 лв.'))
+            ->andReturn('result');
+
+        $agent = $this->makeAgent(['scrape_pricing_pages' => true, 'max_pages_to_scrape' => 1]);
+        $deep = new DeepResearcherAgent($ollama, [$this->makeSearchTool($searchResults), $scraperTool]);
+        $deep->run($agent, $this->makeAgentRun(), []);
+    }
+
+    public function test_skips_scraped_pages_without_numeric_price_signals_before_counting_budget(): void
+    {
+        $searchResults = <<<'TEXT'
+[1] Title: Generic Gym Prices
+    URL: https://generic-gym.bg/prices
+    Summary: Services page
+
+[2] Title: V Gym Prices
+    URL: https://vgym.bg/pricing
+    Summary: Official prices
+TEXT;
+
+        $scraperTool = \Mockery::mock(AgentTool::class);
+        $scraperTool->shouldReceive('name')->andReturn('scrape_page');
+        $scraperTool->shouldReceive('execute')
+            ->once()
+            ->with(['url' => 'https://generic-gym.bg/prices'])
+            ->andReturn('Fitness, spa and classes. Contact us for pricing.');
+        $scraperTool->shouldReceive('execute')
+            ->once()
+            ->with(['url' => 'https://vgym.bg/pricing'])
+            ->andReturn('| V Gym | Месечна карта | 79 лв. |');
+
+        $ollama = \Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')
+            ->once()
+            ->withArgs(fn ($model, $systemPrompt) => str_contains($systemPrompt, 'V Gym | Месечна карта | 79 лв.')
+                && ! str_contains($systemPrompt, 'Contact us for pricing'))
+            ->andReturn('result');
+
+        $agent = $this->makeAgent(['scrape_pricing_pages' => true, 'max_pages_to_scrape' => 1]);
+        $deep = new DeepResearcherAgent($ollama, [$this->makeSearchTool($searchResults), $scraperTool]);
+        $deep->run($agent, $this->makeAgentRun(), []);
+    }
 }

@@ -124,7 +124,7 @@ abstract class BaseAgent
         $config = $agent->config ?? [];
         $options = [];
 
-        foreach (['temperature', 'top_p', 'top_k', 'repeat_penalty', 'num_predict'] as $key) {
+        foreach (['temperature', 'top_p', 'top_k', 'repeat_penalty', 'num_predict', 'seed'] as $key) {
             if (isset($config[$key]) && $config[$key] !== '' && $config[$key] !== null) {
                 $options[$key] = is_numeric($config[$key]) ? (float) $config[$key] : $config[$key];
             }
