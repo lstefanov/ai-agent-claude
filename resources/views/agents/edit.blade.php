@@ -51,8 +51,8 @@ $cfg     = $agent->config ?? [];
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-sm font-medium text-gray-700">Роля / Описание</label>
                 <button type="button" onclick="generateAgentField('role', this)"
-                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
-                    ✨ AI
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                    ✨ Генерирай с AI
                 </button>
             </div>
             <textarea name="role" rows="3"
@@ -65,8 +65,8 @@ $cfg     = $agent->config ?? [];
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-sm font-medium text-gray-700">System промпт</label>
                 <button type="button" onclick="generateAgentField('system_prompt', this)"
-                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
-                    ✨ AI
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                    ✨ Генерирай с AI
                 </button>
             </div>
             <p class="text-xs text-gray-400 mb-1">Описва ролята и поведението на агента. Инжектира се автоматично при всяко изпълнение.</p>
@@ -80,8 +80,8 @@ $cfg     = $agent->config ?? [];
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-sm font-medium text-gray-700">Промпт шаблон</label>
                 <button type="button" onclick="generateAgentField('prompt_template', this)"
-                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
-                    ✨ AI
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                    ✨ Генерирай с AI
                 </button>
             </div>
             <p class="text-xs text-gray-400 mb-1">Използвай <code class="bg-gray-100 px-1 rounded">@{{AgentName}}</code> за контекст от предишен агент</p>

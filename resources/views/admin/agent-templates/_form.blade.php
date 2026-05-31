@@ -49,8 +49,8 @@
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs font-semibold text-gray-600">Роля / Описание</label>
                 <button type="button" onclick="generateAgentField('role', this)"
-                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
-                    ✨ AI
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                    ✨ Генерирай с AI
                 </button>
             </div>
             <textarea name="role" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('role', $agentTemplate->role ?? '') }}</textarea>
@@ -59,8 +59,8 @@
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs font-semibold text-gray-600">System Промпт</label>
                 <button type="button" onclick="generateAgentField('system_prompt', this)"
-                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
-                    ✨ AI
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                    ✨ Генерирай с AI
                 </button>
             </div>
             <textarea name="system_prompt" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('system_prompt', $agentTemplate->system_prompt ?? '') }}</textarea>
@@ -69,8 +69,8 @@
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs font-semibold text-gray-600">Промпт Шаблон</label>
                 <button type="button" onclick="generateAgentField('prompt_template', this)"
-                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
-                    ✨ AI
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                    ✨ Генерирай с AI
                 </button>
             </div>
             <textarea name="prompt_template" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('prompt_template', $agentTemplate->prompt_template ?? '') }}</textarea>
