@@ -54,7 +54,7 @@ class RunShowOutputUiTest extends TestCase
         $response->assertSee(':style="{ width: progressPercent + \'%\' }"', false);
     }
 
-    public function test_run_show_uses_wide_scrollable_final_output_and_exposes_raw_reasoning(): void
+    public function test_run_show_uses_full_width_scrollable_final_output_and_exposes_raw_reasoning(): void
     {
         $company = Company::create([
             'name' => 'Game Sport Center',
@@ -99,7 +99,8 @@ class RunShowOutputUiTest extends TestCase
         $response = $this->get(route('flow-runs.show', $flowRun));
 
         $response->assertOk();
-        $response->assertSee('max-w-4xl', false);
+        $response->assertSee('shadow-sm w-full', false);
+        $response->assertDontSee('shadow-sm max-w-4xl', false);
         $response->assertSee('overflow-x-auto', false);
         $response->assertSee('raw_output', false);
         $response->assertSee('Reasoning (raw)', false);

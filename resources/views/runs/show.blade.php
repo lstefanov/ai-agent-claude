@@ -275,7 +275,7 @@ window.__runData = {
 
         @else
         {{-- Generic output --}}
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm max-w-4xl">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm w-full">
             <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
                 <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Финален изход</p>
                 <button @click="copyFinalOutput()" class="text-xs text-gray-400 hover:text-gray-600 transition"

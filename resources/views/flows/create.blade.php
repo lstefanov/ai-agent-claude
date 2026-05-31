@@ -27,19 +27,19 @@
                            placeholder="напр. Ежедневен Facebook пост">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Описание на flow-а</label>
-                    <div class="relative">
-                        <textarea name="description" x-model="flowDescription" rows="4" required
-                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 pb-10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                  placeholder="Опиши подробно какво трябва да прави flow-ът. Колкото по-детайлно, толкова по-добри агенти ще генерира AI."></textarea>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-gray-700">Описание на flow-а</label>
                         <button type="button"
                                 @click="improveDescription"
                                 :disabled="isImproving || !flowDescription.trim()"
-                                class="absolute bottom-2 right-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+                                class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                             <span x-show="isImproving" class="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                             <span x-text="isImproving ? 'Подобрявам...' : '✨ Подобри с AI'"></span>
                         </button>
                     </div>
+                    <textarea name="description" x-model="flowDescription" rows="4" required
+                              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              placeholder="Опиши подробно какво трябва да прави flow-ът. Колкото по-детайлно, толкова по-добри агенти ще генерира AI."></textarea>
 
                     {{-- AI preview panel --}}
                     <div x-show="showImprovePreview" x-cloak
@@ -308,7 +308,7 @@
                                         <label class="block text-xs font-medium text-gray-600">Роля / Описание (BG)</label>
                                         <button type="button" @click="generateField('role', agent)"
                                                 :disabled="agent._generating_role || !agent.name"
-                                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-40 transition">
+                                                class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                                             <span x-text="agent._generating_role ? '⏳' : '✨'"></span>
                                             <span x-text="agent._generating_role ? 'Генерира...' : 'Генерирай с AI'"></span>
                                         </button>
@@ -321,7 +321,7 @@
                                         <label class="block text-xs font-medium text-gray-600">System промпт (BG)</label>
                                         <button type="button" @click="generateField('system_prompt', agent)"
                                                 :disabled="agent._generating_system_prompt || !agent.name"
-                                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-40 transition">
+                                                class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                                             <span x-text="agent._generating_system_prompt ? '⏳' : '✨'"></span>
                                             <span x-text="agent._generating_system_prompt ? 'Генерира...' : 'Генерирай с AI'"></span>
                                         </button>
@@ -342,7 +342,7 @@
                                         <label class="block text-xs font-medium text-gray-600">Промпт шаблон (BG)</label>
                                         <button type="button" @click="generateField('prompt_template', agent)"
                                                 :disabled="agent._generating_prompt_template || !agent.name"
-                                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-40 transition">
+                                                class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                                             <span x-text="agent._generating_prompt_template ? '⏳' : '✨'"></span>
                                             <span x-text="agent._generating_prompt_template ? 'Генерира...' : 'Генерирай с AI'"></span>
                                         </button>
@@ -419,7 +419,7 @@
                                             </label>
                                             <button type="button" @click="generateField('qa_custom_prompt', agent)"
                                                     :disabled="agent._generating_qa_custom_prompt || !agent.name"
-                                                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-40 transition shrink-0">
+                                                    class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition shrink-0">
                                                 <span x-text="agent._generating_qa_custom_prompt ? '⏳' : '✨'"></span>
                                                 <span x-text="agent._generating_qa_custom_prompt ? 'Генерира...' : 'Генерирай с AI'"></span>
                                             </button>

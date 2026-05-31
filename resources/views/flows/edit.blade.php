@@ -3,7 +3,7 @@
 @section('title', 'Редактирай ' . $flow->name)
 
 @section('content')
-<div class="max-w-2xl mx-auto">
+<div class="max-w-5xl mx-auto">
     <div class="mb-6">
         <a href="{{ route('flows.show', $flow) }}" class="text-indigo-600 hover:underline text-sm">← Обратно</a>
         <h1 class="text-3xl font-bold text-gray-900 mt-2">Редактирай flow</h1>
@@ -11,19 +11,44 @@
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
         <form action="{{ route('flows.update', $flow) }}" method="POST" class="space-y-6"
-              x-data="scheduleEditor('{{ old('schedule_cron', $flow->schedule_cron) }}')">
+              x-data="flowEditForm()">
             @csrf @method('PUT')
 
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Наименование</label>
-                <input type="text" name="name" value="{{ old('name', $flow->name) }}" required
+                <input type="text" name="name" value="{{ old('name', $flow->name) }}" x-model="flowName" required
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Описание</label>
-                <textarea name="description" rows="3" required
+                <div class="flex items-center justify-between mb-1">
+                    <label class="block text-sm font-medium text-gray-700">Описание</label>
+                    <button type="button"
+                            @click="improveDescription"
+                            :disabled="isImproving || !flowDescription.trim()"
+                            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                        <span x-show="isImproving" class="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span x-text="isImproving ? 'Подобрявам...' : '✨ Подобри с AI'"></span>
+                    </button>
+                </div>
+                <textarea name="description" x-model="flowDescription" rows="6" required
                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('description', $flow->description) }}</textarea>
+
+                <div x-show="showImprovePreview" x-cloak
+                     class="mt-3 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                    <p class="text-xs font-semibold text-indigo-700 mb-2">✨ AI предлага подобрено описание:</p>
+                    <p class="text-sm text-gray-700 leading-relaxed mb-3" x-text="improvedDescription"></p>
+                    <div class="flex gap-2">
+                        <button type="button" @click="acceptImprovedDescription"
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition">
+                            ✓ Приеми
+                        </button>
+                        <button type="button" @click="showImprovePreview = false"
+                                class="bg-white border border-gray-300 text-gray-600 text-sm px-4 py-1.5 rounded-lg hover:bg-gray-50 transition">
+                            ✕ Откажи
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div>
@@ -159,6 +184,63 @@
 </div>
 
 <script>
+const FLOW_EDIT_INITIAL_NAME = @json(old('name', $flow->name));
+const FLOW_EDIT_INITIAL_DESCRIPTION = @json(old('description', $flow->description));
+const FLOW_EDIT_INITIAL_CRON = @json(old('schedule_cron', $flow->schedule_cron));
+const FLOW_EDIT_COMPANY_ID = @json($flow->company_id);
+const FLOW_IMPROVE_DESCRIPTION_URL = @json(route('flows.improve-description'));
+
+function flowEditForm() {
+    const state = scheduleEditor(FLOW_EDIT_INITIAL_CRON);
+
+    return Object.assign(state, {
+        flowName: FLOW_EDIT_INITIAL_NAME || '',
+        flowDescription: FLOW_EDIT_INITIAL_DESCRIPTION || '',
+        isImproving: false,
+        improvedDescription: '',
+        showImprovePreview: false,
+
+        async improveDescription() {
+            if (!this.flowDescription.trim()) return;
+
+            this.isImproving = true;
+            this.showImprovePreview = false;
+            this.improvedDescription = '';
+
+            const csrf = document.querySelector('meta[name="csrf-token"]').content;
+
+            try {
+                const resp = await fetch(FLOW_IMPROVE_DESCRIPTION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        description: this.flowDescription,
+                        name: this.flowName,
+                        company_id: FLOW_EDIT_COMPANY_ID,
+                    }),
+                });
+                const data = await resp.json();
+                if (resp.ok && data.improved) {
+                    this.improvedDescription = data.improved;
+                    this.showImprovePreview = true;
+                } else {
+                    alert(data.error || 'Грешка при подобряването. Опитай отново.');
+                }
+            } catch (e) {
+                alert('Мрежова грешка: ' + e.message);
+            } finally {
+                this.isImproving = false;
+            }
+        },
+
+        acceptImprovedDescription() {
+            this.flowDescription = this.improvedDescription;
+            this.showImprovePreview = false;
+            this.improvedDescription = '';
+        },
+    });
+}
+
 function scheduleEditor(existingCron) {
     return {
         schedule: { preset: 'none', hour: '10', dayOfWeek: '1', dayOfMonth: '1', customCron: '', showCustom: false },

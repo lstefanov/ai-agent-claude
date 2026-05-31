@@ -49,7 +49,7 @@
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs font-semibold text-gray-600">Роля / Описание</label>
                 <button type="button" onclick="generateAgentField('role', this)"
-                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                     ✨ Генерирай с AI
                 </button>
             </div>
@@ -59,7 +59,7 @@
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs font-semibold text-gray-600">System Промпт</label>
                 <button type="button" onclick="generateAgentField('system_prompt', this)"
-                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                     ✨ Генерирай с AI
                 </button>
             </div>
@@ -70,7 +70,7 @@
             <div class="flex items-center justify-between mb-1">
                 <label class="block text-xs font-semibold text-gray-600">Промпт Шаблон</label>
                 <button type="button" onclick="generateAgentField('prompt_template', this)"
-                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40">
+                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                     ✨ Генерирай с AI
                 </button>
             </div>

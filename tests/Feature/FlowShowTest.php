@@ -62,4 +62,28 @@ class FlowShowTest extends TestCase
         $this->assertStringContainsString('this.openEdit(newIndex);', $content);
         $this->assertSame(2, substr_count($content, 'this.openEdit(newIndex);'));
     }
+
+    public function test_flow_description_preserves_line_breaks_and_escapes_html(): void
+    {
+        $company = Company::create([
+            'name' => 'Спортен Център',
+            'description' => 'Описание',
+            'industry' => 'Sports',
+            'language' => 'bg',
+        ]);
+
+        $flow = $company->flows()->create([
+            'name' => 'Web Game Search',
+            'description' => "Първи ред\nВтори ред <script>alert(\"x\")</script>",
+            'status' => 'active',
+        ]);
+
+        $response = $this->get(route('flows.show', $flow));
+
+        $response->assertOk();
+        $this->assertStringContainsString(
+            "Първи ред<br />\nВтори ред &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;",
+            $response->getContent()
+        );
+    }
 }

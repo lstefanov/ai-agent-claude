@@ -47,6 +47,7 @@ class AgentFactory
             'webhook_sender' => new WebhookSenderAgent($this->ollama),
             'slack_notifier' => new SlackNotifierAgent($this->ollama),
             'hashtag_generator' => new HashtagGeneratorAgent($this->ollama),
+            'bg_text_corrector' => new BgTextCorrectorAgent($this->ollama),
             // All remaining LLM-only types (swot_builder, report_writer, seo_writer, etc.) use ContentAgent intentionally
             default => new ContentAgent($this->ollama),
         };
