@@ -134,5 +134,18 @@
     </main>
 
     @stack('scripts')
+<script>
+function insertToken(id, token) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.focus();
+    const start = el.selectionStart ?? el.value.length;
+    const end   = el.selectionEnd   ?? el.value.length;
+    el.value = el.value.slice(0, start) + '{' + '{' + token + '}' + '}' + el.value.slice(end);
+    const pos = start + token.length + 4;
+    el.selectionStart = el.selectionEnd = pos;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+</script>
 </body>
 </html>

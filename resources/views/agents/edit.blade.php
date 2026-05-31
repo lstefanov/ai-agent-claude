@@ -70,10 +70,15 @@ $cfg     = $agent->config ?? [];
                 </button>
             </div>
             <p class="text-xs text-gray-400 mb-1">Описва ролята и поведението на агента. Инжектира се автоматично при всяко изпълнение.</p>
-            <textarea name="system_prompt" rows="4"
+            <textarea name="system_prompt" id="sp-field" rows="4"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       placeholder="Ти си специализиран агент за...">{{ old('system_prompt', $agent->system_prompt) }}</textarea>
             @error('system_prompt') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+            @include('partials.token-helper', [
+                'textareaId' => 'sp-field',
+                'agents'     => $flow->agents->where('order', '<', $agent->order)->sortBy('order')->pluck('name')->toArray(),
+                'xAgents'    => null,
+            ])
         </div>
 
         <div>
@@ -84,11 +89,15 @@ $cfg     = $agent->config ?? [];
                     ✨ Генерирай с AI
                 </button>
             </div>
-            <p class="text-xs text-gray-400 mb-1">Използвай <code class="bg-gray-100 px-1 rounded">@{{AgentName}}</code> за контекст от предишен агент</p>
-            <textarea name="prompt_template" rows="8"
+            <textarea name="prompt_template" id="pt-field" rows="8"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       required>{{ old('prompt_template', $agent->prompt_template) }}</textarea>
             @error('prompt_template') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+            @include('partials.token-helper', [
+                'textareaId' => 'pt-field',
+                'agents'     => $flow->agents->where('order', '<', $agent->order)->sortBy('order')->pluck('name')->toArray(),
+                'xAgents'    => null,
+            ])
         </div>
 
         <div>

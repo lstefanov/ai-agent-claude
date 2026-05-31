@@ -63,7 +63,8 @@
                     ✨ Генерирай с AI
                 </button>
             </div>
-            <textarea name="system_prompt" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('system_prompt', $agentTemplate->system_prompt ?? '') }}</textarea>
+            <textarea name="system_prompt" id="tpl-sp-field" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('system_prompt', $agentTemplate->system_prompt ?? '') }}</textarea>
+            @include('partials.token-helper', ['textareaId' => 'tpl-sp-field', 'agents' => null, 'xAgents' => null])
         </div>
         <div class="col-span-2">
             <div class="flex items-center justify-between mb-1">
@@ -73,7 +74,8 @@
                     ✨ Генерирай с AI
                 </button>
             </div>
-            <textarea name="prompt_template" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('prompt_template', $agentTemplate->prompt_template ?? '') }}</textarea>
+            <textarea name="prompt_template" id="tpl-pt-field" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('prompt_template', $agentTemplate->prompt_template ?? '') }}</textarea>
+            @include('partials.token-helper', ['textareaId' => 'tpl-pt-field', 'agents' => null, 'xAgents' => null])
         </div>
     </div>
     <div class="flex justify-end gap-3 pt-2">

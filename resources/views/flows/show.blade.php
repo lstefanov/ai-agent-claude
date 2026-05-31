@@ -174,9 +174,16 @@ $qaThresholdOptions = range(0, 100, 5);
                                         <span x-text="agent._generating_system_prompt ? 'Генерира...' : 'Генерирай с AI'"></span>
                                     </button>
                                 </div>
-                                <textarea x-model="agent.system_prompt" rows="3"
+                                <textarea x-model="agent.system_prompt" :id="'sp-show-' + index" rows="3"
                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           placeholder="Ти си специализиран агент за..."></textarea>
+                                @include('partials.token-helper', [
+                                    'textareaId'    => null,
+                                    'xTextareaId'   => "'sp-show-' + index",
+                                    'agents'        => null,
+                                    'xAgents'       => 'agents',
+                                    'xCurrentOrder' => 'agent.order',
+                                ])
                             </div>
                             <div class="col-span-2">
                                 <div class="flex items-center justify-between mb-1">
@@ -188,9 +195,16 @@ $qaThresholdOptions = range(0, 100, 5);
                                         <span x-text="agent._generating_prompt_template ? 'Генерира...' : 'Генерирай с AI'"></span>
                                     </button>
                                 </div>
-                                <textarea x-model="agent.prompt_template" rows="5"
+                                <textarea x-model="agent.prompt_template" :id="'pt-show-' + index" rows="5"
                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           placeholder="Инструкции за агента с @{{placeholder}}-и..."></textarea>
+                                @include('partials.token-helper', [
+                                    'textareaId'    => null,
+                                    'xTextareaId'   => "'pt-show-' + index",
+                                    'agents'        => null,
+                                    'xAgents'       => 'agents',
+                                    'xCurrentOrder' => 'agent.order',
+                                ])
                             </div>
                             <div class="col-span-2">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
