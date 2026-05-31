@@ -63,6 +63,7 @@ class FlowController extends Controller
             'agents.*.config.qa.verifier_agent_order' => 'nullable|integer|min:1',
             'agents.*.config.qa.threshold' => 'nullable|integer|min:0|max:100',
             'agents.*.config.qa.max_retries' => 'nullable|integer|min:0|max:10',
+            'agents.*.config.qa.custom_prompt' => 'nullable|string|max:2000',
         ]);
 
         $flow = $company->flows()->create([
@@ -309,6 +310,7 @@ MSG;
                 'verifier_agent_id' => (int) $verifier->id,
                 'threshold' => (int) ($qa['threshold'] ?? $verifier->qa_threshold ?? 75),
                 'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
+                'custom_prompt' => trim($qa['custom_prompt'] ?? ''),
             ];
 
             $agent->update(['config' => $config]);

@@ -236,6 +236,7 @@
                         <input type="hidden" :name="'agents['+index+'][config][qa][verifier_agent_order]'" :value="selectedVerifierOrder(agent)">
                         <input type="hidden" :name="'agents['+index+'][config][qa][threshold]'" :value="agent.config && agent.config.qa ? agent.config.qa.threshold : 75">
                         <input type="hidden" :name="'agents['+index+'][config][qa][max_retries]'" :value="agent.config && agent.config.qa ? agent.config.qa.max_retries : 3">
+                        <input type="hidden" :name="'agents['+index+'][config][qa][custom_prompt]'" :value="agent.config && agent.config.qa ? (agent.config.qa.custom_prompt || '') : ''">
                         <input type="hidden" :name="'agents['+index+'][model]'"             :value="agent.model">
                         <template x-if="agent.capabilities">
                             <template x-for="(cap, ci) in agent.capabilities" :key="ci">
@@ -770,9 +771,20 @@ function flowCreator() {
                                 agent.model_reason = `(Оригинален модел "${agent.model}" не е в списъка — заменен с ${fallback}) ${agent.model_reason || ''}`;
                                 agent.model = fallback;
                             }
-                            agent._uid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random();
+                            // normalizeAgent uses agent.uid to set _uid, so preserve it before calling
                             return this.normalizeAgent(agent);
                         });
+                        // Wire up verifier UIDs from AI generation:
+                        // The qa_verifier has uid="qa_main" so _uid is "qa_main".
+                        // Non-verifiers reference verifier_agent_uid="qa_main" — replace with actual _uid.
+                        const qaMainAgent = this.agents.find(a => a.uid === 'qa_main' || a._uid === 'qa_main' || a.is_verifier);
+                        if (qaMainAgent) {
+                            this.agents.forEach(a => {
+                                if (!a.is_verifier && a.config && a.config.qa && a.config.qa.verifier_agent_uid === 'qa_main') {
+                                    a.config.qa.verifier_agent_uid = qaMainAgent._uid;
+                                }
+                            });
+                        }
                         if (this.agents.length === 0) {
                             this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
                         }
@@ -836,7 +848,7 @@ function flowCreator() {
         },
 
         normalizeAgent(agent) {
-            agent._uid = agent._uid || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random());
+            agent._uid = agent.uid || agent._uid || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random());
             agent.is_verifier = Boolean(agent.is_verifier || agent.type === 'qa_verifier');
             if (agent.is_verifier && !agent.qa_threshold) {
                 agent.qa_threshold = 75;
@@ -849,9 +861,10 @@ function flowCreator() {
             agent.config.qa.verifier_agent_uid = agent.config.qa.verifier_agent_uid || '';
             agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
+            agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
 
             if (agent.is_verifier) {
-                agent.config.qa = { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3 };
+                agent.config.qa = { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3, custom_prompt: '' };
             }
 
             return agent;
@@ -881,6 +894,7 @@ function flowCreator() {
             }
             agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
+            agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
         },
 
         selectedVerifierOrder(agent) {

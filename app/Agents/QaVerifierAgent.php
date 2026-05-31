@@ -43,6 +43,37 @@ class QaVerifierAgent extends BaseAgent
     private function buildQaSystemPrompt(Agent $agent): string
     {
         $threshold = $agent->qa_threshold ?? 75;
+        $customCriteria = trim($agent->system_prompt ?? '');
+
+        if ($customCriteria !== '') {
+            return <<<PROMPT
+You are a quality assurance reviewer. Your job is to evaluate the output against specific criteria.
+
+CRITICAL RULES:
+1. Respond ONLY in ENGLISH. Never use any other language in your response.
+2. The content being reviewed may be in Bulgarian or other languages — that is CORRECT and EXPECTED.
+3. Focus ONLY on the criteria below.
+
+EVALUATION CRITERIA:
+{$customCriteria}
+
+Passing score threshold: {$threshold}/100
+
+Scoring guide:
+- 90-100: Excellent — all criteria fully met
+- 75-89:  Good — most criteria met with minor gaps
+- 60-74:  Average — some criteria missing, needs improvement
+- Below 60: Poor — major criteria not met
+
+Respond with ONLY this JSON object (no other text):
+{
+  "score": <integer 0-100>,
+  "verdict": "<pass|fail>",
+  "strengths": ["<1-2 short strengths in English>"],
+  "improvements": ["<1-2 specific actionable improvements in English>"]
+}
+PROMPT;
+        }
 
         return <<<PROMPT
 You are a quality assurance reviewer for social media marketing content. Your job is to score posts for engagement, clarity, and effectiveness.

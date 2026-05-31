@@ -31,6 +31,7 @@ class AgentController extends Controller
             'config.qa.verifier_agent_id' => 'nullable|integer',
             'config.qa.threshold' => 'nullable|integer|min:0|max:100',
             'config.qa.max_retries' => 'nullable|integer|min:0|max:10',
+            'config.qa.custom_prompt' => 'nullable|string|max:2000',
         ]);
 
         $validator->after(fn ($validator) => $this->validateStepQaPolicy($validator, $request, $flow));
@@ -100,6 +101,7 @@ class AgentController extends Controller
             'config.qa.verifier_agent_id' => 'nullable|integer',
             'config.qa.threshold' => 'nullable|integer|min:0|max:100',
             'config.qa.max_retries' => 'nullable|integer|min:0|max:10',
+            'config.qa.custom_prompt' => 'nullable|string|max:2000',
         ]);
 
         $validator->after(fn ($validator) => $this->validateStepQaPolicy($validator, $request, $flow, $agent));
@@ -214,6 +216,7 @@ class AgentController extends Controller
             'verifier_agent_id' => (int) $qa['verifier_agent_id'],
             'threshold' => (int) ($qa['threshold'] ?? 75),
             'max_retries' => (int) ($qa['max_retries'] ?? 3),
+            'custom_prompt' => trim($qa['custom_prompt'] ?? ''),
         ];
 
         return $config;

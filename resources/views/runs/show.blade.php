@@ -71,7 +71,6 @@ window.__runData = {
     runs:         @json($initialRuns),
     pollUrl:      @json(route('flow-runs.poll', $flowRun)),
     logUrl:       @json(route('flow-runs.log',  $flowRun)),
-    updateQaUrl:  @json(route('flow-runs.qa-thresholds', $flowRun)),
     qaThresholdOptions: @json($qaThresholdOptions),
     stepQaPolicies: @json($stepQaPolicies),
     stepQaResults: @json($stepQaResults),
@@ -299,7 +298,7 @@ window.__runData = {
 
 {{-- ── AGENT PIPELINE ──────────────────────────────────────────── --}}
 <div class="space-y-2">
-    <template x-for="(agent, idx) in agents" :key="agent.id">
+    <template x-for="(agent, idx) in visibleAgents" :key="agent.id">
         <div class="rounded-xl border overflow-hidden transition-all duration-300"
              :class="cardClass(agent.id)">
 
@@ -335,7 +334,6 @@ window.__runData = {
                         <template x-if="agent.is_verifier && runStatus(agent.id) === 'pending'">
                             <select x-model.number="agent.qa_threshold"
                                     @click.stop
-                                    @change.stop="updateQaThreshold(agent)"
                                     class="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded-full font-medium focus:outline-none focus:ring-2 focus:ring-orange-400">
                                 <template x-for="threshold in qaThresholdOptions" :key="threshold">
                                     <option :value="threshold" x-text="'QA ' + threshold + '%'"></option>
@@ -345,10 +343,6 @@ window.__runData = {
                         <template x-if="agent.is_verifier && runStatus(agent.id) !== 'pending'">
                             <span class="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-medium"
                                   x-text="qaThresholdLabel(agent)"></span>
-                        </template>
-                        <template x-if="agent.step_qa_policy">
-                            <span class="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium"
-                                  x-text="stepQaLabel(agent)"></span>
                         </template>
                     </div>
                     <template x-if="runStatus(agent.id) === 'running'">
@@ -364,10 +358,10 @@ window.__runData = {
                 </div>
 
                 <div class="flex items-center gap-2 shrink-0">
-                    <template x-if="stepQaResult(agent.id)">
-                        <span class="text-xs font-semibold tabular-nums"
-                              :class="stepQaResult(agent.id).passed ? 'text-green-600' : 'text-red-500'"
-                              x-text="'QA ' + stepQaResult(agent.id).score + '%'"></span>
+                    <template x-if="stepQaBadge(agent)">
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-full"
+                              :class="stepQaBadgeClass(stepQaBadge(agent).color)"
+                              x-text="stepQaBadge(agent).text"></span>
                     </template>
                     <template x-if="getRun(agent.id) && getRun(agent.id).attempt_count > 1">
                         <span class="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full"
@@ -546,12 +540,10 @@ function flowRunMonitor() {
         copied:      false,
         logUrl:      d.logUrl,
         pollUrl:     d.pollUrl,
-        updateQaUrl: d.updateQaUrl,
         qaThresholdOptions: d.qaThresholdOptions || [],
         stepQaPolicies: d.stepQaPolicies || {},
         stepQaResults: d.stepQaResults || {},
         failureMessage: d.failureMessage || null,
-        savingQaThresholds: {},
         _timer:      null,
         _poller:     null,
         startedAt:   d.startedAt   ? new Date(d.startedAt)   : null,
@@ -665,45 +657,49 @@ function flowRunMonitor() {
             return 'QA' + (agent.qa_threshold !== null && agent.qa_threshold !== undefined ? ' ' + agent.qa_threshold + '%' : '');
         },
 
-        stepQaResult(agentId) {
-            return this.stepQaResults[String(agentId)] || null;
-        },
+        stepQaBadge(agent) {
+            const policy = this.stepQaPolicies[String(agent.id)] || agent.step_qa_policy;
+            if (!policy) return null;
 
-        stepQaLabel(agent) {
-            const policy = agent.step_qa_policy;
-            if (!policy) return '';
-            const result = this.stepQaResult(agent.id);
-            const retryText = result ? ` · retry ${result.retries_used}/${policy.max_retries}` : ` · retry 0/${policy.max_retries}`;
-            return `Step QA ${policy.threshold}%${retryText}`;
-        },
+            const result = this.stepQaResults[String(agent.id)] || agent.step_qa_result;
+            const agentStatus = this.runStatus(agent.id);
 
-        async updateQaThreshold(agent) {
-            if (!agent.is_verifier || this.runStatus(agent.id) !== 'pending') return;
-
-            this.savingQaThresholds = { ...this.savingQaThresholds, [agent.id]: true };
-
-            try {
-                const res = await fetch(this.updateQaUrl, {
-                    method: 'PATCH',
-                    headers: {
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        agent_id: agent.id,
-                        qa_threshold: agent.qa_threshold,
-                    }),
-                });
-
-                if (!res.ok) {
-                    console.error('Failed to update QA threshold', await res.json());
-                }
-            } catch (e) {
-                console.error('Failed to update QA threshold', e);
-            } finally {
-                this.savingQaThresholds = { ...this.savingQaThresholds, [agent.id]: false };
+            // Agent hasn't run yet
+            if (agentStatus === 'pending') {
+                return { text: `QA ${policy.threshold}%`, color: 'grey' };
             }
+
+            // Agent is running, QA not done yet
+            if (agentStatus === 'running') {
+                return { text: `QA ${policy.threshold}%`, color: 'grey' };
+            }
+
+            // Agent completed, no result yet (QA running or about to run)
+            if (!result) {
+                return { text: '⏳ QA...', color: 'yellow' };
+            }
+
+            // Result exists
+            if (result.passed) {
+                const retryText = result.retries_used > 0 ? ` · retry ${result.retries_used}/${policy.max_retries}` : '';
+                return { text: `QA ✓ ${result.score}%${retryText}`, color: 'green' };
+            } else {
+                // Failed but retries remain OR retries exhausted
+                const retryText = result.retries_used > 0 ? ` · retry ${result.retries_used}/${policy.max_retries}` : '';
+                const color = result.retries_used < policy.max_retries ? 'orange' : 'red';
+                return { text: `QA ✗ ${result.score}%${retryText}`, color };
+            }
+        },
+
+        stepQaBadgeClass(color) {
+            const map = {
+                grey:   'bg-gray-100 text-gray-500',
+                yellow: 'bg-yellow-100 text-yellow-700',
+                green:  'bg-green-100 text-green-700',
+                orange: 'bg-orange-100 text-orange-700',
+                red:    'bg-red-100 text-red-600',
+            };
+            return map[color] || map.grey;
         },
 
         // ── Final output: body agents + appendix agents combined ─────
@@ -764,6 +760,13 @@ function flowRunMonitor() {
         },
 
         // ── Computed ───────────────────────────────────────────────
+        get visibleAgents() {
+            const referencedVerifierIds = new Set(
+                Object.values(this.stepQaPolicies).map(p => p.verifier_agent_id)
+            );
+            return this.agents.filter(a => !referencedVerifierIds.has(a.id));
+        },
+
         get completedCount() {
             return Object.values(this.runs).filter(r => r && ['completed', 'failed'].includes(r.status)).length;
         },
