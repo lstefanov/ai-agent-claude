@@ -138,7 +138,7 @@ $qaThresholdOptions = range(0, 100, 5);
                     </div>
 
                     {{-- Tab: Агент --}}
-                    <div x-show="editTab === 'agent'">
+                    <div x-show="editTab === 'agent'" x-cloak>
                         <div class="grid grid-cols-2 gap-3 mb-3">
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">Име</label>

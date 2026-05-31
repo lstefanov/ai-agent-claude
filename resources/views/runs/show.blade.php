@@ -71,7 +71,6 @@ window.__runData = {
     runs:         @json($initialRuns),
     pollUrl:      @json(route('flow-runs.poll', $flowRun)),
     logUrl:       @json(route('flow-runs.log',  $flowRun)),
-    updateQaUrl:  @json(route('flow-runs.qa-thresholds', $flowRun)),
     qaThresholdOptions: @json($qaThresholdOptions),
     stepQaPolicies: @json($stepQaPolicies),
     stepQaResults: @json($stepQaResults),

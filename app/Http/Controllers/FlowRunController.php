@@ -152,6 +152,7 @@ class FlowRunController extends Controller
                 'verifier_agent_id' => $verifierId,
                 'threshold' => (int) ($qa['threshold'] ?? $verifier?->qa_threshold ?? 75),
                 'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
+                'custom_prompt' => trim($qa['custom_prompt'] ?? ''),
             ];
         }
 
