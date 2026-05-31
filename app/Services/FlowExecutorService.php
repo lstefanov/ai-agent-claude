@@ -456,6 +456,7 @@ class FlowExecutorService
             'verifier_agent_id' => (int) ($policy['verifier_agent_id'] ?? 0),
             'threshold' => (int) ($policy['threshold'] ?? 75),
             'max_retries' => min(10, max(0, (int) ($policy['max_retries'] ?? 3))),
+            'custom_prompt' => $policy['custom_prompt'] ?? '',
         ];
     }
 
