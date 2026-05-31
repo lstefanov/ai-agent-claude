@@ -293,9 +293,10 @@ class FlowExecutorService
         $verifier->qa_threshold = $policy['threshold'];
         $this->log("STEP QA: {$verifier->name} validates {$agent->name} (threshold {$policy['threshold']}%, retries {$retriesUsed}/{$policy['max_retries']})");
 
-        if (! empty($policy['custom_prompt'])) {
+        if (trim($policy['custom_prompt'] ?? '') !== '') {
             $verifier = clone $verifier;
             $verifier->system_prompt = $policy['custom_prompt'];
+            $this->log("STEP QA: using custom prompt for {$agent->name}");
         }
 
         $execution = $this->executeAgent($flowRun, $verifier, $context, $verifier->order, collect($agents)->count());
