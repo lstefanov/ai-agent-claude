@@ -86,52 +86,6 @@ class FlowRunController extends Controller
         return response($content, 200, ['Content-Type' => 'text/plain; charset=UTF-8']);
     }
 
-    public function updateQaThresholds(Request $request, FlowRun $flowRun): JsonResponse
-    {
-        $validated = $request->validate([
-            'agent_id' => 'required|integer',
-            'qa_threshold' => 'required|integer|min:0|max:100',
-        ]);
-
-        if (in_array($flowRun->status, ['completed', 'failed'], true)) {
-            return response()->json(['message' => 'QA прагът не може да се променя след края на run-а.'], 422);
-        }
-
-        $context = $flowRun->context ?? [];
-        $qaThresholds = $context['qa_thresholds'] ?? [];
-        $agentId = (string) $validated['agent_id'];
-
-        if (! array_key_exists($agentId, $qaThresholds)) {
-            return response()->json(['message' => 'QA агентът не е част от snapshot-а на този run.'], 422);
-        }
-
-        $agent = $flowRun->flow->agents()
-            ->where('id', $validated['agent_id'])
-            ->where('is_active', true)
-            ->where('is_verifier', true)
-            ->first();
-
-        if (! $agent) {
-            return response()->json(['message' => 'Невалиден QA агент.'], 422);
-        }
-
-        $hasStarted = $flowRun->agentRuns()
-            ->where('agent_id', $agent->id)
-            ->whereIn('status', ['running', 'completed', 'failed'])
-            ->exists();
-
-        if ($hasStarted) {
-            return response()->json(['message' => 'QA прагът не може да се променя след старта на QA агента.'], 422);
-        }
-
-        $qaThresholds[$agentId] = (int) $validated['qa_threshold'];
-        $context['qa_thresholds'] = $qaThresholds;
-
-        $flowRun->update(['context' => $context]);
-
-        return response()->json(['qa_thresholds' => $qaThresholds]);
-    }
-
     public function poll(FlowRun $flowRun): JsonResponse
     {
         $flowRun->load(['agentRuns.agent']);

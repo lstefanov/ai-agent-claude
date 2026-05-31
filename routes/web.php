@@ -32,7 +32,6 @@ Route::post('flows/{flow}/run', [FlowRunController::class, 'store'])->name('flow
 Route::get('runs/{flowRun}', [FlowRunController::class, 'show'])->name('flow-runs.show');
 Route::get('runs/{flowRun}/poll', [FlowRunController::class, 'poll'])->name('flow-runs.poll');
 Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-runs.log');
-Route::patch('runs/{flowRun}/qa-thresholds', [FlowRunController::class, 'updateQaThresholds'])->name('flow-runs.qa-thresholds');
 
 // Agent management
 Route::post('flows/{flow}/agents', [AgentController::class, 'store'])->name('agents.store');
