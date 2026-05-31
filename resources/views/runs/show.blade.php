@@ -504,6 +504,7 @@ function flowRunMonitor() {
         },
 
         _startTimer() {
+            if (this._timer) clearInterval(this._timer);
             this._timer = setInterval(() => {
                 this.elapsed = this.startedAt
                     ? Math.floor((Date.now() - this.startedAt.getTime()) / 1000)
@@ -512,6 +513,7 @@ function flowRunMonitor() {
         },
 
         _startPolling() {
+            if (this._poller) clearInterval(this._poller);
             this._poller = setInterval(() => this._poll(), 2500);
         },
 

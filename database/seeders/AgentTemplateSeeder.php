@@ -255,7 +255,7 @@ class AgentTemplateSeeder extends Seeder
             [
                 'icon' => '🖼️', 'name' => 'Описател на изображения', 'type' => 'image_describer', 'sort_order' => 31,
                 'description' => 'Описва изображение с текст (изисква vision-capable Ollама модел).',
-                'role' => 'Анализира изображение и генерира детайлно текстово описание. Изисква vision модел като llava или llama3.2-vision.',
+                'role' => 'Анализира изображение и генерира детайлно текстово описание. Изисква vision модел като qwen2.5vl:7b или llava:7b.',
                 'system_prompt' => 'Ти си специалист по описание на изображения. Анализираш визуалното съдържание детайлно и го описваш с думи. Включваш: основни обекти, цветове, настроение, текст в изображението и контекст. Описанието е полезно за ALT тагове, SEO и достъпност.',
                 'prompt_template' => 'Анализирай изображението и предостави детайлно описание. Включи: главните обекти и хора, цветова палитра и настроение, текст видим в изображението, контекст и предназначение на изображението и предложение за ALT текст (до 125 символа). Описанието трябва да е полезно за SEO и достъпност.',
                 'config' => ['temperature' => 0.3, 'num_predict' => 800],
@@ -279,10 +279,34 @@ class AgentTemplateSeeder extends Seeder
         ];
 
         foreach ($templates as $data) {
-            AgentTemplate::firstOrCreate(
-                ['company_id' => null, 'name' => $data['name']],
-                $data
-            );
+            $data['model'] = $this->modelForType($data['type']);
+
+            $template = AgentTemplate::firstOrNew([
+                'company_id' => null,
+                'name' => $data['name'],
+            ]);
+
+            $template->fill($template->exists ? ['model' => $data['model']] : $data);
+            $template->save();
         }
+    }
+
+    private function modelForType(string $type): string
+    {
+        return match ($type) {
+            'content_bg', 'seo_writer', 'newsletter_writer', 'report_writer',
+            'email_composer', 'ad_copywriter', 'offer_builder', 'caption_writer',
+            'hook_writer', 'faq_generator', 'meta_generator', 'summarizer',
+            'translator' => 's_emanuilov/BgGPT-v1.0:9b',
+            'qa_verifier' => 's_emanuilov/BgGPT-v1.0:2.6b',
+            'analyzer', 'decision', 'swot_builder', 'sentiment_analyzer',
+            'classifier', 'review_analyzer', 'researcher', 'trend_researcher',
+            'competitor_profiler' => 'qwen2.5:14b',
+            'keyword_extractor', 'hashtag_generator', 'data_extractor',
+            'formatter', 'google_sheets_writer', 'email', 'webhook_sender',
+            'slack_notifier', 'content_en' => 'qwen2.5:7b',
+            'image_describer' => 'qwen2.5vl:7b',
+            default => 'gemma2:9b',
+        };
     }
 }

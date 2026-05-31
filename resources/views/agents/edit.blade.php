@@ -75,18 +75,50 @@ $cfg     = $agent->config ?? [];
 
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Модел</label>
-            <select name="model" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                @foreach($models->groupBy('category') as $category => $group)
-                    <optgroup label="{{ strtoupper($category) }}">
-                        @foreach($group as $m)
-                            <option value="{{ $m->ollama_tag }}" {{ old('model', $agent->model) === $m->ollama_tag ? 'selected' : '' }}>
-                                {{ $m->display_name }}{{ !$m->is_available ? ' (недостъпен)' : '' }}
-                            </option>
-                        @endforeach
-                    </optgroup>
-                @endforeach
+            <select name="model" id="agent-model-select">
+                <option value="{{ old('model', $agent->model) }}" selected>{{ old('model', $agent->model) }}</option>
             </select>
             @error('model') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+            <script>
+            (function () {
+                const models   = @json($models);
+                const agentType = '{{ $agent->type }}';
+                const current  = '{{ old('model', $agent->model) }}';
+
+                const recommended = models.filter(m => (m.is_default_for || []).includes(agentType));
+                const others      = models.filter(m => !(m.is_default_for || []).includes(agentType));
+
+                const options    = [];
+                const optgroups  = [];
+
+                if (recommended.length) {
+                    optgroups.push({ value: 'recommended', label: 'Препоръчани за ' + agentType });
+                    recommended.forEach(m => options.push({ value: m.ollama_tag, text: m.display_name, description: m.description || '', optgroup: 'recommended' }));
+                }
+                if (others.length) {
+                    optgroups.push({ value: 'others', label: 'Останали' });
+                    others.forEach(m => options.push({ value: m.ollama_tag, text: m.display_name, description: m.description || '', optgroup: 'others' }));
+                }
+
+                new TomSelect('#agent-model-select', {
+                    options,
+                    optgroups,
+                    optgroupField: 'optgroup',
+                    items: [current],
+                    maxItems: 1,
+                    create: false,
+                    render: {
+                        option: (data, escape) =>
+                            `<div class="py-0.5">
+                                <div class="font-medium text-gray-800">${escape(data.text)}</div>
+                                ${data.description ? `<div class="text-xs text-gray-400 mt-0.5 leading-tight">${escape(data.description)}</div>` : ''}
+                            </div>`,
+                        item: (data, escape) =>
+                            `<div>${escape(data.text)}</div>`,
+                    },
+                });
+            })();
+            </script>
         </div>
 
         @if($agent->is_verifier)

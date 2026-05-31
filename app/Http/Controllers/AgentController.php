@@ -22,9 +22,9 @@ class AgentController extends Controller
             'name'            => $request->input('name'),
             'model'           => $request->input('model'),
             'type'            => $request->input('type', 'content_bg'),
-            'role'            => $request->input('role', ''),
-            'system_prompt'   => $request->input('system_prompt', ''),
-            'prompt_template' => $request->input('prompt_template', ''),
+            'role'            => $request->input('role') ?? '',
+            'system_prompt'   => $request->input('system_prompt') ?? '',
+            'prompt_template' => $request->input('prompt_template') ?? '',
             'order'           => $order,
             'config'          => ['temperature' => 0.7, 'num_predict' => 1000],
             'is_active'       => true,
@@ -36,9 +36,10 @@ class AgentController extends Controller
     public function edit(Flow $flow, Agent $agent)
     {
         $models = LlmModel::where('is_enabled', true)
+            ->where('is_available', true)
             ->orderBy('category')
             ->orderBy('display_name')
-            ->get();
+            ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for']);
 
         return view('agents.edit', compact('flow', 'agent', 'models'));
     }

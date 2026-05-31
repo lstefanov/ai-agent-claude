@@ -97,6 +97,63 @@
                      class="w-2.5 h-2.5 rounded-full shrink-0"></div>
 
                 {{-- Model info --}}
+                @php
+                $agentTypes = config('agent_types');
+                $roleColors = [
+                    // Researchers
+                    'researcher'          => 'bg-violet-100 text-violet-700',
+                    'trend_researcher'    => 'bg-violet-100 text-violet-700',
+                    'competitor_profiler' => 'bg-violet-100 text-violet-700',
+                    'review_analyzer'     => 'bg-violet-100 text-violet-700',
+                    'keyword_extractor'   => 'bg-violet-100 text-violet-700',
+                    'image_describer'     => 'bg-purple-100 text-purple-700',
+                    'scraper'             => 'bg-violet-100 text-violet-700',
+                    // Analyzers
+                    'analyzer'            => 'bg-blue-100 text-blue-700',
+                    'swot_builder'        => 'bg-blue-100 text-blue-700',
+                    'data_extractor'      => 'bg-blue-100 text-blue-700',
+                    'classifier'          => 'bg-blue-100 text-blue-700',
+                    'sentiment_analyzer'  => 'bg-blue-100 text-blue-700',
+                    'summarizer'          => 'bg-blue-100 text-blue-700',
+                    'decision'            => 'bg-indigo-100 text-indigo-700',
+                    // Content writers
+                    'content_bg'          => 'bg-emerald-100 text-emerald-700',
+                    'content_en'          => 'bg-emerald-100 text-emerald-700',
+                    'writer'              => 'bg-emerald-100 text-emerald-700',
+                    'caption_writer'      => 'bg-green-100 text-green-700',
+                    'hook_writer'         => 'bg-green-100 text-green-700',
+                    'ad_copywriter'       => 'bg-orange-100 text-orange-700',
+                    'report_writer'       => 'bg-teal-100 text-teal-700',
+                    'newsletter_writer'   => 'bg-teal-100 text-teal-700',
+                    'email_composer'      => 'bg-sky-100 text-sky-700',
+                    'seo_writer'          => 'bg-green-100 text-green-700',
+                    'offer_builder'       => 'bg-orange-100 text-orange-700',
+                    'translator'          => 'bg-pink-100 text-pink-700',
+                    'publisher'           => 'bg-teal-100 text-teal-700',
+                    'formatter'           => 'bg-slate-100 text-slate-700',
+                    // Appendix generators
+                    'hashtag'             => 'bg-rose-100 text-rose-700',
+                    'hashtags'            => 'bg-rose-100 text-rose-700',
+                    'hashtag_generator'   => 'bg-rose-100 text-rose-700',
+                    'tags'                => 'bg-rose-100 text-rose-700',
+                    'seo'                 => 'bg-yellow-100 text-yellow-700',
+                    'faq_generator'       => 'bg-yellow-100 text-yellow-700',
+                    'meta_generator'      => 'bg-yellow-100 text-yellow-700',
+                    'email'               => 'bg-sky-100 text-sky-700',
+                    'image_prompt'        => 'bg-purple-100 text-purple-700',
+                    // Integrations
+                    'webhook_sender'      => 'bg-gray-100 text-gray-600',
+                    'slack_notifier'      => 'bg-gray-100 text-gray-600',
+                    'google_sheets_writer'=> 'bg-gray-100 text-gray-600',
+                    // Quality
+                    'qa_verifier'         => 'bg-red-100 text-red-700',
+                    'verifier'            => 'bg-red-100 text-red-700',
+                    // Special
+                    'orchestrator'        => 'bg-indigo-100 text-indigo-700',
+                    'code'                => 'bg-zinc-100 text-zinc-700',
+                    'vision'              => 'bg-purple-100 text-purple-700',
+                ];
+                @endphp
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="font-medium {{ $model->is_enabled ? 'text-gray-900' : 'text-gray-400' }}">{{ $model->display_name }}</span>
@@ -106,6 +163,26 @@
                         @endif
                     </div>
                     <p class="text-sm text-gray-500 mt-0.5">{{ $model->description }}</p>
+                    @if(!empty($model->is_default_for))
+                    <div class="flex flex-wrap gap-1 mt-1.5">
+                        @foreach($model->is_default_for as $role)
+                            @if(isset($agentTypes[$role]) && isset($roleColors[$role]))
+                            <div class="relative group inline-block">
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium cursor-default select-none {{ $roleColors[$role] }}">
+                                    {{ $agentTypes[$role]['label'] }} <span class="opacity-50 font-normal">({{ $role }})</span>
+                                </span>
+                                @if(!empty($agentTypes[$role]['description']))
+                                <div class="absolute bottom-full left-0 mb-2 z-50 w-64 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-xl
+                                            invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity duration-150 pointer-events-none whitespace-normal">
+                                    {{ $agentTypes[$role]['description'] }}
+                                    <div class="absolute top-full left-4 border-4 border-transparent border-t-gray-900"></div>
+                                </div>
+                                @endif
+                            </div>
+                            @endif
+                        @endforeach
+                    </div>
+                    @endif
                 </div>
 
                 {{-- Size --}}
@@ -242,6 +319,7 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable, ini
         testResult:  '',
         testOk:      false,
         pollTimer:   null,
+        testPollTimer: null,
         csrf:        document.querySelector('meta[name="csrf-token"]').content,
 
         init() {
@@ -291,17 +369,60 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable, ini
             this.testing    = true;
             this.testResult = '';
             try {
-                const data = await (await fetch(`/models/${this.id}/test`, {
+                const resp = await fetch(`/models/${this.id}/test`, {
                     method:  'POST',
-                    headers: { 'X-CSRF-TOKEN': this.csrf },
-                })).json();
-                this.testOk     = data.success;
-                this.testResult = data.response;
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+
+                if (!resp.ok) {
+                    throw new Error((await resp.text()) || `HTTP ${resp.status}`);
+                }
+
+                const data = await resp.json();
+                if (data.status === 'testing') {
+                    this.pollTestStatus();
+                    return;
+                }
+
+                this.testOk     = !!data.success;
+                this.testResult = data.response || data.error || '';
             } catch (e) {
                 this.testOk     = false;
-                this.testResult = 'Грешка при свързване.';
+                this.testResult = e.message || 'Грешка при свързване.';
+                this.testing = false;
             }
-            this.testing = false;
+        },
+
+        async pollTestStatus() {
+            try {
+                const resp = await fetch(`/models/${this.id}/test/status`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+
+                if (!resp.ok) {
+                    throw new Error((await resp.text()) || `HTTP ${resp.status}`);
+                }
+
+                const data = await resp.json();
+                if (data.status === 'testing') {
+                    this.testPollTimer = setTimeout(() => this.pollTestStatus(), 2000);
+                    return;
+                }
+
+                this.testOk     = !!data.success;
+                this.testResult = data.response || data.error || '';
+            } catch (e) {
+                this.testOk     = false;
+                this.testResult = e.message || 'Грешка при свързване.';
+            } finally {
+                if (this.testResult !== '') {
+                    this.testing = false;
+                    if (this.testPollTimer) {
+                        clearTimeout(this.testPollTimer);
+                        this.testPollTimer = null;
+                    }
+                }
+            }
         },
     };
 }

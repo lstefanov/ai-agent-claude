@@ -193,10 +193,11 @@ class FlowExecutorService
     {
         $prompt = $agent->prompt_template ?? '';
 
-        // Replace {{variable}} placeholders — correct double-brace syntax
+        // Replace {{variable}} and {variable} placeholders
         foreach ($context as $key => $value) {
             if (is_string($value)) {
                 $prompt = str_replace('{{' . $key . '}}', $value, $prompt);
+                $prompt = str_replace('{' . $key . '}',   $value, $prompt);
             }
         }
 

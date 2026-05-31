@@ -17,11 +17,11 @@
         </div>
         <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Тип</label>
-            <select name="type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                @foreach(['researcher','analyzer','content_bg','content_en','hashtag','image_prompt','translator','qa_verifier','summarizer','decision','publisher','email','orchestrator'] as $t)
-                    <option value="{{ $t }}" {{ old('type', $agentTemplate->type ?? '') === $t ? 'selected' : '' }}>{{ $t }}</option>
-                @endforeach
-            </select>
+            @include('partials.agent-type-select', [
+                'name'         => 'type',
+                'selectedType' => old('type', $agentTemplate->type ?? ''),
+                'selectId'     => 'admin-agent-type-select',
+            ])
         </div>
         <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Подредба (sort_order)</label>

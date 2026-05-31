@@ -5,12 +5,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'FlowAI') — FlowAI</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2/dist/css/tom-select.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         [x-cloak] { display: none !important; }
         .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+
+        /* Tom Select — match existing input style */
+        .ts-wrapper.single .ts-control {
+            border-radius: 0.5rem;
+            border: 1px solid #d1d5db;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+            background: #fff;
+            box-shadow: none;
+            cursor: pointer;
+        }
+        .ts-wrapper.single.focus .ts-control {
+            border-color: #6366f1;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(99,102,241,0.3);
+        }
+        .ts-wrapper .ts-dropdown {
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
+            font-size: 0.875rem;
+        }
+        .ts-wrapper .ts-dropdown .ts-dropdown-content { max-height: 280px; }
+        .ts-wrapper .ts-dropdown .optgroup-header {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: #6b7280;
+            padding: 0.5rem 0.75rem 0.25rem;
+            background: #f9fafb;
+        }
+        .ts-wrapper .ts-dropdown .option { padding: 0.5rem 0.75rem; }
+        .ts-wrapper .ts-dropdown .option.active { background: #eef2ff; color: #3730a3; }
+        .ts-wrapper .ts-dropdown .option:hover { background: #f5f3ff; }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">

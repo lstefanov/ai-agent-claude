@@ -1,13 +1,13 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminAuthController;
+use App\Http\Controllers\Admin\AgentTemplateController as AdminAgentTemplateController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentTemplateController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\LlmModelController;
-use App\Http\Controllers\Admin\AdminAuthController;
-use App\Http\Controllers\Admin\AgentTemplateController as AdminAgentTemplateController;
 use Illuminate\Support\Facades\Route;
 
 // Companies
@@ -34,11 +34,11 @@ Route::get('runs/{flowRun}/poll', [FlowRunController::class, 'poll'])->name('flo
 Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-runs.log');
 
 // Agent management
-Route::post('flows/{flow}/agents',                [AgentController::class, 'store'])->name('agents.store');
-Route::delete('flows/{flow}/agents/{agent}',      [AgentController::class, 'destroy'])->name('agents.destroy');
-Route::post('flows/{flow}/agents/reorder',        [AgentController::class, 'reorder'])->name('agents.reorder');
-Route::get('flows/{flow}/agents/{agent}/edit',    [AgentController::class, 'edit'])->name('agents.edit');
-Route::put('flows/{flow}/agents/{agent}',         [AgentController::class, 'update'])->name('agents.update');
+Route::post('flows/{flow}/agents', [AgentController::class, 'store'])->name('agents.store');
+Route::delete('flows/{flow}/agents/{agent}', [AgentController::class, 'destroy'])->name('agents.destroy');
+Route::post('flows/{flow}/agents/reorder', [AgentController::class, 'reorder'])->name('agents.reorder');
+Route::get('flows/{flow}/agents/{agent}/edit', [AgentController::class, 'edit'])->name('agents.edit');
+Route::put('flows/{flow}/agents/{agent}', [AgentController::class, 'update'])->name('agents.update');
 
 // Agent template picker (AJAX for popup)
 Route::get('agent-templates/picker', [AgentTemplateController::class, 'picker'])->name('agent-templates.picker');
@@ -58,6 +58,7 @@ Route::post('models/sync', [LlmModelController::class, 'sync'])->name('models.sy
 Route::post('models/{model}/pull', [LlmModelController::class, 'pull'])->name('models.pull');
 Route::get('models/{model}/pull/status', [LlmModelController::class, 'pullStatus'])->name('models.pull.status');
 Route::post('models/{model}/test', [LlmModelController::class, 'test'])->name('models.test');
+Route::get('models/{model}/test/status', [LlmModelController::class, 'testStatus'])->name('models.test.status');
 Route::post('models/{model}/toggle', [LlmModelController::class, 'toggle'])->name('models.toggle');
 
 // Admin auth

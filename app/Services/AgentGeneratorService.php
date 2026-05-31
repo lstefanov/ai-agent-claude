@@ -44,42 +44,7 @@ Flow за изграждане: "{$flow->description}"
 НАЛИЧНИ МОДЕЛИ (избери внимателно за всеки агент):
 {$modelsContext}
 
-НЕОБХОДИМИ ТИПОВЕ АГЕНТИ (включи ВСИЧКИ приложими):
-- researcher     → Събира контекст, тенденции, актуални новини, данни за конкуренти
-- analyzer       → Анализира входа, извлича ключови инсайти, идентифицира възможности
-- content_bg     → Пише текстово съдържание на български език
-- content_en     → Пише текстово съдържание на английски език
-- hashtag        → Генерира релевантни хаштагове (локални + международни)
-- image_prompt   → Пише детайлни промпти за генериране на изображения с ComfyUI/Stable Diffusion
-- caption_writer → Сглобява финалния пост от всички части (текст + хаштагове + CTA)
-- translator     → Превежда съдържание между езици
-- qa_verifier    → Преглежда качеството на финалния изход, оценява 0-100, ТРЯБВА да е последен агент
-- summarizer     → Кондензира дълго съдържание в ключови точки
-- decision       → Взима routing/условни решения
-- publisher      → Форматира изхода за конкретни платформи (FB, IG, LinkedIn и др.)
-- trend_researcher    → Търси тенденции и вирусни теми в нишата за контент идеи
-- competitor_profiler → Изгражда пълен профил на конкурент (услуги, цени, позициониране, слабости)
-- review_analyzer     → Scrape-ва и анализира ревюта — открива recurring patterns и sentiment
-- keyword_extractor   → Открива SEO ключови думи от SERP анализ с тип на намерение
-- hashtag_generator   → Генерира САМО хаштагове (#тагове), оптимизирани по платформа и нише
-- hook_writer         → Пише attention-grabbing opening изречение за постове
-- ad_copywriter       → Рекламни текстове: headline + body + CTA за Meta Ads или Google Ads
-- swot_builder        → Генерира SWOT анализ (силни/слаби страни, възможности, заплахи) от данни
-- data_extractor      → Извлича структурирани данни (таблици, цени, списъци) от суров текст
-- formatter           → Форматира изход в JSON, CSV, Markdown или HTML по нужда
-- classifier          → Категоризира съдържание по зададени категории
-- sentiment_analyzer  → Анализира тон (позитивен/неутрален/негативен) с числена оценка
-- report_writer       → Оформя formal доклад с executive summary, методология и изводи
-- newsletter_writer   → Съставя email newsletter секции с тема, тяло, CTA и subject line
-- email_composer      → Пише конкретен имейл (outreach, follow-up, оферта) — НЕ го изпраща
-- faq_generator       → Генерира FAQ секция от продуктово описание или research данни
-- seo_writer          → SEO-оптимизирана статия с keywords, headers H2/H3 и вътрешни линкове
-- meta_generator      → Генерира SEO meta title + description + OG tags за уеб страница
-- offer_builder       → Съставя промоционална оферта с цена, бонуси, deadline и USP
-- webhook_sender      → Изпраща резултатите към external URL (CRM, Zapier, n8n, Make) — ЗАДЪЛЖИТЕЛНО config.webhook_url
-- slack_notifier      → Изпраща summary нотификация в Slack канал — ЗАДЪЛЖИТЕЛНО config.webhook_url
-- google_sheets_writer→ Форматира данни като CSV таблица готова за import в Google Sheets
-- image_describer     → Описва изображение с текст (изисква vision-capable Ollama модел като llava)
+{$this->buildTypesContext()}
 
 ПРАВИЛА ЗА ПРОЕКТИРАНЕ НА PIPELINE:
 - За social media flows: trend_researcher → hook_writer → content_bg → hashtag_generator → caption_writer → qa_verifier
@@ -166,6 +131,15 @@ MSG;
             $bestFor   = $m->description ? " — {$m->description}" : '';
             return "- {$m->ollama_tag}{$available}{$bestFor}";
         })->join("\n");
+    }
+
+    private function buildTypesContext(): string
+    {
+        $lines = ['НЕОБХОДИМИ ТИПОВЕ АГЕНТИ (включи ВСИЧКИ приложими):'];
+        foreach (config('agent_types') as $slug => $info) {
+            $lines[] = "- {$slug} → {$info['description']}";
+        }
+        return implode("\n", $lines);
     }
 
     private function getDefaultModelsContext(): string

@@ -132,21 +132,9 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-600 mb-1">Тип</label>
-                            <select x-model="agent.type"
-                                    class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                <option value="researcher">researcher</option>
-                                <option value="analyzer">analyzer</option>
-                                <option value="content_bg">content_bg</option>
-                                <option value="content_en">content_en</option>
-                                <option value="hashtag">hashtag</option>
-                                <option value="image_prompt">image_prompt</option>
-                                <option value="caption_writer">caption_writer</option>
-                                <option value="translator">translator</option>
-                                <option value="qa_verifier">qa_verifier</option>
-                                <option value="summarizer">summarizer</option>
-                                <option value="decision">decision</option>
-                                <option value="publisher">publisher</option>
-                            </select>
+                            @include('partials.agent-type-select', [
+                                'xIdExpr' => "'show-type-ts-' + index",
+                            ])
                         </div>
                         <div class="col-span-2">
                             <label class="block text-xs font-medium text-gray-600 mb-1">Роля / Описание</label>
@@ -167,12 +155,7 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                         </div>
                         <div class="col-span-2">
                             <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
-                            <select x-model="agent.model"
-                                    class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                <template x-for="m in models" :key="m.ollama_tag">
-                                    <option :value="m.ollama_tag" x-text="(m.is_available ? '' : '⚠ ') + m.display_name + ' (' + m.ollama_tag + ')'"></option>
-                                </template>
-                            </select>
+                            <select :id="'show-model-ts-' + index"></select>
                         </div>
                     </div>
                     <div class="flex justify-end gap-2">
@@ -263,7 +246,7 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                                          class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
                                         <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
                                         <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                        <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                        <div class="text-[12px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
                                         <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-100 text-green-700" x-text="tpl.type"></span>
                                     </div>
                                 </template>
@@ -280,7 +263,7 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                                          class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
                                         <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
                                         <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                        <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                        <div class="text-[12px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
                                         <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-100 text-violet-700" x-text="tpl.type"></span>
                                     </div>
                                 </template>
@@ -308,7 +291,7 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                                  class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
                                 <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
                                 <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                <div class="text-[12px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
                                 <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-100 text-green-700" x-text="tpl.type"></span>
                             </div>
                         </template>
@@ -326,7 +309,7 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                                  class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
                                 <span class="block text-2xl mb-1" x-text="tpl.icon"></span>
                                 <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                <div class="text-[11px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
+                                <div class="text-[12px] text-gray-500 leading-tight mb-1.5" x-text="(tpl.description||'').substring(0,60)"></div>
                                 <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-100 text-violet-700" x-text="tpl.type"></span>
                             </div>
                         </template>
@@ -360,6 +343,7 @@ function flowAgentManager() {
         saveStatus: '',
         _sortable: null,
         _reorderTimer: null,
+        _modelTS: null,
 
         // ── Agent Picker ─────────────────────────────────────────
         showPicker: false,
@@ -398,8 +382,63 @@ function flowAgentManager() {
             });
         },
 
-        openEdit(index) { this.editingIndex = index; },
-        closeEdit() { this.editingIndex = null; },
+        buildModelOptions(agentType) {
+            const recommended = MODELS_DATA.filter(m => (m.is_default_for || []).includes(agentType));
+            const others      = MODELS_DATA.filter(m => !(m.is_default_for || []).includes(agentType));
+            const options = [], optgroups = [];
+            if (recommended.length) {
+                optgroups.push({ value: 'recommended', label: 'Препоръчани за ' + agentType });
+                recommended.forEach(m => options.push({ value: m.ollama_tag, text: m.display_name, description: m.description || '', optgroup: 'recommended' }));
+            }
+            if (others.length) {
+                optgroups.push({ value: 'others', label: 'Останали' });
+                others.forEach(m => options.push({ value: m.ollama_tag, text: m.display_name, description: m.description || '', optgroup: 'others' }));
+            }
+            return { options, optgroups };
+        },
+
+        initShowModelSelect(index) {
+            if (this._modelTS) { this._modelTS.destroy(); this._modelTS = null; }
+            const agent = this.agents[index];
+            if (!agent) return;
+            const sel = document.getElementById('show-model-ts-' + index);
+            if (!sel) return;
+            const { options, optgroups } = this.buildModelOptions(agent.type || '');
+            const self = this;
+            this._modelTS = new TomSelect(sel, {
+                options,
+                optgroups,
+                optgroupField: 'optgroup',
+                items: [agent.model],
+                maxItems: 1,
+                create: false,
+                onChange(value) { self.agents[index].model = value; },
+                render: {
+                    option: (data, escape) =>
+                        `<div class="py-0.5">
+                            <div class="font-medium text-gray-800">${escape(data.text)}</div>
+                            ${data.description ? `<div class="text-xs text-gray-400 mt-0.5 leading-tight">${escape(data.description)}</div>` : ''}
+                        </div>`,
+                    item: (data, escape) => `<div>${escape(data.text)}</div>`,
+                },
+            });
+        },
+
+        openEdit(index) {
+            this.editingIndex = index;
+            this.$nextTick(() => {
+                initAgentTypeSelect('show-type-ts-' + index, this.agents[index].type, v => {
+                    this.agents[index].type = v;
+                    this.initShowModelSelect(index);
+                });
+                this.initShowModelSelect(index);
+            });
+        },
+
+        closeEdit() {
+            if (this._modelTS) { this._modelTS.destroy(); this._modelTS = null; }
+            this.editingIndex = null;
+        },
 
         moveAgent(index, direction) {
             const newIndex = index + direction;
@@ -507,6 +546,7 @@ function flowAgentManager() {
         },
 
         async saveEdit(agent) {
+            if (this._modelTS) { this._modelTS.destroy(); this._modelTS = null; }
             this.saving = true;
             const result = await this.ajax('PUT', `/flows/${FLOW_ID}/agents/${agent.id}`, {
                 name:             agent.name,

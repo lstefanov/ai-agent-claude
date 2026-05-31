@@ -4,7 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\LlmModel;
 use App\Services\OllamaService;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class LlmModelController extends Controller
 {
@@ -12,6 +13,7 @@ class LlmModelController extends Controller
     {
         $models = LlmModel::orderBy('category')->orderBy('display_name')->get()
             ->groupBy('category');
+
         return view('models.index', compact('models'));
     }
 
@@ -23,7 +25,7 @@ class LlmModelController extends Controller
 
         foreach ($available as $item) {
             $tag = $item['name'] ?? $item['model'] ?? null;
-            if (!$tag) {
+            if (! $tag) {
                 continue;
             }
             $sizeMb = isset($item['size']) ? (int) round($item['size'] / 1024 / 1024) : null;
@@ -40,11 +42,11 @@ class LlmModelController extends Controller
             }
 
             $query->update([
-                'is_available'  => true,
-                'size_mb'       => $sizeMb,
-                'pull_status'   => 'completed',
+                'is_available' => true,
+                'size_mb' => $sizeMb,
+                'pull_status' => 'completed',
                 'pull_progress' => 100,
-                'pull_error'    => null,
+                'pull_error' => null,
             ]);
         }
 
@@ -62,9 +64,9 @@ class LlmModelController extends Controller
 
         // Start artisan command as a detached background process
         // PHP_CLI_BINARY in .env lets you override when web PHP ≠ CLI PHP (e.g. MAMP)
-        $php     = env('PHP_CLI_BINARY', PHP_BINARY);
+        $php = env('PHP_CLI_BINARY', PHP_BINARY);
         $artisan = base_path('artisan');
-        $tag     = escapeshellarg($model->ollama_tag);
+        $tag = escapeshellarg($model->ollama_tag);
 
         $logFile = escapeshellarg(storage_path("logs/pull-{$model->id}.log"));
         exec("{$php} {$artisan} models:pull {$tag} >> {$logFile} 2>&1 &");
@@ -77,7 +79,7 @@ class LlmModelController extends Controller
         $model->refresh();
 
         // Read last meaningful line from the pull log to show live phase
-        $phase   = null;
+        $phase = null;
         $logFile = storage_path("logs/pull-{$model->id}.log");
         if (file_exists($logFile)) {
             $lines = array_filter(array_map('trim', file($logFile)));
@@ -95,12 +97,12 @@ class LlmModelController extends Controller
         }
 
         return response()->json([
-            'status'       => $model->pull_status ?? 'idle',
-            'progress'     => $model->pull_progress ?? 0,
+            'status' => $model->pull_status ?? 'idle',
+            'progress' => $model->pull_progress ?? 0,
             'is_available' => (bool) $model->is_available,
-            'size_mb'      => $model->size_mb,
-            'pull_error'   => $model->pull_error,
-            'pull_phase'   => $phase,
+            'size_mb' => $model->size_mb,
+            'pull_error' => $model->pull_error,
+            'pull_phase' => $phase,
         ]);
     }
 
@@ -109,28 +111,28 @@ class LlmModelController extends Controller
         return match (true) {
             str_contains($status, 'pulling manifest') => 'Изтегляне на манифест…',
             str_contains($status, 'pulling fs layer') => 'Изтегляне на слоеве…',
-            str_contains($status, 'downloading')      => 'Изтегляне…',
-            str_contains($status, 'verifying')        => 'Проверка на SHA256…',
+            str_contains($status, 'downloading') => 'Изтегляне…',
+            str_contains($status, 'verifying') => 'Проверка на SHA256…',
             str_contains($status, 'writing manifest') => 'Запис на манифест…',
-            str_contains($status, 'removing')         => 'Почистване…',
-            default                                    => $status,
+            str_contains($status, 'removing') => 'Почистване…',
+            default => $status,
         };
     }
 
-    public function store(\Illuminate\Http\Request $request)
+    public function store(Request $request)
     {
         $validated = $request->validate([
-            'ollama_tag'     => 'required|string|max:100|unique:llm_models,ollama_tag',
-            'display_name'   => 'required|string|max:255',
-            'category'       => 'required|string|max:50',
-            'description'    => 'nullable|string',
-            'ram_required_gb'=> 'nullable|numeric|min:0',
-            'size_mb'        => 'nullable|integer|min:0',
+            'ollama_tag' => 'required|string|max:100|unique:llm_models,ollama_tag',
+            'display_name' => 'required|string|max:255',
+            'category' => 'required|string|max:50',
+            'description' => 'nullable|string',
+            'ram_required_gb' => 'nullable|numeric|min:0',
+            'size_mb' => 'nullable|integer|min:0',
         ]);
 
         LlmModel::create(array_merge($validated, [
             'is_available' => false,
-            'is_enabled'   => true,
+            'is_enabled' => true,
         ]));
 
         return redirect()->route('models.index')
@@ -139,25 +141,51 @@ class LlmModelController extends Controller
 
     public function toggle(LlmModel $model)
     {
-        $model->update(['is_enabled' => !$model->is_enabled]);
+        $model->update(['is_enabled' => ! $model->is_enabled]);
 
         $state = $model->is_enabled ? 'включен' : 'изключен';
+
         return redirect()->route('models.index')
             ->with('success', "{$model->display_name} е {$state}.");
     }
 
-    public function test(LlmModel $model, OllamaService $ollama)
+    public function test(LlmModel $model)
     {
-        try {
-            $response = $ollama->chat(
-                model: $model->ollama_tag,
-                systemPrompt: 'You are a test assistant. Answer in one very short sentence.',
-                userMessage: 'Reply with exactly: "OK – ' . $model->display_name . ' works."',
-                options: ['temperature' => 0]
-            );
-            return response()->json(['success' => true, 'response' => trim($response)]);
-        } catch (\Throwable $e) {
-            return response()->json(['success' => false, 'response' => $e->getMessage()]);
+        $cacheKey = $this->testCacheKey($model);
+
+        Cache::put($cacheKey, [
+            'status' => 'testing',
+            'success' => null,
+            'response' => null,
+            'error' => null,
+            'elapsed_ms' => null,
+        ], now()->addMinutes(10));
+
+        if (! app()->runningUnitTests()) {
+            $php = escapeshellarg(env('PHP_CLI_BINARY', PHP_BINARY));
+            $artisan = escapeshellarg(base_path('artisan'));
+            $modelId = escapeshellarg((string) $model->id);
+            $logFile = escapeshellarg(storage_path("logs/model-test-{$model->id}.log"));
+
+            exec("{$php} {$artisan} models:test {$modelId} >> {$logFile} 2>&1 &");
         }
+
+        return response()->json(['status' => 'testing']);
+    }
+
+    public function testStatus(LlmModel $model)
+    {
+        return response()->json(Cache::get($this->testCacheKey($model), [
+            'status' => 'idle',
+            'success' => null,
+            'response' => null,
+            'error' => null,
+            'elapsed_ms' => null,
+        ]));
+    }
+
+    private function testCacheKey(LlmModel $model): string
+    {
+        return "llm_model_test_{$model->id}";
     }
 }

@@ -25,7 +25,11 @@ class FlowController extends Controller
 
     public function create(Company $company)
     {
-        $models = LlmModel::orderBy('category')->orderBy('display_name')->get();
+        $models = LlmModel::where('is_available', true)
+            ->where('is_enabled', true)
+            ->orderBy('category')
+            ->orderBy('display_name')
+            ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for']);
         return view('flows.create', compact('company', 'models'));
     }
 
@@ -83,7 +87,11 @@ class FlowController extends Controller
     {
         $flow->load(['company', 'agents' => fn($q) => $q->orderBy('order')]);
         $runs = $flow->flowRuns()->latest()->take(10)->get();
-        $models = LlmModel::where('is_enabled', true)->orderBy('category')->orderBy('display_name')->get();
+        $models = LlmModel::where('is_available', true)
+            ->where('is_enabled', true)
+            ->orderBy('category')
+            ->orderBy('display_name')
+            ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for', 'is_available']);
         return view('flows.show', compact('flow', 'runs', 'models'));
     }
 

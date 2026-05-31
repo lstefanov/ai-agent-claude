@@ -15,19 +15,55 @@ class OllamaService
 
     public function chat(string $model, string $systemPrompt, string $userMessage, array $options = []): string
     {
-        $response = Http::timeout(180)->post($this->baseUrl . '/api/chat', [
-            'model'    => $model,
-            'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user',   'content' => $userMessage],
-            ],
-            'stream'  => false,
-            'options' => array_merge(['temperature' => 0.7], $options),
-        ]);
+        // Use stream:true so Ollama sends tokens immediately (NDJSON).
+        // Without streaming, Ollama buffers the entire response before sending ANY bytes,
+        // causing "0 bytes received" timeouts on long synthesis responses.
+        $response = Http::withOptions(['stream' => true])  // Guzzle: don't buffer the body
+            ->timeout(600)                                  // safety net — matches job timeout
+            ->post($this->baseUrl . '/api/chat', [
+                'model'    => $model,
+                'messages' => [
+                    ['role' => 'system', 'content' => $systemPrompt],
+                    ['role' => 'user',   'content' => $userMessage],
+                ],
+                'stream'  => true,   // Ollama API: emit NDJSON chunks as tokens are generated
+                'options' => array_merge(['temperature' => 0.7], $options),
+            ]);
 
         $response->throw();
 
-        return $response->json('message.content', '');
+        // Accumulate NDJSON chunks into a single string
+        $content = '';
+        $buffer  = '';
+        $body    = $response->getBody();
+
+        while (!$body->eof()) {
+            $buffer .= $body->read(8192);
+
+            while (($pos = strpos($buffer, "\n")) !== false) {
+                $line   = trim(substr($buffer, 0, $pos));
+                $buffer = substr($buffer, $pos + 1);
+
+                if ($line === '') {
+                    continue;
+                }
+
+                $chunk = json_decode($line, true);
+                if (is_array($chunk) && isset($chunk['message']['content'])) {
+                    $content .= $chunk['message']['content'];
+                }
+            }
+        }
+
+        // Flush any remainder left in the buffer after EOF
+        if ($line = trim($buffer)) {
+            $chunk = json_decode($line, true);
+            if (is_array($chunk) && isset($chunk['message']['content'])) {
+                $content .= $chunk['message']['content'];
+            }
+        }
+
+        return $content;
     }
 
     public function listModels(): array
