@@ -152,18 +152,42 @@ $qaThresholdOptions = range(0, 100, 5);
                                 ])
                             </div>
                             <div class="col-span-2">
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Роля / Описание</label>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-xs font-medium text-gray-600">Роля / Описание</label>
+                                    <button type="button" @click="generateField('role', agent)"
+                                            :disabled="agent._generating_role"
+                                            class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
+                                        <span x-text="agent._generating_role ? '⏳' : '✨'"></span>
+                                        <span x-text="agent._generating_role ? 'Генерира...' : 'AI'"></span>
+                                    </button>
+                                </div>
                                 <textarea x-model="agent.role" rows="2"
                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
                             </div>
                             <div class="col-span-2">
-                                <label class="block text-xs font-medium text-gray-600 mb-1">System промпт</label>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-xs font-medium text-gray-600">System промпт</label>
+                                    <button type="button" @click="generateField('system_prompt', agent)"
+                                            :disabled="agent._generating_system_prompt"
+                                            class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
+                                        <span x-text="agent._generating_system_prompt ? '⏳' : '✨'"></span>
+                                        <span x-text="agent._generating_system_prompt ? 'Генерира...' : 'AI'"></span>
+                                    </button>
+                                </div>
                                 <textarea x-model="agent.system_prompt" rows="3"
                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           placeholder="Ти си специализиран агент за..."></textarea>
                             </div>
                             <div class="col-span-2">
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Промпт шаблон</label>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-xs font-medium text-gray-600">Промпт шаблон</label>
+                                    <button type="button" @click="generateField('prompt_template', agent)"
+                                            :disabled="agent._generating_prompt_template"
+                                            class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
+                                        <span x-text="agent._generating_prompt_template ? '⏳' : '✨'"></span>
+                                        <span x-text="agent._generating_prompt_template ? 'Генерира...' : 'AI'"></span>
+                                    </button>
+                                </div>
                                 <textarea x-model="agent.prompt_template" rows="5"
                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           placeholder="Инструкции за агента с @{{placeholder}}-и..."></textarea>
@@ -228,10 +252,18 @@ $qaThresholdOptions = range(0, 100, 5);
 
                         {{-- Custom prompt --}}
                         <div x-show="agent.config.qa.enabled" x-cloak>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">
-                                Какво да проверява QA-то
-                                <span class="font-normal text-gray-400">(по избор — оставете празно за дефолтна проверка)</span>
-                            </label>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-medium text-gray-600">
+                                    Какво да проверява QA-то
+                                    <span class="font-normal text-gray-400">(по избор — оставете празно за дефолтна проверка)</span>
+                                </label>
+                                <button type="button" @click="generateField('qa_custom_prompt', agent)"
+                                        :disabled="agent._generating_qa_custom_prompt"
+                                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition ml-2 shrink-0">
+                                    <span x-text="agent._generating_qa_custom_prompt ? '⏳' : '✨'"></span>
+                                    <span x-text="agent._generating_qa_custom_prompt ? 'Генерира...' : 'AI'"></span>
+                                </button>
+                            </div>
                             <textarea x-model="agent.config.qa.custom_prompt" rows="4" maxlength="2000"
                                       class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                       placeholder="Провери дали резултатът съдържа..."></textarea>
@@ -411,7 +443,8 @@ $qaThresholdOptions = range(0, 100, 5);
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
 <script>
-const FLOW_ID      = {{ $flow->id }};
+const FLOW_ID          = {{ $flow->id }};
+const FLOW_DESCRIPTION = @json($flow->description ?? '');
 const AGENTS_DATA  = @json($agentsJson);
 const MODELS_DATA  = @json($models);
 const QA_THRESHOLD_OPTIONS = @json($qaThresholdOptions);
@@ -710,6 +743,31 @@ function flowAgentManager() {
                 if (idx !== -1) this.agents[idx] = this.normalizeAgent({ ...this.agents[idx], ...result.agent });
                 this.editingIndex = null;
                 this.editTab = 'agent';
+            }
+        },
+
+        async generateField(field, agent) {
+            const key = '_generating_' + field.replace('.', '_');
+            agent[key] = true;
+            try {
+                const res = await this.ajax('POST', '/ai/generate-agent-field', {
+                    field,
+                    agent_name:       agent.name || '',
+                    agent_type:       agent.type || '',
+                    flow_description: FLOW_DESCRIPTION,
+                    role:             agent.role || '',
+                    system_prompt:    agent.system_prompt || '',
+                    prompt_template:  agent.prompt_template || '',
+                });
+                if (res && res.generated) {
+                    if (field === 'qa_custom_prompt') {
+                        agent.config.qa.custom_prompt = res.generated;
+                    } else {
+                        agent[field] = res.generated;
+                    }
+                }
+            } finally {
+                agent[key] = false;
             }
         },
 

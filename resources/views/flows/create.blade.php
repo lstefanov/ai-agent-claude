@@ -304,18 +304,42 @@
                                     ])
                                 </div>
                                 <div class="col-span-2">
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Роля / Описание (BG)</label>
+                                    <div class="flex items-center justify-between mb-1">
+                                        <label class="block text-xs font-medium text-gray-600">Роля / Описание (BG)</label>
+                                        <button type="button" @click="generateField('role', agent)"
+                                                :disabled="agent._generating_role"
+                                                class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
+                                            <span x-text="agent._generating_role ? '⏳' : '✨'"></span>
+                                            <span x-text="agent._generating_role ? 'Генерира...' : 'AI'"></span>
+                                        </button>
+                                    </div>
                                     <textarea x-model="agent.role" rows="2"
                                               class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
                                 </div>
                                 <div class="col-span-2">
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">System промпт (BG)</label>
+                                    <div class="flex items-center justify-between mb-1">
+                                        <label class="block text-xs font-medium text-gray-600">System промпт (BG)</label>
+                                        <button type="button" @click="generateField('system_prompt', agent)"
+                                                :disabled="agent._generating_system_prompt"
+                                                class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
+                                            <span x-text="agent._generating_system_prompt ? '⏳' : '✨'"></span>
+                                            <span x-text="agent._generating_system_prompt ? 'Генерира...' : 'AI'"></span>
+                                        </button>
+                                    </div>
                                     <textarea x-model="agent.system_prompt" rows="3"
                                               class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                               placeholder="Ти си специализиран агент за..."></textarea>
                                 </div>
                                 <div class="col-span-2">
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Промпт шаблон (BG)</label>
+                                    <div class="flex items-center justify-between mb-1">
+                                        <label class="block text-xs font-medium text-gray-600">Промпт шаблон (BG)</label>
+                                        <button type="button" @click="generateField('prompt_template', agent)"
+                                                :disabled="agent._generating_prompt_template"
+                                                class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
+                                            <span x-text="agent._generating_prompt_template ? '⏳' : '✨'"></span>
+                                            <span x-text="agent._generating_prompt_template ? 'Генерира...' : 'AI'"></span>
+                                        </button>
+                                    </div>
                                     <textarea x-model="agent.prompt_template" rows="5"
                                               class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                               placeholder="Инструкции за агента с @{{placeholder}}-и..."></textarea>
@@ -372,6 +396,23 @@
                                                    x-model.number="agent.config.qa.max_retries"
                                                    class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
                                         </div>
+                                    </div>
+                                    <div x-show="agent.config.qa.enabled" x-cloak class="mt-3">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <label class="block text-xs font-medium text-gray-600">
+                                                Какво да проверява QA-то
+                                                <span class="font-normal text-gray-400">(по избор — оставете празно за дефолтна проверка)</span>
+                                            </label>
+                                            <button type="button" @click="generateField('qa_custom_prompt', agent)"
+                                                    :disabled="agent._generating_qa_custom_prompt"
+                                                    class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition ml-2 shrink-0">
+                                                <span x-text="agent._generating_qa_custom_prompt ? '⏳' : '✨'"></span>
+                                                <span x-text="agent._generating_qa_custom_prompt ? 'Генерира...' : 'AI'"></span>
+                                            </button>
+                                        </div>
+                                        <textarea x-model="agent.config.qa.custom_prompt" rows="4" maxlength="2000"
+                                                  class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                  placeholder="Провери дали резултатът съдържа..."></textarea>
                                     </div>
                                     <p x-show="agent.config.qa.enabled && verifierOptions(agent).length === 0"
                                        x-cloak
@@ -926,6 +967,44 @@ function flowCreator() {
         closeEdit() {
             if (this._modelTS) { this._modelTS.destroy(); this._modelTS = null; }
             this.editingIndex = null;
+        },
+
+        async generateField(field, agent) {
+            const key = '_generating_' + field.replace('.', '_');
+            agent[key] = true;
+            try {
+                const resp = await fetch('/ai/generate-agent-field', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        field,
+                        agent_name:       agent.name || '',
+                        agent_type:       agent.type || '',
+                        flow_description: this.flowDescription || '',
+                        role:             agent.role || '',
+                        system_prompt:    agent.system_prompt || '',
+                        prompt_template:  agent.prompt_template || '',
+                    }),
+                });
+                if (resp.ok) {
+                    const res = await resp.json();
+                    if (res && res.generated) {
+                        if (field === 'qa_custom_prompt') {
+                            agent.config.qa.custom_prompt = res.generated;
+                        } else {
+                            agent[field] = res.generated;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('generateField error', e);
+            } finally {
+                agent[key] = false;
+            }
         },
 
         saveEdit() {
