@@ -307,7 +307,7 @@
                                     <div class="flex items-center justify-between mb-1">
                                         <label class="block text-xs font-medium text-gray-600">Роля / Описание (BG)</label>
                                         <button type="button" @click="generateField('role', agent)"
-                                                :disabled="agent._generating_role"
+                                                :disabled="agent._generating_role || !agent.name"
                                                 class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
                                             <span x-text="agent._generating_role ? '⏳' : '✨'"></span>
                                             <span x-text="agent._generating_role ? 'Генерира...' : 'AI'"></span>
@@ -320,7 +320,7 @@
                                     <div class="flex items-center justify-between mb-1">
                                         <label class="block text-xs font-medium text-gray-600">System промпт (BG)</label>
                                         <button type="button" @click="generateField('system_prompt', agent)"
-                                                :disabled="agent._generating_system_prompt"
+                                                :disabled="agent._generating_system_prompt || !agent.name"
                                                 class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
                                             <span x-text="agent._generating_system_prompt ? '⏳' : '✨'"></span>
                                             <span x-text="agent._generating_system_prompt ? 'Генерира...' : 'AI'"></span>
@@ -334,7 +334,7 @@
                                     <div class="flex items-center justify-between mb-1">
                                         <label class="block text-xs font-medium text-gray-600">Промпт шаблон (BG)</label>
                                         <button type="button" @click="generateField('prompt_template', agent)"
-                                                :disabled="agent._generating_prompt_template"
+                                                :disabled="agent._generating_prompt_template || !agent.name"
                                                 class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
                                             <span x-text="agent._generating_prompt_template ? '⏳' : '✨'"></span>
                                             <span x-text="agent._generating_prompt_template ? 'Генерира...' : 'AI'"></span>
@@ -404,7 +404,7 @@
                                                 <span class="font-normal text-gray-400">(по избор — оставете празно за дефолтна проверка)</span>
                                             </label>
                                             <button type="button" @click="generateField('qa_custom_prompt', agent)"
-                                                    :disabled="agent._generating_qa_custom_prompt"
+                                                    :disabled="agent._generating_qa_custom_prompt || !agent.name"
                                                     class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition ml-2 shrink-0">
                                                 <span x-text="agent._generating_qa_custom_prompt ? '⏳' : '✨'"></span>
                                                 <span x-text="agent._generating_qa_custom_prompt ? 'Генерира...' : 'AI'"></span>
@@ -908,6 +908,11 @@ function flowCreator() {
                 agent.config.qa = { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3, custom_prompt: '' };
             }
 
+            agent._generating_role             = false;
+            agent._generating_system_prompt    = false;
+            agent._generating_prompt_template  = false;
+            agent._generating_qa_custom_prompt = false;
+
             return agent;
         },
 
@@ -990,18 +995,19 @@ function flowCreator() {
                         prompt_template:  agent.prompt_template || '',
                     }),
                 });
-                if (resp.ok) {
-                    const res = await resp.json();
-                    if (res && res.generated) {
-                        if (field === 'qa_custom_prompt') {
-                            agent.config.qa.custom_prompt = res.generated;
-                        } else {
-                            agent[field] = res.generated;
-                        }
+                const res = await resp.json();
+                if (!resp.ok) {
+                    this.errorMessage = res.error || 'Грешка при AI генерация. Провери дали Ollama работи.';
+                } else if (res && res.generated) {
+                    if (field === 'qa_custom_prompt') {
+                        agent.config.qa.custom_prompt = res.generated;
+                    } else {
+                        agent[field] = res.generated;
                     }
                 }
             } catch (e) {
                 console.error('generateField error', e);
+                this.errorMessage = 'Мрежова грешка при AI генерация.';
             } finally {
                 agent[key] = false;
             }

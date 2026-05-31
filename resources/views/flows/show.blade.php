@@ -155,7 +155,7 @@ $qaThresholdOptions = range(0, 100, 5);
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="block text-xs font-medium text-gray-600">Роля / Описание</label>
                                     <button type="button" @click="generateField('role', agent)"
-                                            :disabled="agent._generating_role"
+                                            :disabled="agent._generating_role || !agent.name"
                                             class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
                                         <span x-text="agent._generating_role ? '⏳' : '✨'"></span>
                                         <span x-text="agent._generating_role ? 'Генерира...' : 'AI'"></span>
@@ -168,7 +168,7 @@ $qaThresholdOptions = range(0, 100, 5);
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="block text-xs font-medium text-gray-600">System промпт</label>
                                     <button type="button" @click="generateField('system_prompt', agent)"
-                                            :disabled="agent._generating_system_prompt"
+                                            :disabled="agent._generating_system_prompt || !agent.name"
                                             class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
                                         <span x-text="agent._generating_system_prompt ? '⏳' : '✨'"></span>
                                         <span x-text="agent._generating_system_prompt ? 'Генерира...' : 'AI'"></span>
@@ -182,7 +182,7 @@ $qaThresholdOptions = range(0, 100, 5);
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="block text-xs font-medium text-gray-600">Промпт шаблон</label>
                                     <button type="button" @click="generateField('prompt_template', agent)"
-                                            :disabled="agent._generating_prompt_template"
+                                            :disabled="agent._generating_prompt_template || !agent.name"
                                             class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition">
                                         <span x-text="agent._generating_prompt_template ? '⏳' : '✨'"></span>
                                         <span x-text="agent._generating_prompt_template ? 'Генерира...' : 'AI'"></span>
@@ -258,7 +258,7 @@ $qaThresholdOptions = range(0, 100, 5);
                                     <span class="font-normal text-gray-400">(по избор — оставете празно за дефолтна проверка)</span>
                                 </label>
                                 <button type="button" @click="generateField('qa_custom_prompt', agent)"
-                                        :disabled="agent._generating_qa_custom_prompt"
+                                        :disabled="agent._generating_qa_custom_prompt || !agent.name"
                                         class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-40 transition ml-2 shrink-0">
                                     <span x-text="agent._generating_qa_custom_prompt ? '⏳' : '✨'"></span>
                                     <span x-text="agent._generating_qa_custom_prompt ? 'Генерира...' : 'AI'"></span>
@@ -491,6 +491,11 @@ function flowAgentManager() {
             agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
             agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
+
+            agent._generating_role             = false;
+            agent._generating_system_prompt    = false;
+            agent._generating_prompt_template  = false;
+            agent._generating_qa_custom_prompt = false;
 
             return agent;
         },
