@@ -28,7 +28,7 @@ class AgentGeneratorService
 3. Всеки агент има ТОЧНО ЕДНА отговорност
 4. system_prompt трябва да е детайлен (минимум 3 изречения) — на български
 5. prompt_template трябва да е детайлен (минимум 5 изречения) — на български, с конкретни placeholder-и като {{company_description}}, {{input}}, {{topic}}
-6. ВИНАГИ включвай: поне един researcher/analyzer, поне един content агент, точно един qa_verifier накрая
+6. ВИНАГИ включвай: поне един researcher/analyzer, поне един content агент, точно един qa_verifier агент (може на всяка позиция)
 7. Избирай модели според задачата — виж списъка с модели
 
 Генерирането на по-малко от 5 агента е ЗАБРАНЕНО.
@@ -75,10 +75,29 @@ Flow за изграждане: "{$flow->description}"
   "order": 1,
   "is_verifier": false,
   "qa_threshold": null,
-  "config": {"temperature": 0.7, "num_predict": 1000}
+  "uid": null,
+  "config": {
+    "temperature": 0.7,
+    "num_predict": 1000,
+    "qa": {
+      "enabled": true,
+      "verifier_agent_uid": "qa_main",
+      "threshold": 60,
+      "max_retries": 3,
+      "custom_prompt": "Конкретна проверка на БЪЛГАРСКИ специфична за задачата на агента — 2-3 изречения"
+    }
+  }
 }
 
-За qa_verifier: is_verifier=true, qa_threshold=75, temperature=0.1
+За qa_verifier: is_verifier=true, qa_threshold=75, temperature=0.1, uid="qa_main", config НЕ включва qa поле
+За qa_verifier: uid="qa_main"
+За всеки НЕ-verifier агент: config ТРЯБВА да включва qa обект с enabled=true, verifier_agent_uid="qa_main", threshold=60, max_retries=3
+За custom_prompt в config.qa — пиши конкретна проверка подходяща за изхода на агента:
+  - competitor_profiler/researcher: "Провери дали са намерени поне 3 конкурента/резултата с имена и уебсайтове. Ако липсват цени — допустимо е, но трябва да е отбелязано. Структурата трябва да е ясна."
+  - deep_researcher/analyzer: "Провери дали изходът съдържа структурирани данни, цитирани източници и ключови открития. Данните трябва да са организирани и лесно четими."
+  - content_bg/hook_writer/caption_writer: "Провери дали съдържанието е на БЪЛГАРСКИ, има ясен призив за действие (CTA), подходящ тон и структура за платформата. Проверка за правопис и стил."
+  - report_composer/report_writer: "Провери дали докладът съдържа всички необходими секции, изводи и препоръки. Езикът трябва да е БЪЛГАРСКИ, professional тон."
+  - За всички останали: напиши проверка базирана на output_description на агента — какво конкретно трябва да присъства в изхода
 За image_prompt агенти: temperature=0.8, num_predict=500
 За researcher/analyzer: temperature=0.3
 MSG;
@@ -261,6 +280,7 @@ MSG;
             'config'             => is_array($agent['config'] ?? null)
                 ? $agent['config']
                 : ['temperature' => 0.7, 'num_predict' => 1000],
+            'uid'                => $agent['uid'] ?? null,
         ];
     }
 
