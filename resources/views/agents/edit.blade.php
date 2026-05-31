@@ -48,7 +48,13 @@ $cfg     = $agent->config ?? [];
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Роля / Описание</label>
+            <div class="flex items-center justify-between mb-1">
+                <label class="block text-sm font-medium text-gray-700">Роля / Описание</label>
+                <button type="button" onclick="generateAgentField('role', this)"
+                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
+                    ✨ AI
+                </button>
+            </div>
             <textarea name="role" rows="3"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       required>{{ old('role', $agent->role) }}</textarea>
@@ -56,7 +62,13 @@ $cfg     = $agent->config ?? [];
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">System промпт</label>
+            <div class="flex items-center justify-between mb-1">
+                <label class="block text-sm font-medium text-gray-700">System промпт</label>
+                <button type="button" onclick="generateAgentField('system_prompt', this)"
+                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
+                    ✨ AI
+                </button>
+            </div>
             <p class="text-xs text-gray-400 mb-1">Описва ролята и поведението на агента. Инжектира се автоматично при всяко изпълнение.</p>
             <textarea name="system_prompt" rows="4"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -65,7 +77,13 @@ $cfg     = $agent->config ?? [];
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Промпт шаблон</label>
+            <div class="flex items-center justify-between mb-1">
+                <label class="block text-sm font-medium text-gray-700">Промпт шаблон</label>
+                <button type="button" onclick="generateAgentField('prompt_template', this)"
+                        class="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-40">
+                    ✨ AI
+                </button>
+            </div>
             <p class="text-xs text-gray-400 mb-1">Използвай <code class="bg-gray-100 px-1 rounded">@{{AgentName}}</code> за контекст от предишен агент</p>
             <textarea name="prompt_template" rows="8"
                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -330,3 +348,54 @@ $cfg     = $agent->config ?? [];
     </div>
 </form>
 @endsection
+
+@push('scripts')
+<script>
+window.FLOW_DESCRIPTION = @json($flow->description ?? '');
+
+async function generateAgentField(fieldName, btn) {
+    const form = btn.closest('form');
+    const nameInput = form.querySelector('[name="name"]');
+    if (!nameInput || !nameInput.value.trim()) {
+        alert('Въведи първо името на агента.');
+        return;
+    }
+    const textarea = form.querySelector('[name="' + fieldName + '"]');
+    if (!textarea) return;
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Генерира...';
+    try {
+        const resp = await fetch('/ai/generate-agent-field', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                field:            fieldName,
+                agent_name:       nameInput.value.trim(),
+                agent_type:       (form.querySelector('[name="type"]') || {}).value || '',
+                flow_description: window.FLOW_DESCRIPTION || '',
+                role:             (form.querySelector('[name="role"]') || {}).value || '',
+                system_prompt:    (form.querySelector('[name="system_prompt"]') || {}).value || '',
+                prompt_template:  (form.querySelector('[name="prompt_template"]') || {}).value || '',
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            alert(data.error || 'Грешка при AI генерация. Провери дали Ollama работи.');
+        } else if (data.generated) {
+            textarea.value = data.generated;
+        }
+    } catch (e) {
+        console.error('generateAgentField error', e);
+        alert('Мрежова грешка при AI генерация.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+</script>
+@endpush
