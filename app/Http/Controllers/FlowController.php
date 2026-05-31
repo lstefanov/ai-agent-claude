@@ -41,6 +41,7 @@ class FlowController extends Controller
             'status'        => 'required|in:draft,active,paused',
             'schedule_cron' => 'nullable|string|max:100',
             'agents'        => 'required|array|min:1',
+            'agents.*._uid'             => 'nullable|string|max:100',
             'agents.*.name'             => 'required|string',
             'agents.*.type'             => 'required|string',
             'agents.*.role'             => 'required|string',
@@ -48,6 +49,20 @@ class FlowController extends Controller
             'agents.*.prompt_template'  => 'required|string',
             'agents.*.order'            => 'required|integer|min:1',
             'agents.*.system_prompt'    => 'nullable|string',
+            'agents.*.is_verifier'      => 'nullable|boolean',
+            'agents.*.qa_threshold'     => 'nullable|integer|min:0|max:100',
+            'agents.*.config'           => 'nullable|array',
+            'agents.*.config.temperature' => 'nullable|numeric|min:0|max:2',
+            'agents.*.config.top_p' => 'nullable|numeric|min:0|max:1',
+            'agents.*.config.top_k' => 'nullable|integer|min:1|max:200',
+            'agents.*.config.repeat_penalty' => 'nullable|numeric|min:0|max:2',
+            'agents.*.config.num_predict' => 'nullable|integer|min:-1',
+            'agents.*.config.qa' => 'nullable|array',
+            'agents.*.config.qa.enabled' => 'nullable|boolean',
+            'agents.*.config.qa.verifier_agent_uid' => 'nullable|string|max:100',
+            'agents.*.config.qa.verifier_agent_order' => 'nullable|integer|min:1',
+            'agents.*.config.qa.threshold' => 'nullable|integer|min:0|max:100',
+            'agents.*.config.qa.max_retries' => 'nullable|integer|min:0|max:10',
         ]);
 
         $flow = $company->flows()->create([
@@ -57,8 +72,14 @@ class FlowController extends Controller
             'schedule_cron' => $validated['schedule_cron'] ?? null,
         ]);
 
+        $createdAgents = [];
+
         foreach ($validated['agents'] as $agentData) {
-            $flow->agents()->create([
+            $isVerifier = (bool) ($agentData['is_verifier'] ?? false) || $agentData['type'] === 'qa_verifier';
+            $config = isset($agentData['config']) ? (array) $agentData['config'] : ['temperature' => 0.7, 'num_predict' => 1000];
+            unset($config['qa']);
+
+            $agent = $flow->agents()->create([
                 'name'              => $agentData['name'],
                 'type'              => $agentData['type'],
                 'role'              => $agentData['role'],
@@ -72,12 +93,16 @@ class FlowController extends Controller
                 'model'             => $agentData['model'],
                 'model_reason'      => $agentData['model_reason'] ?? null,
                 'order'             => (int) $agentData['order'],
-                'is_verifier'       => (bool) ($agentData['is_verifier'] ?? false),
-                'qa_threshold'      => isset($agentData['qa_threshold']) ? (int) $agentData['qa_threshold'] : null,
-                'config'            => isset($agentData['config']) ? (array) $agentData['config'] : null,
+                'is_verifier'       => $isVerifier,
+                'qa_threshold'      => $isVerifier ? (int) ($agentData['qa_threshold'] ?? 75) : null,
+                'config'            => $config,
                 'is_active'         => true,
             ]);
+
+            $createdAgents[] = ['agent' => $agent, 'source' => $agentData];
         }
+
+        $this->applyInitialStepQaPolicies($createdAgents);
 
         return redirect()->route('flows.show', $flow)
             ->with('success', 'Flow е създаден успешно с ' . count($validated['agents']) . ' агента.');
@@ -236,5 +261,57 @@ MSG;
         }
 
         return response()->json($result);
+    }
+
+    private function applyInitialStepQaPolicies(array $createdAgents): void
+    {
+        $byUid = collect($createdAgents)
+            ->filter(fn ($item) => ! empty($item['source']['_uid']))
+            ->mapWithKeys(fn ($item) => [$item['source']['_uid'] => $item['agent']]);
+        $byOrder = collect($createdAgents)
+            ->mapWithKeys(fn ($item) => [(int) $item['agent']->order => $item['agent']]);
+
+        foreach ($createdAgents as $item) {
+            /** @var Agent $agent */
+            $agent = $item['agent'];
+            $source = $item['source'];
+            $config = $agent->config ?? [];
+
+            if ($agent->is_verifier) {
+                unset($config['qa']);
+                $agent->update(['config' => $config]);
+                continue;
+            }
+
+            $qa = $source['config']['qa'] ?? [];
+            if (! filter_var($qa['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                $config['qa'] = ['enabled' => false];
+                $agent->update(['config' => $config]);
+                continue;
+            }
+
+            $verifier = null;
+            if (! empty($qa['verifier_agent_uid'])) {
+                $verifier = $byUid->get($qa['verifier_agent_uid']);
+            }
+            if (! $verifier && ! empty($qa['verifier_agent_order'])) {
+                $verifier = $byOrder->get((int) $qa['verifier_agent_order']);
+            }
+
+            if (! $verifier || ! $verifier->is_verifier || (int) $verifier->id === (int) $agent->id) {
+                $config['qa'] = ['enabled' => false];
+                $agent->update(['config' => $config]);
+                continue;
+            }
+
+            $config['qa'] = [
+                'enabled' => true,
+                'verifier_agent_id' => (int) $verifier->id,
+                'threshold' => (int) ($qa['threshold'] ?? $verifier->qa_threshold ?? 75),
+                'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
+            ];
+
+            $agent->update(['config' => $config]);
+        }
     }
 }

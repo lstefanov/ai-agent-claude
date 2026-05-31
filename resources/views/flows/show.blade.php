@@ -5,6 +5,11 @@
 @php
 $triggeredByLabel = ['manual' => '▶ Ръчно', 'scheduler' => '⏰ Планиран'];
 $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' => '🇫🇷', 'es' => '🇪🇸', 'ru' => '🇷🇺'];
+$qaThresholdOptions = range(0, 100, 5);
+$activeVerifierAgents = $flow->agents
+    ->where('is_active', true)
+    ->where('is_verifier', true)
+    ->sortBy('order');
 @endphp
 
 {{-- Clear the create-form draft for this company on successful save --}}
@@ -28,8 +33,21 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
            class="inline-flex items-center justify-center bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
             ✏ Редактирай
         </a>
-        <form action="{{ route('flow-runs.store', $flow) }}" method="POST">
+        <form action="{{ route('flow-runs.store', $flow) }}" method="POST" class="flex items-start gap-2">
             @csrf
+            @foreach($activeVerifierAgents as $verifierAgent)
+                <label class="sr-only" for="qa-threshold-{{ $verifierAgent->id }}">QA праг за {{ $verifierAgent->name }}</label>
+                <select id="qa-threshold-{{ $verifierAgent->id }}"
+                        name="qa_thresholds[{{ $verifierAgent->id }}]"
+                        title="QA праг за {{ $verifierAgent->name }}"
+                        class="bg-white border border-orange-200 text-orange-700 px-3 py-2 rounded-lg text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    @foreach($qaThresholdOptions as $threshold)
+                        <option value="{{ $threshold }}" @selected((int) ($verifierAgent->qa_threshold ?? 75) === $threshold)>
+                            QA {{ $threshold }}%
+                        </option>
+                    @endforeach
+                </select>
+            @endforeach
             <button type="submit"
                     class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2">
                 ▶ Стартирай
@@ -95,6 +113,7 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                             <span class="font-semibold text-gray-900 text-sm" x-text="agent.name"></span>
                             <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono" x-text="agent.type"></span>
                             <span x-show="agent.is_verifier" class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">QA verifier</span>
+                            <span x-show="stepQaEnabled(agent)" class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">QA след стъпката</span>
                             <span x-show="!agent.is_active" class="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full">неактивен</span>
                         </div>
                         <p class="text-xs text-gray-500 leading-relaxed" x-text="(agent.role || '').substring(0,120) + ((agent.role||'').length > 120 ? '...' : '')"></p>
@@ -156,6 +175,61 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
                         <div class="col-span-2">
                             <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
                             <select :id="'show-model-ts-' + index"></select>
+                        </div>
+                        <div x-show="agent.is_verifier || agent.type === 'qa_verifier'" x-cloak>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">QA праг (%)</label>
+                            <select x-model.number="agent.qa_threshold"
+                                    class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                @foreach($qaThresholdOptions as $threshold)
+                                    <option value="{{ $threshold }}">{{ $threshold }}%</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div x-show="!agent.is_verifier && agent.type !== 'qa_verifier'" x-cloak class="col-span-2 border border-emerald-200 bg-emerald-50 rounded-lg p-3">
+                            <label class="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                                <input type="checkbox"
+                                       x-model="agent.config.qa.enabled"
+                                       @change="ensureStepQaDefaults(agent)"
+                                       class="w-4 h-4 text-emerald-600 border-gray-300 rounded">
+                                QA след тази стъпка
+                            </label>
+                            <p class="text-xs text-emerald-700/80 mt-1">
+                                Ако QA не мине, този агент ще се изпълни отново до зададения лимит.
+                            </p>
+                            <div x-show="agent.config.qa.enabled" x-cloak class="grid grid-cols-3 gap-3 mt-3">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">QA агент</label>
+                                    <select x-model.number="agent.config.qa.verifier_agent_id"
+                                            class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        <option value="">Избери QA</option>
+                                        <template x-for="verifier in verifierOptions(agent)" :key="verifier.id">
+                                            <option :value="verifier.id" x-text="verifier.name"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Праг (%)</label>
+                                    <select x-model.number="agent.config.qa.threshold"
+                                            class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        @foreach($qaThresholdOptions as $threshold)
+                                            <option value="{{ $threshold }}">{{ $threshold }}%</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Повторения</label>
+                                    <input type="number"
+                                           min="0"
+                                           max="10"
+                                           x-model.number="agent.config.qa.max_retries"
+                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                            </div>
+                            <p x-show="agent.config.qa.enabled && verifierOptions(agent).length === 0"
+                               x-cloak
+                               class="text-xs text-red-600 mt-2">
+                                Добави активен QA verifier агент, за да включиш тази проверка.
+                            </p>
                         </div>
                     </div>
                     <div class="flex justify-end gap-2">
@@ -332,6 +406,7 @@ $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' =>
 const FLOW_ID      = {{ $flow->id }};
 const AGENTS_DATA  = @json($agentsJson);
 const MODELS_DATA  = @json($models);
+const QA_THRESHOLD_OPTIONS = @json($qaThresholdOptions);
 const CSRF_TOKEN   = document.querySelector('meta[name="csrf-token"]').content;
 
 function flowAgentManager() {
@@ -359,9 +434,49 @@ function flowAgentManager() {
         ],
 
         init() {
-            this.agents = AGENTS_DATA.map(a => ({ ...a }));
+            this.agents = AGENTS_DATA.map(a => this.normalizeAgent({ ...a }));
             this.models = MODELS_DATA;
             this.$nextTick(() => this.initSortable());
+        },
+
+        normalizeAgent(agent) {
+            agent.config = agent.config && typeof agent.config === 'object' ? agent.config : {};
+            agent.config.qa = agent.config.qa && typeof agent.config.qa === 'object'
+                ? agent.config.qa
+                : { enabled: false };
+            agent.config.qa.enabled = Boolean(agent.config.qa.enabled);
+            agent.config.qa.verifier_agent_id = agent.config.qa.verifier_agent_id ? Number(agent.config.qa.verifier_agent_id) : null;
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
+
+            return agent;
+        },
+
+        stepQaEnabled(agent) {
+            return Boolean(agent?.config?.qa?.enabled);
+        },
+
+        verifierOptions(agent) {
+            return this.agents.filter(candidate =>
+                candidate.id !== agent.id
+                && candidate.is_active
+                && (candidate.is_verifier || candidate.type === 'qa_verifier')
+            );
+        },
+
+        ensureStepQaDefaults(agent) {
+            agent.config = agent.config && typeof agent.config === 'object' ? agent.config : {};
+            agent.config.qa = agent.config.qa && typeof agent.config.qa === 'object' ? agent.config.qa : {};
+            agent.config.qa.enabled = Boolean(agent.config.qa.enabled);
+
+            if (!agent.config.qa.enabled) return;
+
+            const firstVerifier = this.verifierOptions(agent)[0];
+            if (!agent.config.qa.verifier_agent_id && firstVerifier) {
+                agent.config.qa.verifier_agent_id = firstVerifier.id;
+            }
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
         },
 
         initSortable() {
@@ -429,6 +544,13 @@ function flowAgentManager() {
             this.$nextTick(() => {
                 initAgentTypeSelect('show-type-ts-' + index, this.agents[index].type, v => {
                     this.agents[index].type = v;
+                    this.agents[index].is_verifier = v === 'qa_verifier';
+                    if (this.agents[index].is_verifier && !this.agents[index].qa_threshold) {
+                        this.agents[index].qa_threshold = 75;
+                    }
+                    if (this.agents[index].is_verifier) {
+                        this.agents[index].config.qa = { enabled: false };
+                    }
                     this.initShowModelSelect(index);
                 });
                 this.initShowModelSelect(index);
@@ -474,7 +596,7 @@ function flowAgentManager() {
             const result = await this.ajax('POST', `/flows/${FLOW_ID}/agents`, data);
             this.saving = false;
             if (result) {
-                this.agents.push(result.agent);
+                this.agents.push(this.normalizeAgent(result.agent));
                 this.editingIndex = this.agents.length - 1;
                 this.$nextTick(() => this.initSortable());
             }
@@ -532,6 +654,9 @@ function flowAgentManager() {
                 role:             tpl ? (tpl.role            || '')             : '',
                 system_prompt:    tpl ? (tpl.system_prompt   || '')             : '',
                 prompt_template:  tpl ? (tpl.prompt_template || '')             : '',
+                is_verifier:      tpl ? Boolean(tpl.is_verifier || tpl.type === 'qa_verifier') : false,
+                qa_threshold:     tpl && (tpl.is_verifier || tpl.type === 'qa_verifier') ? (tpl.qa_threshold || 75) : null,
+                config:           tpl && tpl.config ? tpl.config : { temperature: 0.7, num_predict: 1000, qa: { enabled: false } },
             };
 
             this.showPicker = false;
@@ -539,7 +664,7 @@ function flowAgentManager() {
             const result = await this.ajax('POST', `/flows/${FLOW_ID}/agents`, data);
             this.saving = false;
             if (result) {
-                this.agents.push(result.agent);
+                this.agents.push(this.normalizeAgent(result.agent));
                 this.editingIndex = this.agents.length - 1;
                 this.$nextTick(() => this.initSortable());
             }
@@ -555,11 +680,14 @@ function flowAgentManager() {
                 system_prompt:    agent.system_prompt || '',
                 prompt_template:  agent.prompt_template || '',
                 model:            agent.model,
+                is_verifier:      agent.is_verifier || agent.type === 'qa_verifier',
+                qa_threshold:     agent.qa_threshold,
+                config:           agent.config,
             });
             this.saving = false;
             if (result) {
                 const idx = this.agents.findIndex(a => a.id === agent.id);
-                if (idx !== -1) this.agents[idx] = { ...this.agents[idx], ...result.agent };
+                if (idx !== -1) this.agents[idx] = this.normalizeAgent({ ...this.agents[idx], ...result.agent });
                 this.editingIndex = null;
             }
         },

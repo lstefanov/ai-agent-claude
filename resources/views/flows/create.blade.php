@@ -215,6 +215,7 @@
                 <template x-for="(agent, index) in agents" :key="agent._uid || index">
                     <div>
                         {{-- Hidden inputs for form submission --}}
+                        <input type="hidden" :name="'agents['+index+'][_uid]'"              :value="agent._uid">
                         <input type="hidden" :name="'agents['+index+'][name]'"              :value="agent.name">
                         <input type="hidden" :name="'agents['+index+'][type]'"              :value="agent.type">
                         <input type="hidden" :name="'agents['+index+'][role]'"              :value="agent.role">
@@ -230,6 +231,11 @@
                         <input type="hidden" :name="'agents['+index+'][qa_threshold]'"      :value="agent.qa_threshold">
                         <input type="hidden" :name="'agents['+index+'][config][temperature]'" :value="agent.config ? agent.config.temperature : 0.7">
                         <input type="hidden" :name="'agents['+index+'][config][num_predict]'" :value="agent.config ? agent.config.num_predict : 1000">
+                        <input type="hidden" :name="'agents['+index+'][config][qa][enabled]'" :value="agent.config && agent.config.qa && agent.config.qa.enabled ? '1' : '0'">
+                        <input type="hidden" :name="'agents['+index+'][config][qa][verifier_agent_uid]'" :value="agent.config && agent.config.qa ? agent.config.qa.verifier_agent_uid : ''">
+                        <input type="hidden" :name="'agents['+index+'][config][qa][verifier_agent_order]'" :value="selectedVerifierOrder(agent)">
+                        <input type="hidden" :name="'agents['+index+'][config][qa][threshold]'" :value="agent.config && agent.config.qa ? agent.config.qa.threshold : 75">
+                        <input type="hidden" :name="'agents['+index+'][config][qa][max_retries]'" :value="agent.config && agent.config.qa ? agent.config.qa.max_retries : 3">
                         <input type="hidden" :name="'agents['+index+'][model]'"             :value="agent.model">
                         <template x-if="agent.capabilities">
                             <template x-for="(cap, ci) in agent.capabilities" :key="ci">
@@ -257,6 +263,7 @@
                                     <span class="font-semibold text-gray-900 text-sm" x-text="agent.name"></span>
                                     <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono" x-text="agent.type"></span>
                                     <span x-show="agent.is_verifier" class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">QA verifier</span>
+                                    <span x-show="stepQaEnabled(agent)" class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">QA след стъпката</span>
                                 </div>
                                 <p class="text-xs text-gray-500 leading-relaxed" x-text="(agent.role || '').substring(0,120) + ((agent.role||'').length > 120 ? '...' : '')"></p>
                             </div>
@@ -315,6 +322,61 @@
                                 <div class="col-span-2">
                                     <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
                                     <select :id="'flow-model-ts-' + index"></select>
+                                </div>
+                                <div x-show="agent.is_verifier || agent.type === 'qa_verifier'" x-cloak>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">QA праг (%)</label>
+                                    <select x-model.number="agent.qa_threshold"
+                                            class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        <template x-for="threshold in [0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]" :key="threshold">
+                                            <option :value="threshold" x-text="threshold + '%'"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div x-show="!agent.is_verifier && agent.type !== 'qa_verifier'" x-cloak class="col-span-2 border border-emerald-200 bg-emerald-50 rounded-lg p-3">
+                                    <label class="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                                        <input type="checkbox"
+                                               x-model="agent.config.qa.enabled"
+                                               @change="ensureStepQaDefaults(agent)"
+                                               class="w-4 h-4 text-emerald-600 border-gray-300 rounded">
+                                        QA след тази стъпка
+                                    </label>
+                                    <p class="text-xs text-emerald-700/80 mt-1">
+                                        Ако QA не мине, този агент ще се изпълни отново до зададения лимит.
+                                    </p>
+                                    <div x-show="agent.config.qa.enabled" x-cloak class="grid grid-cols-3 gap-3 mt-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">QA агент</label>
+                                            <select x-model="agent.config.qa.verifier_agent_uid"
+                                                    class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                                <option value="">Избери QA</option>
+                                                <template x-for="verifier in verifierOptions(agent)" :key="verifier._uid">
+                                                    <option :value="verifier._uid" x-text="verifier.name"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">Праг (%)</label>
+                                            <select x-model.number="agent.config.qa.threshold"
+                                                    class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                                <template x-for="threshold in [0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]" :key="threshold">
+                                                    <option :value="threshold" x-text="threshold + '%'"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">Повторения</label>
+                                            <input type="number"
+                                                   min="0"
+                                                   max="10"
+                                                   x-model.number="agent.config.qa.max_retries"
+                                                   class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        </div>
+                                    </div>
+                                    <p x-show="agent.config.qa.enabled && verifierOptions(agent).length === 0"
+                                       x-cloak
+                                       class="text-xs text-red-600 mt-2">
+                                        Добави QA verifier агент, за да включиш тази проверка.
+                                    </p>
                                 </div>
                             </div>
                             <div class="flex justify-end gap-2">
@@ -578,7 +640,7 @@ function flowCreator() {
                     const draft = JSON.parse(saved);
                     this.flowName        = draft.name        || '';
                     this.flowDescription = draft.description || '';
-                    this.agents          = draft.agents      || [];
+                    this.agents          = (draft.agents || []).map(agent => this.normalizeAgent(agent));
                     this.schedule        = draft.schedule    || this.schedule;
                     // Clear only after successful restore; keep for next reload if needed
                     // sessionStorage.removeItem(STORAGE_KEY); // cleared on success in store()
@@ -709,7 +771,7 @@ function flowCreator() {
                                 agent.model = fallback;
                             }
                             agent._uid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random();
-                            return agent;
+                            return this.normalizeAgent(agent);
                         });
                         if (this.agents.length === 0) {
                             this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
@@ -773,11 +835,74 @@ function flowCreator() {
             });
         },
 
+        normalizeAgent(agent) {
+            agent._uid = agent._uid || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random());
+            agent.is_verifier = Boolean(agent.is_verifier || agent.type === 'qa_verifier');
+            if (agent.is_verifier && !agent.qa_threshold) {
+                agent.qa_threshold = 75;
+            }
+            agent.config = agent.config && typeof agent.config === 'object' ? agent.config : {};
+            agent.config.qa = agent.config.qa && typeof agent.config.qa === 'object'
+                ? agent.config.qa
+                : { enabled: false };
+            agent.config.qa.enabled = Boolean(agent.config.qa.enabled);
+            agent.config.qa.verifier_agent_uid = agent.config.qa.verifier_agent_uid || '';
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
+
+            if (agent.is_verifier) {
+                agent.config.qa = { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3 };
+            }
+
+            return agent;
+        },
+
+        stepQaEnabled(agent) {
+            return Boolean(agent?.config?.qa?.enabled);
+        },
+
+        verifierOptions(agent) {
+            return this.agents.filter(candidate =>
+                candidate._uid !== agent._uid
+                && (candidate.is_verifier || candidate.type === 'qa_verifier')
+            );
+        },
+
+        ensureStepQaDefaults(agent) {
+            agent.config = agent.config && typeof agent.config === 'object' ? agent.config : {};
+            agent.config.qa = agent.config.qa && typeof agent.config.qa === 'object' ? agent.config.qa : {};
+            agent.config.qa.enabled = Boolean(agent.config.qa.enabled);
+
+            if (!agent.config.qa.enabled) return;
+
+            const firstVerifier = this.verifierOptions(agent)[0];
+            if (!agent.config.qa.verifier_agent_uid && firstVerifier) {
+                agent.config.qa.verifier_agent_uid = firstVerifier._uid;
+            }
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
+        },
+
+        selectedVerifierOrder(agent) {
+            const uid = agent?.config?.qa?.verifier_agent_uid;
+            if (!uid) return '';
+
+            const verifier = this.agents.find(candidate => candidate._uid === uid);
+            return verifier ? verifier.order : '';
+        },
+
         openEdit(index) {
             this.editingIndex = index;
             this.$nextTick(() => {
                 initAgentTypeSelect('flow-type-ts-' + index, this.agents[index].type, v => {
                     this.agents[index].type = v;
+                    this.agents[index].is_verifier = v === 'qa_verifier';
+                    if (this.agents[index].is_verifier && !this.agents[index].qa_threshold) {
+                        this.agents[index].qa_threshold = 75;
+                    }
+                    if (this.agents[index].is_verifier) {
+                        this.agents[index].config.qa = { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3 };
+                    }
                     this.initFlowModelSelect(index);
                 });
                 this.initFlowModelSelect(index);
@@ -852,7 +977,7 @@ function flowCreator() {
                 limitations: '',
                 input_description: '',
                 output_description: '',
-                config: { temperature: 0.7, num_predict: 1000 },
+                config: { temperature: 0.7, num_predict: 1000, qa: { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3 } },
             };
 
             if (tpl) {
@@ -863,8 +988,8 @@ function flowCreator() {
                     system_prompt:      tpl.system_prompt     || '',
                     prompt_template:    tpl.prompt_template   || '',
                     model:              this._resolveModel(tpl.model),
-                    is_verifier:        !!tpl.is_verifier,
-                    qa_threshold:       tpl.qa_threshold      || null,
+                    is_verifier:        Boolean(tpl.is_verifier || tpl.type === 'qa_verifier'),
+                    qa_threshold:       (tpl.is_verifier || tpl.type === 'qa_verifier') ? (tpl.qa_threshold || 75) : null,
                     capabilities:       tpl.capabilities      || [],
                     strengths:          tpl.strengths         || '',
                     limitations:        tpl.limitations       || '',
@@ -874,7 +999,7 @@ function flowCreator() {
                 });
             }
 
-            this.agents.push(defaults);
+            this.agents.push(this.normalizeAgent(defaults));
             this.renumberAgents();
             this.editingIndex = this.agents.length - 1;
             this.showPicker = false;

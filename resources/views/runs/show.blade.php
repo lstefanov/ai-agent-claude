@@ -3,6 +3,11 @@
 @section('title', 'Run #' . $flowRun->id . ' — ' . $flowRun->flow->name)
 
 @php
+$qaThresholdOptions = range(0, 100, 5);
+$runQaThresholds = $flowRun->context['qa_thresholds'] ?? [];
+$stepQaPolicies = $flowRun->context['step_qa_policies'] ?? [];
+$stepQaResults = $flowRun->context['step_qa_results'] ?? [];
+$failureMessage = $flowRun->context['failure_message'] ?? null;
 $initialAgents = $flowRun->flow->agents
     ->where('is_active', true)
     ->sortBy('order')
@@ -12,12 +17,16 @@ $initialAgents = $flowRun->flow->agents
         'type'         => $a->type,
         'output_role'  => $a->effectiveOutputRole(),
         'is_verifier'  => (bool) $a->is_verifier,
-        'qa_threshold' => $a->qa_threshold,
+        'qa_threshold' => $runQaThresholds[(string) $a->id] ?? $a->qa_threshold,
+        'step_qa_policy' => $stepQaPolicies[(string) $a->id] ?? null,
+        'step_qa_result' => $stepQaResults[(string) $a->id] ?? null,
         'model'        => $a->model,
         'order'        => $a->order,
     ])->values();
 
-$initialRuns = (object) $flowRun->agentRuns->mapWithKeys(fn($r) => [
+$initialAgentRuns = $flowRun->agentRuns->sortBy('id');
+$initialAttemptCounts = $initialAgentRuns->groupBy('agent_id')->map->count();
+$initialRuns = (object) $initialAgentRuns->mapWithKeys(fn($r) => [
     (string) $r->agent_id => [
         'agent_id'     => $r->agent_id,
         'status'       => $r->status,
@@ -27,6 +36,7 @@ $initialRuns = (object) $flowRun->agentRuns->mapWithKeys(fn($r) => [
         'error'        => $r->error,
         'duration_ms'  => $r->duration_ms,
         'tokens_used'  => $r->tokens_used,
+        'attempt_count'=> $initialAttemptCounts[$r->agent_id] ?? 1,
         'started_at'   => $r->started_at?->format('H:i:s'),
         'completed_at' => $r->completed_at?->format('H:i:s'),
     ]
@@ -60,6 +70,11 @@ window.__runData = {
     runs:         @json($initialRuns),
     pollUrl:      @json(route('flow-runs.poll', $flowRun)),
     logUrl:       @json(route('flow-runs.log',  $flowRun)),
+    updateQaUrl:  @json(route('flow-runs.qa-thresholds', $flowRun)),
+    qaThresholdOptions: @json($qaThresholdOptions),
+    stepQaPolicies: @json($stepQaPolicies),
+    stepQaResults: @json($stepQaResults),
+    failureMessage: @json($failureMessage),
 };
 </script>
 
@@ -129,6 +144,9 @@ window.__runData = {
               x-text="progressPercent + '%'">
         </span>
     </div>
+    <template x-if="flowStatus === 'failed' && failureMessage">
+        <div class="mt-3 rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-700" x-text="failureMessage"></div>
+    </template>
 
     <div class="relative h-2.5 bg-gray-100 rounded-full overflow-hidden">
         <div class="absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out"
@@ -293,7 +311,7 @@ window.__runData = {
                         <span>✓</span>
                     </template>
                     <template x-if="runStatus(agent.id) === 'completed' && agent.is_verifier">
-                        <span x-text="qaScore(agent.id) >= (agent.qa_threshold || 75) ? '✓' : '✗'"></span>
+                        <span x-text="qaScore(agent.id) >= qaThreshold(agent) ? '✓' : '✗'"></span>
                     </template>
                     <template x-if="runStatus(agent.id) === 'failed'">
                         <span>✗</span>
@@ -307,9 +325,23 @@ window.__runData = {
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="font-medium text-gray-900 text-sm" x-text="agent.name"></span>
                         <span class="text-xs text-gray-400 font-mono hidden sm:inline" x-text="agent.type"></span>
-                        <template x-if="agent.is_verifier">
+                        <template x-if="agent.is_verifier && runStatus(agent.id) === 'pending'">
+                            <select x-model.number="agent.qa_threshold"
+                                    @click.stop
+                                    @change.stop="updateQaThreshold(agent)"
+                                    class="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded-full font-medium focus:outline-none focus:ring-2 focus:ring-orange-400">
+                                <template x-for="threshold in qaThresholdOptions" :key="threshold">
+                                    <option :value="threshold" x-text="'QA ' + threshold + '%'"></option>
+                                </template>
+                            </select>
+                        </template>
+                        <template x-if="agent.is_verifier && runStatus(agent.id) !== 'pending'">
                             <span class="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-medium"
-                                  x-text="'QA' + (agent.qa_threshold ? ' ' + agent.qa_threshold + '%' : '')"></span>
+                                  x-text="qaThresholdLabel(agent)"></span>
+                        </template>
+                        <template x-if="agent.step_qa_policy">
+                            <span class="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium"
+                                  x-text="stepQaLabel(agent)"></span>
                         </template>
                     </div>
                     <template x-if="runStatus(agent.id) === 'running'">
@@ -325,9 +357,18 @@ window.__runData = {
                 </div>
 
                 <div class="flex items-center gap-2 shrink-0">
+                    <template x-if="stepQaResult(agent.id)">
+                        <span class="text-xs font-semibold tabular-nums"
+                              :class="stepQaResult(agent.id).passed ? 'text-green-600' : 'text-red-500'"
+                              x-text="'QA ' + stepQaResult(agent.id).score + '%'"></span>
+                    </template>
+                    <template x-if="getRun(agent.id) && getRun(agent.id).attempt_count > 1">
+                        <span class="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full"
+                              x-text="'опит ' + getRun(agent.id).attempt_count"></span>
+                    </template>
                     <template x-if="agent.is_verifier && runStatus(agent.id) === 'completed'">
                         <span class="text-base font-bold tabular-nums"
-                              :class="qaScore(agent.id) >= (agent.qa_threshold || 75) ? 'text-green-600' : 'text-red-500'"
+                              :class="qaScore(agent.id) >= qaThreshold(agent) ? 'text-green-600' : 'text-red-500'"
                               x-text="qaScore(agent.id) + '%'"></span>
                     </template>
                     <template x-if="getRun(agent.id) && getRun(agent.id).duration_ms">
@@ -483,6 +524,12 @@ function flowRunMonitor() {
         copied:      false,
         logUrl:      d.logUrl,
         pollUrl:     d.pollUrl,
+        updateQaUrl: d.updateQaUrl,
+        qaThresholdOptions: d.qaThresholdOptions || [],
+        stepQaPolicies: d.stepQaPolicies || {},
+        stepQaResults: d.stepQaResults || {},
+        failureMessage: d.failureMessage || null,
+        savingQaThresholds: {},
         _timer:      null,
         _poller:     null,
         startedAt:   d.startedAt   ? new Date(d.startedAt)   : null,
@@ -541,6 +588,8 @@ function flowRunMonitor() {
 
             try {
                 this.flowStatus = data.status;
+                this.failureMessage = data.failure_message || this.failureMessage;
+                this.stepQaResults = data.step_qa_results || this.stepQaResults;
 
                 if (data.started_at_iso && !this.startedAt)
                     this.startedAt = new Date(data.started_at_iso);
@@ -584,6 +633,55 @@ function flowRunMonitor() {
         runStatus(agentId) {
             const r = this.getRun(agentId);
             return r ? r.status : 'pending';
+        },
+
+        qaThreshold(agent) {
+            return agent.qa_threshold ?? 75;
+        },
+
+        qaThresholdLabel(agent) {
+            return 'QA' + (agent.qa_threshold !== null && agent.qa_threshold !== undefined ? ' ' + agent.qa_threshold + '%' : '');
+        },
+
+        stepQaResult(agentId) {
+            return this.stepQaResults[String(agentId)] || null;
+        },
+
+        stepQaLabel(agent) {
+            const policy = agent.step_qa_policy;
+            if (!policy) return '';
+            const result = this.stepQaResult(agent.id);
+            const retryText = result ? ` · retry ${result.retries_used}/${policy.max_retries}` : ` · retry 0/${policy.max_retries}`;
+            return `Step QA ${policy.threshold}%${retryText}`;
+        },
+
+        async updateQaThreshold(agent) {
+            if (!agent.is_verifier || this.runStatus(agent.id) !== 'pending') return;
+
+            this.savingQaThresholds = { ...this.savingQaThresholds, [agent.id]: true };
+
+            try {
+                const res = await fetch(this.updateQaUrl, {
+                    method: 'PATCH',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        agent_id: agent.id,
+                        qa_threshold: agent.qa_threshold,
+                    }),
+                });
+
+                if (!res.ok) {
+                    console.error('Failed to update QA threshold', await res.json());
+                }
+            } catch (e) {
+                console.error('Failed to update QA threshold', e);
+            } finally {
+                this.savingQaThresholds = { ...this.savingQaThresholds, [agent.id]: false };
+            }
         },
 
         // ── Final output: body agents + appendix agents combined ─────
