@@ -92,7 +92,9 @@ class QaThresholdTest extends TestCase
         $response->assertSee('x-model.number="agent.qa_threshold"', false);
         $this->assertStringContainsString('qa_threshold:', $response->getContent());
         $this->assertStringContainsString('agent.qa_threshold', $response->getContent());
-        $response->assertSee('name="qa_thresholds['.$flow->agents()->first()->id.']"', false);
+        // Header QA% dropdowns removed — thresholds are now configured per-step via config.qa.threshold
+        $response->assertSee('QA Верификация', false);
+        $response->assertSee('agent.config.qa.custom_prompt', false);
     }
 
     public function test_manual_run_creation_snapshots_posted_qa_thresholds(): void
@@ -215,6 +217,7 @@ class QaThresholdTest extends TestCase
             'verifier_agent_id' => $verifier->id,
             'threshold' => 82,
             'max_retries' => 3,
+            'custom_prompt' => '',
         ], $config['qa']);
     }
 
@@ -276,6 +279,7 @@ class QaThresholdTest extends TestCase
                 'verifier_agent_id' => $verifier->id,
                 'threshold' => 65,
                 'max_retries' => 5,
+                'custom_prompt' => '',
             ],
         ], $flowRun->context['step_qa_policies']);
     }
@@ -724,7 +728,7 @@ class QaThresholdTest extends TestCase
         $response->assertOk();
         $response->assertSee('"qa_threshold":60', false);
         $response->assertSee('x-model.number="agent.qa_threshold"', false);
-        $response->assertSee('updateQaThreshold(agent)', false);
+        $response->assertSee('stepQaBadge(agent)', false);
         $response->assertSee('agent.qa_threshold ?? 75', false);
         $response->assertSee('agent.qa_threshold !== null', false);
     }
@@ -783,7 +787,23 @@ class QaThresholdTest extends TestCase
         $response->assertSee('qaThresholdLabel(agent)', false);
     }
 
+    /** @deprecated Endpoint removed — QA thresholds are now configured per-step via config.qa.threshold */
     public function test_run_threshold_patch_updates_pending_verifier_and_rejects_started_verifier(): void
+    {
+        $this->markTestSkipped('updateQaThresholds endpoint removed — thresholds configured per-step via config.qa.threshold');
+    }
+
+    public function test_run_threshold_patch_removed_endpoint_returns_404(): void
+    {
+        $company = Company::create(['name' => 'QA Co', 'description' => 'd', 'industry' => 'Tech', 'language' => 'bg']);
+        $flow = $company->flows()->create(['name' => 'F', 'description' => 'd', 'status' => 'active']);
+        $flowRun = FlowRun::create(['flow_id' => $flow->id, 'status' => 'pending', 'triggered_by' => 'manual', 'context' => []]);
+
+        $this->patchJson("/runs/{$flowRun->id}/qa-thresholds", ['agent_id' => 1, 'qa_threshold' => 70])
+            ->assertNotFound();
+    }
+
+    public function _test_run_threshold_patch_updates_pending_verifier_and_rejects_started_verifier_REMOVED(): void
     {
         $company = Company::create([
             'name' => 'QA Company',
