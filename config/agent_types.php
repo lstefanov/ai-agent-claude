@@ -36,6 +36,7 @@ return [
     'translator' => ['output_role' => 'body',      'label' => 'Преводач',                   'description' => 'Превежда съдържание между езици, запазвайки тон и стил'],
     'publisher' => ['output_role' => 'body',      'label' => 'Публикатор',                 'description' => 'Форматира изхода за конкретни платформи (FB, IG, LinkedIn и др.)'],
     'report_composer' => ['output_role' => 'body',      'label' => 'Композитор на доклади',      'description' => 'Сглобява финален доклад хибридно: верифицирани таблици + LLM препоръки'],
+    'bg_text_corrector' => ['output_role' => 'body',      'label' => 'Български коректор',        'description' => 'Коригира правопис, лексика и стил на финалния български текст без да променя смисъла'],
     'formatter' => ['output_role' => 'hidden',    'label' => 'Форматиращ агент',           'description' => 'Форматира изход в JSON, CSV, Markdown или HTML по нужда'],
 
     // --- Appendix Generators ---

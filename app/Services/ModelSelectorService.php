@@ -8,6 +8,7 @@ class ModelSelectorService
 {
     private array $defaults = [
         'content_bg' => ['primary' => 'todorov/bggpt',       'fallback' => 'qwen2:7b'],
+        'bg_text_corrector' => ['primary' => 'todorov/bggpt',       'fallback' => 'qwen2:7b'],
         'content_en' => ['primary' => 'llama3.1:8b',         'fallback' => 'mistral'],
         'image_prompt' => ['primary' => 'mistral',              'fallback' => 'qwen2.5:7b'],
         'qa_verifier' => ['primary' => 'phi3.5:mini',          'fallback' => 'gemma2:2b'],

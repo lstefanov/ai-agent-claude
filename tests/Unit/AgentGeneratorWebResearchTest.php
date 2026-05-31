@@ -15,6 +15,8 @@ class AgentGeneratorWebResearchTest extends TestCase
         $ollama->shouldReceive('chat')->andReturn($llmResponse);
 
         $selector = \Mockery::mock(ModelSelectorService::class);
+        $selector->shouldReceive('selectModel')->with('bg_text_corrector')->andReturn('todorov/bggpt')->byDefault();
+        $selector->shouldReceive('selectModel')->with('qa_verifier')->andReturn('phi3.5:mini')->byDefault();
 
         return new AgentGeneratorService($ollama, $selector);
     }
@@ -108,6 +110,83 @@ class AgentGeneratorWebResearchTest extends TestCase
         $this->assertSame('analyzer', $result[0]['type']);
     }
 
+    public function test_required_tail_agents_are_added_when_missing(): void
+    {
+        $service = $this->makeService();
+
+        $agents = [
+            ['name' => 'Analyzer', 'type' => 'analyzer', 'order' => 1],
+            ['name' => 'Content', 'type' => 'content_bg', 'order' => 2],
+            ['name' => 'Caption', 'type' => 'caption_writer', 'order' => 3],
+        ];
+
+        $result = $this->invokeEnsureQaVerifierLast($service, $agents);
+        $result = $this->invokeEnsureBgTextCorrectorBeforeQa($service, $result);
+
+        $this->assertSame('bg_text_corrector', $result[count($result) - 2]['type']);
+        $this->assertSame('qa_verifier', $result[count($result) - 1]['type']);
+        $this->assertSame([1, 2, 3, 4, 5], array_column($result, 'order'));
+    }
+
+    public function test_bg_text_corrector_is_inserted_before_existing_qa(): void
+    {
+        $service = $this->makeService();
+
+        $agents = [
+            ['name' => 'Analyzer', 'type' => 'analyzer', 'order' => 1],
+            ['name' => 'Content', 'type' => 'content_bg', 'order' => 2],
+            ['name' => 'QA', 'type' => 'qa_verifier', 'order' => 3],
+        ];
+
+        $result = $this->invokeEnsureQaVerifierLast($service, $agents);
+        $result = $this->invokeEnsureBgTextCorrectorBeforeQa($service, $result);
+
+        $this->assertSame('bg_text_corrector', $result[2]['type']);
+        $this->assertSame('qa_verifier', $result[3]['type']);
+        $this->assertSame([1, 2, 3, 4], array_column($result, 'order'));
+    }
+
+    public function test_existing_bg_text_corrector_and_qa_are_reordered_to_pipeline_tail(): void
+    {
+        $service = $this->makeService();
+
+        $agents = [
+            ['name' => 'QA', 'type' => 'qa_verifier', 'order' => 1],
+            ['name' => 'Corrector', 'type' => 'bg_text_corrector', 'order' => 2],
+            ['name' => 'Analyzer', 'type' => 'analyzer', 'order' => 3],
+            ['name' => 'Content', 'type' => 'content_bg', 'order' => 4],
+        ];
+
+        $result = $this->invokeEnsureQaVerifierLast($service, $agents);
+        $result = $this->invokeEnsureBgTextCorrectorBeforeQa($service, $result);
+
+        $this->assertSame(['analyzer', 'content_bg', 'bg_text_corrector', 'qa_verifier'], array_column($result, 'type'));
+        $this->assertSame([1, 2, 3, 4], array_column($result, 'order'));
+    }
+
+    public function test_duplicate_tail_agents_are_deduplicated_to_exactly_one_corrector_and_one_qa(): void
+    {
+        $service = $this->makeService();
+
+        $agents = [
+            ['name' => 'First QA', 'type' => 'qa_verifier', 'order' => 1],
+            ['name' => 'First Corrector', 'type' => 'bg_text_corrector', 'order' => 2],
+            ['name' => 'Analyzer', 'type' => 'analyzer', 'order' => 3],
+            ['name' => 'Second Corrector', 'type' => 'bg_text_corrector', 'order' => 4],
+            ['name' => 'Content', 'type' => 'content_bg', 'order' => 5],
+            ['name' => 'Second QA', 'type' => 'qa_verifier', 'order' => 6],
+        ];
+
+        $result = $this->invokeEnsureQaVerifierLast($service, $agents);
+        $result = $this->invokeEnsureBgTextCorrectorBeforeQa($service, $result);
+
+        $this->assertSame(1, count(array_filter($result, fn ($agent) => $agent['type'] === 'bg_text_corrector')));
+        $this->assertSame(1, count(array_filter($result, fn ($agent) => $agent['type'] === 'qa_verifier')));
+        $this->assertSame('bg_text_corrector', $result[count($result) - 2]['type']);
+        $this->assertSame('qa_verifier', $result[count($result) - 1]['type']);
+        $this->assertSame([1, 2, 3, 4], array_column($result, 'order'));
+    }
+
     private function invokeNeedsWebResearch(AgentGeneratorService $service, string $description): bool
     {
         $method = new \ReflectionMethod($service, 'needsWebResearch');
@@ -118,6 +197,20 @@ class AgentGeneratorWebResearchTest extends TestCase
     private function invokeEnsureResearcherFirst(AgentGeneratorService $service, array $agents): array
     {
         $method = new \ReflectionMethod($service, 'ensureResearcherFirst');
+        $method->setAccessible(true);
+        return $method->invoke($service, $agents);
+    }
+
+    private function invokeEnsureQaVerifierLast(AgentGeneratorService $service, array $agents): array
+    {
+        $method = new \ReflectionMethod($service, 'ensureQaVerifierLast');
+        $method->setAccessible(true);
+        return $method->invoke($service, $agents);
+    }
+
+    private function invokeEnsureBgTextCorrectorBeforeQa(AgentGeneratorService $service, array $agents): array
+    {
+        $method = new \ReflectionMethod($service, 'ensureBgTextCorrectorBeforeQa');
         $method->setAccessible(true);
         return $method->invoke($service, $agents);
     }

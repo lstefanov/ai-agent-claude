@@ -8,6 +8,9 @@ use Illuminate\Support\Facades\Log;
 
 class AgentGeneratorService
 {
+    private const BG_TEXT_CORRECTOR_TYPE = 'bg_text_corrector';
+    private const QA_VERIFIER_TYPE = 'qa_verifier';
+
     public function __construct(
         private OllamaService $ollama,
         private ModelSelectorService $modelSelector,
@@ -28,7 +31,7 @@ class AgentGeneratorService
 3. Всеки агент има ТОЧНО ЕДНА отговорност
 4. system_prompt трябва да е детайлен (минимум 3 изречения) — на български
 5. prompt_template трябва да е детайлен (минимум 5 изречения) — на български, с конкретни placeholder-и като {{company_description}}, {{input}}, {{topic}}
-6. ВИНАГИ включвай: поне един researcher/analyzer, поне един content агент, точно един qa_verifier накрая
+6. ВИНАГИ включвай: поне един researcher/analyzer, поне един content агент, точно един bg_text_corrector предпоследен и точно един qa_verifier накрая
 7. Избирай модели според задачата — виж списъка с модели
 
 Генерирането на по-малко от 5 агента е ЗАБРАНЕНО.
@@ -47,13 +50,13 @@ Flow за изграждане: "{$flow->description}"
 {$this->buildTypesContext()}
 
 ПРАВИЛА ЗА ПРОЕКТИРАНЕ НА PIPELINE:
-- За social media flows: trend_researcher → hook_writer → content_bg → hashtag_generator → caption_writer → qa_verifier
-- За competitive intelligence: competitor_profiler → swot_builder → report_writer → email
-- За SEO flows: keyword_extractor → seo_writer → meta_generator → qa_verifier
-- За review monitoring: review_analyzer → sentiment_analyzer → report_writer
-- За outreach/email flows: analyzer → email_composer → slack_notifier
+- За social media flows: trend_researcher → hook_writer → content_bg → hashtag_generator → caption_writer → bg_text_corrector → qa_verifier
+- За competitive intelligence: competitor_profiler → swot_builder → report_writer → bg_text_corrector → qa_verifier
+- За SEO flows: keyword_extractor → seo_writer → meta_generator → bg_text_corrector → qa_verifier
+- За review monitoring: review_analyzer → sentiment_analyzer → report_writer → bg_text_corrector → qa_verifier
+- За outreach/email flows: analyzer → email_composer → bg_text_corrector → qa_verifier
 - АКО flow-ът изисква актуални новини/web данни: researcher или trend_researcher ЗАДЪЛЖИТЕЛНО е на позиция 1 (order: 1)
-- За български текст: винаги използвай todorov/bggpt за генериране на текст
+- За български текст: винаги използвай todorov/bggpt за генериране и bg_text_corrector за финална езикова корекция
 - За QA/верификация: използвай phi3.5 или phi3:mini (бързи, ефективни)
 - За JSON/структуриран изход, image промпти, анализ: използвай mistral-nemo
 - За webhook_sender и slack_notifier: ЗАДЪЛЖИТЕЛНО включи config.webhook_url в agent config
@@ -78,6 +81,7 @@ Flow за изграждане: "{$flow->description}"
   "config": {"temperature": 0.7, "num_predict": 1000}
 }
 
+За bg_text_corrector: поправя само българския финален текст, output_role е body, temperature=0.2, не добавя нови факти и връща само коригирания текст
 За qa_verifier: is_verifier=true, qa_threshold=75, temperature=0.1
 За image_prompt агенти: temperature=0.8, num_predict=500
 За researcher/analyzer: temperature=0.3
@@ -111,6 +115,9 @@ MSG;
         if ($this->needsWebResearch($flow->description ?? '')) {
             $agents = $this->ensureResearcherFirst($agents);
         }
+
+        $agents = $this->ensureQaVerifierLast($agents);
+        $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
 
         return $agents;
     }
@@ -252,10 +259,10 @@ MSG;
             'model_reason'       => $agent['model_reason'] ?? null,
             'order'              => (int) ($agent['order'] ?? $fallbackOrder),
             // Force qa_verifier type to always be a verifier even if AI forgot the flag
-            'is_verifier'        => ($agent['type'] ?? '') === 'qa_verifier'
+            'is_verifier'        => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
                 ? true
                 : (bool) ($agent['is_verifier'] ?? false),
-            'qa_threshold'       => ($agent['type'] ?? '') === 'qa_verifier'
+            'qa_threshold'       => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
                 ? (int) ($agent['qa_threshold'] ?? 75)
                 : (isset($agent['qa_threshold']) ? (int) $agent['qa_threshold'] : null),
             'config'             => is_array($agent['config'] ?? null)
@@ -309,5 +316,97 @@ MSG;
         unset($agent);
 
         return $agents;
+    }
+
+    private function ensureQaVerifierLast(array $agents): array
+    {
+        [$agents, $qaAgent] = $this->pullFirstAgentByType($agents, self::QA_VERIFIER_TYPE);
+        $agents[] = $qaAgent ?? $this->defaultQaVerifierAgent();
+
+        return $this->renumberAgents($agents);
+    }
+
+    private function ensureBgTextCorrectorBeforeQa(array $agents): array
+    {
+        $agents = $this->ensureQaVerifierLast($agents);
+        $qaAgent = array_pop($agents);
+
+        [$agents, $corrector] = $this->pullFirstAgentByType($agents, self::BG_TEXT_CORRECTOR_TYPE);
+
+        $agents[] = $corrector ?? $this->defaultBgTextCorrectorAgent();
+        $agents[] = $qaAgent;
+
+        return $this->renumberAgents($agents);
+    }
+
+    private function pullFirstAgentByType(array $agents, string $type): array
+    {
+        $pulled = null;
+
+        foreach ($agents as $index => $agent) {
+            if (($agent['type'] ?? '') === $type) {
+                if ($pulled === null) {
+                    $pulled = $agent;
+                }
+
+                unset($agents[$index]);
+            }
+        }
+
+        return [array_values($agents), $pulled];
+    }
+
+    private function renumberAgents(array $agents): array
+    {
+        foreach ($agents as $i => &$agent) {
+            $agent['order'] = $i + 1;
+        }
+        unset($agent);
+
+        return array_values($agents);
+    }
+
+    private function defaultBgTextCorrectorAgent(): array
+    {
+        return [
+            'name' => 'Български коректор',
+            'type' => self::BG_TEXT_CORRECTOR_TYPE,
+            'role' => 'Преглежда финалния български текст непосредствено преди QA. Коригира правопис, лексика, граматика и естественост на изказа, без да променя смисъла, фактите или формата.',
+            'capabilities' => ['правописна корекция', 'лексикална корекция', 'граматична редакция', 'стилова гладкост'],
+            'strengths' => 'Открива неестествени или грешни български думи и ги заменя с правилни изрази, като запазва първоначалната идея.',
+            'limitations' => 'Не добавя нови факти, не променя оферти, цени, имена, линкове, хаштагове или CTA, освен ако има очевидна правописна грешка.',
+            'input_description' => 'Финалният body текст от предходния агент.',
+            'output_description' => 'Същият текст, коригиран на естествен и правилен български език.',
+            'prompt_template' => 'Прегледай следния финален текст на български и го коригирай: {{input}}. Поправи правописни, граматични и лексикални грешки като „цвоят“ към „цвят“ и неестествени изрази като „Плавалка в басейн“ към „Плуване в басейн“. Запази смисъла, фактите, структурата, форматирането, хаштаговете, линковете, имената и CTA. Не добавяй нова информация и не съкращавай текста без нужда. Върни само коригирания финален текст, без обяснения, бележки или списък с промени.',
+            'system_prompt' => 'Ти си професионален редактор и коректор на български език. Работиш само върху финалния текст и поправяш правопис, граматика, лексика и естественост на изказа. Запазваш смисъла, фактите, структурата и маркетинговия тон. Не добавяш нови твърдения и не обясняваш редакциите си. Връщаш само коригирания текст.',
+            'model' => $this->modelSelector->selectModel(self::BG_TEXT_CORRECTOR_TYPE),
+            'model_reason' => 'Избран е модел, оптимизиран за естествен български език и редакция на текст.',
+            'order' => 1,
+            'is_verifier' => false,
+            'qa_threshold' => null,
+            'config' => ['temperature' => 0.2, 'num_predict' => 1500],
+        ];
+    }
+
+    private function defaultQaVerifierAgent(): array
+    {
+        return [
+            'name' => 'QA Верификатор',
+            'type' => self::QA_VERIFIER_TYPE,
+            'role' => 'Проверява качеството на финалния коригиран изход. Оценява дали текстът отговаря на задачата, тона, формата и минималния праг за качество.',
+            'capabilities' => ['оценка на качество', 'проверка на изисквания', 'финална верификация'],
+            'strengths' => 'Открива пропуски в задачата, проблеми с формата и ниско качество на финалния изход.',
+            'limitations' => 'Не редактира текста директно, а само оценява дали е готов за използване.',
+            'input_description' => 'Финалният коригиран текст от предходния агент.',
+            'output_description' => 'QA оценка и резултат за преминаване според зададения праг.',
+            'prompt_template' => 'Оцени качеството на следния финален текст по скала 0-100: {{input}}. Провери дали текстът изпълнява целта на flow-а, дали е ясен, полезен, правилно форматиран и без сериозни езикови проблеми. Върни структурирана оценка с кратко обяснение и pass/fail резултат според прага.',
+            'system_prompt' => 'Ти си QA специалист за AI-generated съдържание. Проверяваш финалния изход обективно по качество, релевантност, яснота, формат и език. Не пренаписваш съдържанието, а оценяваш дали е готово за употреба.',
+            'model' => $this->modelSelector->selectModel(self::QA_VERIFIER_TYPE),
+            'model_reason' => 'Избран е лек и бърз модел за финална QA проверка.',
+            'order' => 1,
+            'is_verifier' => true,
+            'qa_threshold' => 75,
+            'config' => ['temperature' => 0.1, 'num_predict' => 500],
+        ];
     }
 }

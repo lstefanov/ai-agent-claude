@@ -504,6 +504,10 @@ class FlowExecutorService
             }
         }
 
+        if (($agent->type ?? null) === 'bg_text_corrector') {
+            return $prompt;
+        }
+
         // Always append outputs from previous agents as an explicit context section
         $agentOutputs = array_filter(
             $context,

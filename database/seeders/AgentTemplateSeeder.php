@@ -43,6 +43,14 @@ class AgentTemplateSeeder extends Seeder
                 'config' => ['temperature' => 0.7, 'num_predict' => 1500],
             ],
             [
+                'icon' => '📝', 'name' => 'Български коректор', 'type' => 'bg_text_corrector', 'sort_order' => 34,
+                'description' => 'Коригира финалния български текст преди QA без да променя смисъла.',
+                'role' => 'Преглежда финалния текст и поправя правопис, граматика, лексика и неестествени изрази.',
+                'system_prompt' => 'Ти си професионален редактор и коректор на български език. Поправяш правопис, граматика, лексика и естественост на изказа, без да променяш смисъла, фактите и структурата. Връщаш само коригирания текст без обяснения.',
+                'prompt_template' => 'Прегледай и коригирай следния финален текст на български:\n\n{{input}}\n\nПоправи грешни думи и неестествени изрази, но запази смисъла, формата, хаштаговете, линковете и CTA. Върни само коригирания текст.',
+                'config' => ['temperature' => 0.2, 'num_predict' => 1500],
+            ],
+            [
                 'icon' => '🌐', 'name' => 'Преводач', 'type' => 'translator', 'sort_order' => 5,
                 'description' => 'Превежда текст между езици с запазен стил и тон.',
                 'role' => 'Превежда текст точно и естествено, запазвайки стила и тона на оригинала.',
@@ -297,7 +305,7 @@ class AgentTemplateSeeder extends Seeder
             'content_bg', 'seo_writer', 'newsletter_writer', 'report_writer',
             'email_composer', 'ad_copywriter', 'offer_builder', 'caption_writer',
             'hook_writer', 'faq_generator', 'meta_generator', 'summarizer',
-            'translator' => 's_emanuilov/BgGPT-v1.0:9b',
+            'translator', 'bg_text_corrector' => 's_emanuilov/BgGPT-v1.0:9b',
             'qa_verifier' => 's_emanuilov/BgGPT-v1.0:2.6b',
             'analyzer', 'decision', 'swot_builder', 'sentiment_analyzer',
             'classifier', 'review_analyzer', 'researcher', 'trend_researcher',

@@ -131,6 +131,77 @@ class FlowExecutorHandoffTest extends TestCase
         });
     }
 
+    public function test_bg_text_corrector_receives_only_previous_final_body_text(): void
+    {
+        Http::fake([
+            'localhost:11434/api/chat' => Http::sequence()
+                ->push(json_encode(['message' => ['content' => 'Research context that should not be corrected']])."\n")
+                ->push(json_encode(['message' => ['content' => 'цвоят текст за Плавалка в басейн']])."\n")
+                ->push(json_encode(['message' => ['content' => 'цвят текст за Плуване в басейн']])."\n"),
+        ]);
+
+        $company = Company::create([
+            'name' => 'Game Sport Center',
+            'description' => 'Sports center',
+            'industry' => 'Fitness',
+            'language' => 'bg',
+        ]);
+
+        $flow = $company->flows()->create([
+            'name' => 'BG Corrector Flow',
+            'description' => 'Tests final Bulgarian correction',
+            'status' => 'active',
+        ]);
+
+        $flow->agents()->create([
+            'name' => 'Researcher',
+            'type' => 'content_bg',
+            'role' => 'Research',
+            'prompt_template' => 'Research {{topic}}',
+            'model' => 'research-model',
+            'order' => 1,
+            'is_active' => true,
+        ]);
+
+        $flow->agents()->create([
+            'name' => 'Writer',
+            'type' => 'content_bg',
+            'role' => 'Write',
+            'prompt_template' => 'Write final text from context.',
+            'model' => 'writer-model',
+            'order' => 2,
+            'is_active' => true,
+        ]);
+
+        $flow->agents()->create([
+            'name' => 'Български коректор',
+            'type' => 'bg_text_corrector',
+            'role' => 'Correct',
+            'prompt_template' => 'Коригирай само този финален текст: {{input}}',
+            'model' => 'corrector-model',
+            'order' => 3,
+            'is_active' => true,
+        ]);
+
+        app(FlowExecutorService::class)->run($flow);
+
+        Http::assertSent(function ($request) {
+            if (! isset($request['model'])) {
+                return false;
+            }
+
+            if ($request['model'] !== 'corrector-model') {
+                return false;
+            }
+
+            $message = $request['messages'][1]['content'];
+
+            return str_contains($message, 'цвоят текст за Плавалка в басейн')
+                && ! str_contains($message, 'Research context that should not be corrected')
+                && ! str_contains($message, '--- Context from previous agents ---');
+        });
+    }
+
     public function test_executor_persists_quality_metrics_for_completed_agent_output(): void
     {
         Http::fake([
