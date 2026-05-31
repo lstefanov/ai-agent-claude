@@ -13,30 +13,32 @@ $qaThresholdOptions = range(0, 100, 5);
 
 @section('content')
 {{-- Header --}}
-<div class="flex items-start justify-between mb-6">
-    <div>
-        <a href="{{ route('companies.show', $flow->company) }}" class="text-indigo-600 hover:underline text-sm inline-flex items-center gap-1">
-            ← {{ $flow->company->name }}
-        </a>
-        <h1 class="text-3xl font-bold text-gray-900 mt-2 flex items-center gap-3 flex-wrap">
-            {{ $flow->name }}
-            @include('partials.status-badge', ['status' => $flow->status, 'class' => 'text-sm px-3'])
-        </h1>
-        <p class="text-gray-500 mt-1 max-w-2xl">{{ $flow->description }}</p>
+<div class="mb-6">
+    <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+            <a href="{{ route('companies.show', $flow->company) }}" class="text-indigo-600 hover:underline text-sm inline-flex items-center gap-1">
+                ← {{ $flow->company->name }}
+            </a>
+            <h1 class="text-3xl font-bold text-gray-900 mt-2 flex items-center gap-3 flex-wrap">
+                {{ $flow->name }}
+                @include('partials.status-badge', ['status' => $flow->status, 'class' => 'text-sm px-3'])
+            </h1>
+        </div>
+        <div class="flex items-start gap-2 shrink-0">
+            <a href="{{ route('flows.edit', $flow) }}"
+               class="inline-flex items-center justify-center bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                ✏ Редактирай
+            </a>
+            <form action="{{ route('flow-runs.store', $flow) }}" method="POST" class="flex items-start gap-2">
+                @csrf
+                <button type="submit"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2">
+                    ▶ Стартирай
+                </button>
+            </form>
+        </div>
     </div>
-    <div class="flex items-start gap-2 shrink-0">
-        <a href="{{ route('flows.edit', $flow) }}"
-           class="inline-flex items-center justify-center bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
-            ✏ Редактирай
-        </a>
-        <form action="{{ route('flow-runs.store', $flow) }}" method="POST" class="flex items-start gap-2">
-            @csrf
-            <button type="submit"
-                    class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2">
-                ▶ Стартирай
-            </button>
-        </form>
-    </div>
+    <p class="text-gray-500 mt-1">{{ $flow->description }}</p>
 </div>
 
 {{-- Schedule info --}}
@@ -206,11 +208,11 @@ $qaThresholdOptions = range(0, 100, 5);
                                     'xCurrentOrder' => 'agent.order',
                                 ])
                             </div>
-                            <div class="col-span-2">
+                            <div :class="agent.is_verifier || agent.type === 'qa_verifier' ? 'col-span-1' : 'col-span-2'">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
                                 <select :id="'show-model-ts-' + index"></select>
                             </div>
-                            <div x-show="agent.is_verifier || agent.type === 'qa_verifier'" x-cloak>
+                            <div x-show="agent.is_verifier || agent.type === 'qa_verifier'" x-cloak class="col-span-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">QA праг (%)</label>
                                 <select x-model.number="agent.qa_threshold"
                                         class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">

@@ -234,7 +234,7 @@
                         <input type="hidden" :name="'agents['+index+'][config][qa][enabled]'" :value="agent.config && agent.config.qa && agent.config.qa.enabled ? '1' : '0'">
                         <input type="hidden" :name="'agents['+index+'][config][qa][verifier_agent_uid]'" :value="agent.config && agent.config.qa ? agent.config.qa.verifier_agent_uid : ''">
                         <input type="hidden" :name="'agents['+index+'][config][qa][verifier_agent_order]'" :value="selectedVerifierOrder(agent)">
-                        <input type="hidden" :name="'agents['+index+'][config][qa][threshold]'" :value="agent.config && agent.config.qa ? agent.config.qa.threshold : 75">
+                        <input type="hidden" :name="'agents['+index+'][config][qa][threshold]'" :value="agent.config && agent.config.qa ? agent.config.qa.threshold : 60">
                         <input type="hidden" :name="'agents['+index+'][config][qa][max_retries]'" :value="agent.config && agent.config.qa ? agent.config.qa.max_retries : 3">
                         <input type="hidden" :name="'agents['+index+'][config][qa][custom_prompt]'" :value="agent.config && agent.config.qa ? (agent.config.qa.custom_prompt || '') : ''">
                         <input type="hidden" :name="'agents['+index+'][model]'"             :value="agent.model">
@@ -914,12 +914,12 @@ function flowCreator() {
                 : { enabled: false };
             agent.config.qa.enabled = Boolean(agent.config.qa.enabled);
             agent.config.qa.verifier_agent_uid = agent.config.qa.verifier_agent_uid || '';
-            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 60);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
             agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
 
             if (agent.is_verifier) {
-                agent.config.qa = { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3, custom_prompt: '' };
+                agent.config.qa = { enabled: false, verifier_agent_uid: '', threshold: 60, max_retries: 3, custom_prompt: '' };
             }
 
             agent._generating_role             = false;
@@ -952,7 +952,7 @@ function flowCreator() {
             if (!agent.config.qa.verifier_agent_uid && firstVerifier) {
                 agent.config.qa.verifier_agent_uid = firstVerifier._uid;
             }
-            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 60);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
             agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
         },
@@ -975,7 +975,7 @@ function flowCreator() {
                         this.agents[index].qa_threshold = 75;
                     }
                     if (this.agents[index].is_verifier) {
-                        this.agents[index].config.qa = { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3 };
+                        this.agents[index].config.qa = { enabled: false, verifier_agent_uid: '', threshold: 60, max_retries: 3 };
                     }
                     this.initFlowModelSelect(index);
                 });
@@ -1090,7 +1090,7 @@ function flowCreator() {
                 limitations: '',
                 input_description: '',
                 output_description: '',
-                config: { temperature: 0.7, num_predict: 1000, qa: { enabled: false, verifier_agent_uid: '', threshold: 75, max_retries: 3 } },
+                config: { temperature: 0.7, num_predict: 1000, qa: { enabled: false, verifier_agent_uid: '', threshold: 60, max_retries: 3 } },
             };
 
             if (tpl) {

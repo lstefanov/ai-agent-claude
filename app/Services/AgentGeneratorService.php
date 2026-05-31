@@ -83,7 +83,7 @@ Flow за изграждане: "{$flow->description}"
     "temperature": 0.7,
     "num_predict": 1000,
     "qa": {
-      "enabled": true,
+      "enabled": false,
       "verifier_agent_uid": "qa_main",
       "threshold": 60,
       "max_retries": 3,
@@ -92,9 +92,9 @@ Flow за изграждане: "{$flow->description}"
   }
 }
 
-За bg_text_corrector: поправя само българския финален текст, output_role е body, temperature=0.2, не добавя нови факти и връща само коригирания текст
+За bg_text_corrector: поправя САМО правописа на финалния текст. В prompt_template ЗАДЪЛЖИТЕЛНО включи {{[точното_име_на_предходния_content_агент]}} като placeholder за текста за корекция — например ако content агентът се казва "Автор на Facebook постове", пиши {{Автор на Facebook постове}}. output_role=body, temperature=0.2, не добавя нови факти, връща само коригирания текст без обяснения.
 За qa_verifier: is_verifier=true, qa_threshold=75, temperature=0.1, uid="qa_main", config НЕ включва qa поле
-За всеки НЕ-verifier агент: config ТРЯБВА да включва qa обект с enabled=true, verifier_agent_uid="qa_main", threshold=60, max_retries=3
+За всеки НЕ-verifier агент: config ТРЯБВА да включва qa обект с enabled=false, verifier_agent_uid="qa_main", threshold=60, max_retries=3
 За custom_prompt в config.qa — пиши конкретна проверка подходяща за изхода на агента:
   - competitor_profiler/researcher: "Провери дали са намерени поне 3 конкурента/резултата с имена и уебсайтове. Ако липсват цени — допустимо е, но трябва да е отбелязано. Структурата трябва да е ясна."
   - deep_researcher/analyzer: "Провери дали изходът съдържа структурирани данни, цитирани източници и ключови открития. Данните трябва да са организирани и лесно четими."
