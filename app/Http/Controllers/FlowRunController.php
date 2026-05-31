@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 
 class FlowRunController extends Controller
 {
+    private const DEFAULT_QA_THRESHOLD = 60;
+
     public function store(Request $request, Flow $flow)
     {
         $activeAgents = $flow->agents()->where('is_active', true)->count();
@@ -44,7 +46,7 @@ class FlowRunController extends Controller
             return [
                 (string) $agent->id => isset($postedThresholds[$agent->id])
                     ? (int) $postedThresholds[$agent->id]
-                    : ($agent->qa_threshold ?? 75),
+                    : ($agent->qa_threshold ?? self::DEFAULT_QA_THRESHOLD),
             ];
         })->all();
         $stepQaPolicies = $this->buildStepQaPolicySnapshot($flow);
@@ -150,7 +152,7 @@ class FlowRunController extends Controller
 
             $policies[(string) $agent->id] = [
                 'verifier_agent_id' => $verifierId,
-                'threshold' => (int) ($qa['threshold'] ?? $verifier?->qa_threshold ?? 75),
+                'threshold' => (int) ($qa['threshold'] ?? $verifier?->qa_threshold ?? self::DEFAULT_QA_THRESHOLD),
                 'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
                 'custom_prompt' => trim($qa['custom_prompt'] ?? ''),
             ];

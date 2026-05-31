@@ -905,8 +905,8 @@ function flowCreator() {
         normalizeAgent(agent) {
             agent._uid = agent.uid || agent._uid || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random());
             agent.is_verifier = Boolean(agent.is_verifier || agent.type === 'qa_verifier');
-            if (agent.is_verifier && !agent.qa_threshold) {
-                agent.qa_threshold = 75;
+            if (agent.is_verifier && (agent.qa_threshold === null || agent.qa_threshold === undefined || agent.qa_threshold === '')) {
+                agent.qa_threshold = 60;
             }
             agent.config = agent.config && typeof agent.config === 'object' ? agent.config : {};
             agent.config.qa = agent.config.qa && typeof agent.config.qa === 'object'
@@ -971,8 +971,8 @@ function flowCreator() {
                 initAgentTypeSelect('flow-type-ts-' + index, this.agents[index].type, v => {
                     this.agents[index].type = v;
                     this.agents[index].is_verifier = v === 'qa_verifier';
-                    if (this.agents[index].is_verifier && !this.agents[index].qa_threshold) {
-                        this.agents[index].qa_threshold = 75;
+                    if (this.agents[index].is_verifier && (this.agents[index].qa_threshold === null || this.agents[index].qa_threshold === undefined || this.agents[index].qa_threshold === '')) {
+                        this.agents[index].qa_threshold = 60;
                     }
                     if (this.agents[index].is_verifier) {
                         this.agents[index].config.qa = { enabled: false, verifier_agent_uid: '', threshold: 60, max_retries: 3 };
@@ -1102,7 +1102,7 @@ function flowCreator() {
                     prompt_template:    tpl.prompt_template   || '',
                     model:              this._resolveModel(tpl.model),
                     is_verifier:        Boolean(tpl.is_verifier || tpl.type === 'qa_verifier'),
-                    qa_threshold:       (tpl.is_verifier || tpl.type === 'qa_verifier') ? (tpl.qa_threshold || 75) : null,
+                    qa_threshold:       (tpl.is_verifier || tpl.type === 'qa_verifier') ? (tpl.qa_threshold ?? 60) : null,
                     capabilities:       tpl.capabilities      || [],
                     strengths:          tpl.strengths         || '',
                     limitations:        tpl.limitations       || '',

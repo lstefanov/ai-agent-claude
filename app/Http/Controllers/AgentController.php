@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 
 class AgentController extends Controller
 {
+    private const DEFAULT_QA_THRESHOLD = 60;
+
     public function __construct(private \App\Services\OllamaService $ollama) {}
 
     public function store(Request $request, Flow $flow)
@@ -55,7 +57,7 @@ class AgentController extends Controller
             'order' => $order,
             'config' => $config,
             'is_verifier' => $isVerifier,
-            'qa_threshold' => $isVerifier ? ($validated['qa_threshold'] ?? 75) : null,
+            'qa_threshold' => $isVerifier ? $this->qaThresholdOrDefault($validated['qa_threshold'] ?? null) : null,
             'is_active' => true,
         ]);
 
@@ -116,7 +118,9 @@ class AgentController extends Controller
         }
 
         $validated['is_verifier'] = ($validated['is_verifier'] ?? false) || ($validated['type'] ?? $agent->type) === 'qa_verifier';
-        $validated['qa_threshold'] = $validated['is_verifier'] ? ($validated['qa_threshold'] ?? $agent->qa_threshold ?? 75) : null;
+        $validated['qa_threshold'] = $validated['is_verifier']
+            ? $this->qaThresholdOrDefault($validated['qa_threshold'] ?? $agent->qa_threshold)
+            : null;
         if (array_key_exists('config', $validated)) {
             $validated['config'] = $this->normalizeConfig($validated['config'], $validated['is_verifier'], $agent->config ?? []);
         }
@@ -295,11 +299,20 @@ class AgentController extends Controller
         $config['qa'] = [
             'enabled' => true,
             'verifier_agent_id' => (int) $qa['verifier_agent_id'],
-            'threshold' => (int) ($qa['threshold'] ?? 75),
+            'threshold' => (int) ($qa['threshold'] ?? self::DEFAULT_QA_THRESHOLD),
             'max_retries' => (int) ($qa['max_retries'] ?? 3),
             'custom_prompt' => trim($qa['custom_prompt'] ?? ''),
         ];
 
         return $config;
+    }
+
+    private function qaThresholdOrDefault(mixed $threshold): int
+    {
+        if ($threshold === null || $threshold === '') {
+            return self::DEFAULT_QA_THRESHOLD;
+        }
+
+        return (int) $threshold;
     }
 }

@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 
 class FlowController extends Controller
 {
+    private const DEFAULT_QA_THRESHOLD = 60;
+
     public function __construct(
         private AgentGeneratorService $generator,
         private \App\Services\OllamaService $ollama,
@@ -95,7 +97,7 @@ class FlowController extends Controller
                 'model_reason'      => $agentData['model_reason'] ?? null,
                 'order'             => (int) $agentData['order'],
                 'is_verifier'       => $isVerifier,
-                'qa_threshold'      => $isVerifier ? (int) ($agentData['qa_threshold'] ?? 75) : null,
+                'qa_threshold'      => $isVerifier ? $this->qaThresholdOrDefault($agentData['qa_threshold'] ?? null) : null,
                 'config'            => $config,
                 'is_active'         => true,
             ]);
@@ -308,12 +310,21 @@ MSG;
             $config['qa'] = [
                 'enabled' => true,
                 'verifier_agent_id' => (int) $verifier->id,
-                'threshold' => (int) ($qa['threshold'] ?? $verifier->qa_threshold ?? 75),
+                'threshold' => (int) ($qa['threshold'] ?? $verifier->qa_threshold ?? self::DEFAULT_QA_THRESHOLD),
                 'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
                 'custom_prompt' => trim($qa['custom_prompt'] ?? ''),
             ];
 
             $agent->update(['config' => $config]);
         }
+    }
+
+    private function qaThresholdOrDefault(mixed $threshold): int
+    {
+        if ($threshold === null || $threshold === '') {
+            return self::DEFAULT_QA_THRESHOLD;
+        }
+
+        return (int) $threshold;
     }
 }

@@ -650,7 +650,7 @@ function flowRunMonitor() {
         },
 
         qaThreshold(agent) {
-            return agent.qa_threshold ?? 75;
+            return agent.qa_threshold ?? 60;
         },
 
         qaThresholdLabel(agent) {

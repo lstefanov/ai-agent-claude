@@ -10,6 +10,7 @@ class AgentGeneratorService
 {
     private const BG_TEXT_CORRECTOR_TYPE = 'bg_text_corrector';
     private const QA_VERIFIER_TYPE = 'qa_verifier';
+    private const DEFAULT_QA_THRESHOLD = 60;
 
     public function __construct(
         private OllamaService $ollama,
@@ -93,7 +94,7 @@ Flow за изграждане: "{$flow->description}"
 }
 
 За bg_text_corrector: поправя САМО правописа. Агентът автоматично намира правилното съдържание — prompt_template е само кратка инструкция без placeholder. output_role=body, temperature=0.2, не добавя нови факти, връща само коригирания текст без обяснения.
-За qa_verifier: is_verifier=true, qa_threshold=75, temperature=0.1, uid="qa_main", config НЕ включва qa поле
+За qa_verifier: is_verifier=true, qa_threshold=60, temperature=0.1, uid="qa_main", config НЕ включва qa поле
 За всеки НЕ-verifier агент: config ТРЯБВА да включва qa обект с enabled=false, verifier_agent_uid="qa_main", threshold=60, max_retries=3
 За custom_prompt в config.qa — пиши конкретна проверка подходяща за изхода на агента:
   - competitor_profiler/researcher: "Провери дали са намерени поне 3 конкурента/резултата с имена и уебсайтове. Ако липсват цени — допустимо е, но трябва да е отбелязано. Структурата трябва да е ясна."
@@ -281,13 +282,22 @@ MSG;
                 ? true
                 : (bool) ($agent['is_verifier'] ?? false),
             'qa_threshold'       => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
-                ? (int) ($agent['qa_threshold'] ?? 75)
+                ? $this->generatedQaThresholdOrDefault($agent['qa_threshold'] ?? null)
                 : (isset($agent['qa_threshold']) ? (int) $agent['qa_threshold'] : null),
             'config'             => is_array($agent['config'] ?? null)
                 ? $agent['config']
                 : ['temperature' => 0.7, 'num_predict' => 1000],
             'uid'                => $agent['uid'] ?? null,
         ];
+    }
+
+    private function generatedQaThresholdOrDefault(mixed $threshold): int
+    {
+        if ($threshold === null || $threshold === '' || (int) $threshold === 0) {
+            return self::DEFAULT_QA_THRESHOLD;
+        }
+
+        return min(100, max(1, (int) $threshold));
     }
 
     private function needsWebResearch(string $description): bool
@@ -424,7 +434,7 @@ MSG;
             'model_reason' => 'Избран е лек и бърз модел за финална QA проверка.',
             'order' => 1,
             'is_verifier' => true,
-            'qa_threshold' => 75,
+            'qa_threshold' => self::DEFAULT_QA_THRESHOLD,
             'config' => ['temperature' => 0.1, 'num_predict' => 500],
         ];
     }

@@ -65,7 +65,7 @@ class AgentTemplateSeeder extends Seeder
                 'system_prompt' => 'Ти си QA специалист. Оценяваш качеството на текст по скала 0-100 и обясняваш оценката си.',
                 'prompt_template' => 'Оцени качеството на следния текст по скала 0-100:\n\n{input}',
                 'is_verifier' => true,
-                'qa_threshold' => 75,
+                'qa_threshold' => 60,
                 'config' => ['temperature' => 0.2, 'num_predict' => 500],
             ],
             [

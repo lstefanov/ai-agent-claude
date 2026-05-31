@@ -14,7 +14,7 @@ class BgTextCorrectorAgent extends BaseAgent
 
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
-        $textToCorrect = $this->findBodyContent($context);
+        $textToCorrect = $this->findBodyContent($agent, $context);
 
         if ($textToCorrect === '') {
             return $this->chat($agent, $agentRun->input);
@@ -28,10 +28,28 @@ class BgTextCorrectorAgent extends BaseAgent
         return $this->chat($agent, $prompt);
     }
 
-    private function findBodyContent(array $context): string
+    private function findBodyContent(Agent $agent, array $context): string
     {
-        $candidates = [];
+        // Primary: query DB for body-role agents in this flow before the corrector.
+        // This prevents correcting appendix content (faq_generator, meta_generator, etc.)
+        // which would cause duplication in the UI's finalOutput display.
+        $bodyNames = Agent::where('flow_id', $agent->flow_id)
+            ->where('order', '<', $agent->order)
+            ->get()
+            ->filter(fn ($a) => $a->effectiveOutputRole() === 'body')
+            ->pluck('name')
+            ->toArray();
 
+        if (! empty($bodyNames)) {
+            foreach (array_reverse($bodyNames) as $name) {
+                if (isset($context[$name]) && is_string($context[$name]) && $context[$name] !== '') {
+                    return $context[$name];
+                }
+            }
+        }
+
+        // Fallback: heuristic filtering when no body agents are defined in this flow
+        $candidates = [];
         foreach ($context as $key => $value) {
             if (in_array($key, self::SYSTEM_KEYS, true)) {
                 continue;

@@ -7,6 +7,8 @@ use App\Models\AgentRun;
 
 class QaVerifierAgent extends BaseAgent
 {
+    private const DEFAULT_QA_THRESHOLD = 60;
+
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
         // Build a clean content summary from all previous agents
@@ -42,7 +44,7 @@ class QaVerifierAgent extends BaseAgent
     // ──────────────────────────────────────────────────────────────────────
     private function buildQaSystemPrompt(Agent $agent): string
     {
-        $threshold = $agent->qa_threshold ?? 75;
+        $threshold = $agent->qa_threshold ?? self::DEFAULT_QA_THRESHOLD;
         $customCriteria = trim($agent->system_prompt ?? '');
 
         if ($customCriteria !== '') {

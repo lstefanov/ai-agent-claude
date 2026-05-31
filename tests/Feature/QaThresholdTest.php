@@ -48,6 +48,84 @@ class QaThresholdTest extends TestCase
         ]);
     }
 
+    public function test_flow_creation_defaults_generated_qa_verifier_threshold_to_sixty_percent(): void
+    {
+        $company = Company::create([
+            'name' => 'QA Company',
+            'description' => 'Company description',
+            'industry' => 'Marketing',
+            'language' => 'bg',
+        ]);
+
+        $this->post(route('companies.flows.store', $company), [
+            'name' => 'Generated Flow',
+            'description' => 'Creates and checks social posts.',
+            'status' => 'draft',
+            'agents' => [
+                [
+                    '_uid' => 'qa_main',
+                    'name' => 'QA Верификатор',
+                    'type' => 'qa_verifier',
+                    'role' => 'Checks quality',
+                    'model' => 'qa-model:latest',
+                    'prompt_template' => 'Check {{input}}',
+                    'order' => 1,
+                    'is_verifier' => true,
+                    'qa_threshold' => null,
+                    'config' => [
+                        'temperature' => 0.1,
+                        'num_predict' => 500,
+                    ],
+                ],
+            ],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('agents', [
+            'type' => 'qa_verifier',
+            'is_verifier' => true,
+            'qa_threshold' => 60,
+        ]);
+    }
+
+    public function test_flow_creation_preserves_explicit_manual_zero_qa_threshold(): void
+    {
+        $company = Company::create([
+            'name' => 'QA Company',
+            'description' => 'Company description',
+            'industry' => 'Marketing',
+            'language' => 'bg',
+        ]);
+
+        $this->post(route('companies.flows.store', $company), [
+            'name' => 'Manual Zero Flow',
+            'description' => 'Creates and checks social posts.',
+            'status' => 'draft',
+            'agents' => [
+                [
+                    '_uid' => 'qa_main',
+                    'name' => 'QA Верификатор',
+                    'type' => 'qa_verifier',
+                    'role' => 'Checks quality',
+                    'model' => 'qa-model:latest',
+                    'prompt_template' => 'Check {{input}}',
+                    'order' => 1,
+                    'is_verifier' => true,
+                    'qa_threshold' => 0,
+                    'config' => [
+                        'temperature' => 0.1,
+                        'num_predict' => 500,
+                    ],
+                ],
+            ],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('agents', [
+            'type' => 'qa_verifier',
+            'is_verifier' => true,
+            'qa_threshold' => 0,
+        ]);
+    }
+
     public function test_flow_show_exposes_qa_threshold_dropdown_in_inline_editor(): void
     {
         $company = Company::create([
@@ -729,7 +807,7 @@ class QaThresholdTest extends TestCase
         $response->assertSee('"qa_threshold":60', false);
         $response->assertSee('x-model.number="agent.qa_threshold"', false);
         $response->assertSee('stepQaBadge(agent)', false);
-        $response->assertSee('agent.qa_threshold ?? 75', false);
+        $response->assertSee('agent.qa_threshold ?? 60', false);
         $response->assertSee('agent.qa_threshold !== null', false);
     }
 

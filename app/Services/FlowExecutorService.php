@@ -14,6 +14,8 @@ use Throwable;
 
 class FlowExecutorService
 {
+    private const DEFAULT_QA_THRESHOLD = 60;
+
     private string $logFile = '';
 
     public function __construct(private AgentFactory $factory) {}
@@ -370,7 +372,7 @@ class FlowExecutorService
 
             $agentId = (string) $agent->id;
             if (! array_key_exists($agentId, $qaThresholds)) {
-                $qaThresholds[$agentId] = $agent->qa_threshold ?? 75;
+                $qaThresholds[$agentId] = $agent->qa_threshold ?? self::DEFAULT_QA_THRESHOLD;
                 $changed = true;
             }
         }
@@ -418,7 +420,7 @@ class FlowExecutorService
             $verifier = $agentsCollection->firstWhere('id', $verifierId);
             $policies[$agentId] = [
                 'verifier_agent_id' => $verifierId,
-                'threshold' => (int) ($qa['threshold'] ?? $verifier?->qa_threshold ?? 75),
+                'threshold' => (int) ($qa['threshold'] ?? $verifier?->qa_threshold ?? self::DEFAULT_QA_THRESHOLD),
                 'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
                 'custom_prompt' => $qa['custom_prompt'] ?? '',
             ];
@@ -455,7 +457,7 @@ class FlowExecutorService
 
         return [
             'verifier_agent_id' => (int) ($policy['verifier_agent_id'] ?? 0),
-            'threshold' => (int) ($policy['threshold'] ?? 75),
+            'threshold' => (int) ($policy['threshold'] ?? self::DEFAULT_QA_THRESHOLD),
             'max_retries' => min(10, max(0, (int) ($policy['max_retries'] ?? 3))),
             'custom_prompt' => $policy['custom_prompt'] ?? '',
         ];

@@ -504,7 +504,7 @@ function flowAgentManager() {
                 : { enabled: false };
             agent.config.qa.enabled = Boolean(agent.config.qa.enabled);
             agent.config.qa.verifier_agent_id = agent.config.qa.verifier_agent_id ? Number(agent.config.qa.verifier_agent_id) : null;
-            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 60);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
             agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
 
@@ -539,7 +539,7 @@ function flowAgentManager() {
             if (!agent.config.qa.verifier_agent_id && firstVerifier) {
                 agent.config.qa.verifier_agent_id = firstVerifier.id;
             }
-            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
+            agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 60);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
             agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
         },
@@ -611,8 +611,8 @@ function flowAgentManager() {
                 initAgentTypeSelect('show-type-ts-' + index, this.agents[index].type, v => {
                     this.agents[index].type = v;
                     this.agents[index].is_verifier = v === 'qa_verifier';
-                    if (this.agents[index].is_verifier && !this.agents[index].qa_threshold) {
-                        this.agents[index].qa_threshold = 75;
+                    if (this.agents[index].is_verifier && (this.agents[index].qa_threshold === null || this.agents[index].qa_threshold === undefined || this.agents[index].qa_threshold === '')) {
+                        this.agents[index].qa_threshold = 60;
                     }
                     if (this.agents[index].is_verifier) {
                         this.agents[index].config.qa = { enabled: false };
@@ -726,7 +726,7 @@ function flowAgentManager() {
                 system_prompt:    tpl ? (tpl.system_prompt   || '')             : '',
                 prompt_template:  tpl ? (tpl.prompt_template || '')             : '',
                 is_verifier:      tpl ? Boolean(tpl.is_verifier || tpl.type === 'qa_verifier') : false,
-                qa_threshold:     tpl && (tpl.is_verifier || tpl.type === 'qa_verifier') ? (tpl.qa_threshold || 75) : null,
+                qa_threshold:     tpl && (tpl.is_verifier || tpl.type === 'qa_verifier') ? (tpl.qa_threshold ?? 60) : null,
                 config:           tpl && tpl.config ? tpl.config : { temperature: 0.7, num_predict: 1000, qa: { enabled: false } },
             };
 

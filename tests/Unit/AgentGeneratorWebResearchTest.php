@@ -128,6 +128,52 @@ class AgentGeneratorWebResearchTest extends TestCase
         $this->assertSame([1, 2, 3, 4, 5], array_column($result, 'order'));
     }
 
+    public function test_generated_qa_verifier_defaults_to_sixty_percent_threshold(): void
+    {
+        $service = $this->makeService();
+
+        $agents = $this->invokeParseAgentJson($service, json_encode([
+            [
+                'name' => 'Content',
+                'type' => 'content_bg',
+                'role' => 'Writes content',
+            ],
+            [
+                'name' => 'QA',
+                'type' => 'qa_verifier',
+                'role' => 'Checks quality',
+                'qa_threshold' => null,
+            ],
+        ]));
+
+        $qaAgent = collect($agents)->firstWhere('type', 'qa_verifier');
+
+        $this->assertSame(60, $qaAgent['qa_threshold']);
+    }
+
+    public function test_generated_qa_verifier_zero_threshold_defaults_to_sixty_percent(): void
+    {
+        $service = $this->makeService();
+
+        $agents = $this->invokeParseAgentJson($service, json_encode([
+            [
+                'name' => 'Content',
+                'type' => 'content_bg',
+                'role' => 'Writes content',
+            ],
+            [
+                'name' => 'QA',
+                'type' => 'qa_verifier',
+                'role' => 'Checks quality',
+                'qa_threshold' => 0,
+            ],
+        ]));
+
+        $qaAgent = collect($agents)->firstWhere('type', 'qa_verifier');
+
+        $this->assertSame(60, $qaAgent['qa_threshold']);
+    }
+
     public function test_bg_text_corrector_is_inserted_before_existing_qa(): void
     {
         $service = $this->makeService();
@@ -206,6 +252,13 @@ class AgentGeneratorWebResearchTest extends TestCase
         $method = new \ReflectionMethod($service, 'ensureQaVerifierLast');
         $method->setAccessible(true);
         return $method->invoke($service, $agents);
+    }
+
+    private function invokeParseAgentJson(AgentGeneratorService $service, string $raw): array
+    {
+        $method = new \ReflectionMethod($service, 'parseAgentJson');
+        $method->setAccessible(true);
+        return $method->invoke($service, $raw);
     }
 
     private function invokeEnsureBgTextCorrectorBeforeQa(AgentGeneratorService $service, array $agents): array
