@@ -40,6 +40,9 @@ Route::post('flows/{flow}/agents/reorder', [AgentController::class, 'reorder'])-
 Route::get('flows/{flow}/agents/{agent}/edit', [AgentController::class, 'edit'])->name('agents.edit');
 Route::put('flows/{flow}/agents/{agent}', [AgentController::class, 'update'])->name('agents.update');
 
+// AJAX: generate AI text for a single agent field
+Route::post('ai/generate-agent-field', [AgentController::class, 'generateAgentField'])->name('agents.generate-field');
+
 // Agent template picker (AJAX for popup)
 Route::get('agent-templates/picker', [AgentTemplateController::class, 'picker'])->name('agent-templates.picker');
 

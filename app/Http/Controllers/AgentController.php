@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 
 class AgentController extends Controller
 {
+    public function __construct(private \App\Services\OllamaService $ollama) {}
+
     public function store(Request $request, Flow $flow)
     {
         $validator = validator($request->all(), [
@@ -151,6 +153,85 @@ class AgentController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    public function generateAgentField(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'field'            => 'required|in:role,system_prompt,prompt_template,qa_custom_prompt',
+            'agent_name'       => 'required|string|max:200',
+            'agent_type'       => 'required|string|max:100',
+            'flow_description' => 'nullable|string|max:1000',
+            'role'             => 'nullable|string|max:2000',
+            'system_prompt'    => 'nullable|string|max:5000',
+            'prompt_template'  => 'nullable|string|max:5000',
+        ]);
+
+        $name        = $validated['agent_name'];
+        $type        = $validated['agent_type'];
+        $flowDesc    = $validated['flow_description'] ?? '';
+        $role        = $validated['role'] ?? '';
+        $sysPrompt   = $validated['system_prompt'] ?? '';
+        $promptTmpl  = $validated['prompt_template'] ?? '';
+
+        [$systemPrompt, $userMessage] = match ($validated['field']) {
+            'role'             => $this->buildRolePrompt($name, $type, $flowDesc),
+            'system_prompt'    => $this->buildSystemPromptPrompt($name, $type, $role, $flowDesc),
+            'prompt_template'  => $this->buildPromptTemplatePrompt($name, $type, $role, $sysPrompt),
+            'qa_custom_prompt' => $this->buildQaPrompt($name, $type, $sysPrompt, $promptTmpl),
+        };
+
+        try {
+            $generated = $this->ollama->chat(
+                model: config('services.ollama.generator_model', 'mistral-nemo'),
+                systemPrompt: $systemPrompt,
+                userMessage: $userMessage,
+                options: ['temperature' => 0.3, 'num_predict' => 800]
+            );
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'AI услугата не е достъпна. Провери дали Ollama работи.'], 503);
+        }
+
+        return response()->json(['generated' => trim($generated)]);
+    }
+
+    private function buildRolePrompt(string $name, string $type, string $flowDesc): array
+    {
+        $context = $flowDesc ? "в автоматизация която: {$flowDesc}" : '';
+        return [
+            'Ти си експерт по проектиране на AI агенти за бизнес автоматизации. Генерираш кратки, конкретни описания на роли. Отговаряй САМО с текста на ролята — без въведение, без кавички, без обяснения.',
+            "Напиши роля/описание (2-3 изречения на БЪЛГАРСКИ) за AI агент:\n- Име: {$name}\n- Тип: {$type}\n{$context}\n\nОпиши: какво прави агентът, какъв вход получава и какъв изход произвежда.",
+        ];
+    }
+
+    private function buildSystemPromptPrompt(string $name, string $type, string $role, string $flowDesc): array
+    {
+        $context = $flowDesc ? "Контекст на flow-а: {$flowDesc}" : '';
+        $roleCtx = $role ? "Роля на агента: {$role}" : '';
+        return [
+            'Ти си експерт по писане на system prompt-и за AI агенти. Създаваш детайлни, ефективни system prompt-и. Отговаряй САМО с текста на system prompt-а — без въведение, без кавички.',
+            "Напиши system prompt (минимум 3 изречения на БЪЛГАРСКИ) за AI агент:\n- Име: {$name}\n- Тип: {$type}\n{$roleCtx}\n{$context}\n\nSystem prompt-ът трябва да дефинира: персоната на агента, способностите му, езика (БЪЛГАРСКИ), ограниченията и стила на отговор.",
+        ];
+    }
+
+    private function buildPromptTemplatePrompt(string $name, string $type, string $role, string $sysPrompt): array
+    {
+        $roleCtx = $role ? "Роля: {$role}" : '';
+        $sysCtx  = $sysPrompt ? "System prompt: " . mb_substr($sysPrompt, 0, 500) : '';
+        return [
+            'Ти си експерт по писане на prompt шаблони за AI агенти. Създаваш детайлни шаблони с конкретни инструкции. Отговаряй САМО с текста на prompt шаблона — без въведение, без кавички.',
+            "Напиши prompt шаблон (минимум 5 изречения на БЪЛГАРСКИ) за AI агент:\n- Име: {$name}\n- Тип: {$type}\n{$roleCtx}\n{$sysCtx}\n\nШаблонът трябва да включва: конкретни инструкции за формат, тон, дължина, какво да се включи/изключи. Използвай placeholder-и {{company_description}}, {{input}}, {{topic}} където е подходящо.",
+        ];
+    }
+
+    private function buildQaPrompt(string $name, string $type, string $sysPrompt, string $promptTmpl): array
+    {
+        $sysCtx  = $sysPrompt ? "System prompt: " . mb_substr($sysPrompt, 0, 400) : '';
+        $tmplCtx = $promptTmpl ? "Prompt шаблон: " . mb_substr($promptTmpl, 0, 400) : '';
+        return [
+            'Ти си експерт по Quality Assurance за AI системи. Създаваш конкретни критерии за проверка на изхода на AI агенти. Отговаряй САМО с текста на QA критериите — без въведение, без кавички.',
+            "Напиши QA критерии (2-3 изречения на БЪЛГАРСКИ) за проверка на изхода на AI агент:\n- Ime: {$name}\n- Тип: {$type}\n{$sysCtx}\n{$tmplCtx}\n\nКритериите трябва да описват конкретно какво ТРЯБВА да присъства в изхода, за да се счита за качествен.",
+        ];
     }
 
     private function validateStepQaPolicy($validator, Request $request, Flow $flow, ?Agent $agent = null): void
