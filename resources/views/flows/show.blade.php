@@ -6,10 +6,6 @@
 $triggeredByLabel = ['manual' => '▶ Ръчно', 'scheduler' => '⏰ Планиран'];
 $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' => '🇫🇷', 'es' => '🇪🇸', 'ru' => '🇷🇺'];
 $qaThresholdOptions = range(0, 100, 5);
-$activeVerifierAgents = $flow->agents
-    ->where('is_active', true)
-    ->where('is_verifier', true)
-    ->sortBy('order');
 @endphp
 
 {{-- Clear the create-form draft for this company on successful save --}}
@@ -35,19 +31,6 @@ $activeVerifierAgents = $flow->agents
         </a>
         <form action="{{ route('flow-runs.store', $flow) }}" method="POST" class="flex items-start gap-2">
             @csrf
-            @foreach($activeVerifierAgents as $verifierAgent)
-                <label class="sr-only" for="qa-threshold-{{ $verifierAgent->id }}">QA праг за {{ $verifierAgent->name }}</label>
-                <select id="qa-threshold-{{ $verifierAgent->id }}"
-                        name="qa_thresholds[{{ $verifierAgent->id }}]"
-                        title="QA праг за {{ $verifierAgent->name }}"
-                        class="bg-white border border-orange-200 text-orange-700 px-3 py-2 rounded-lg text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-orange-400">
-                    @foreach($qaThresholdOptions as $threshold)
-                        <option value="{{ $threshold }}" @selected((int) ($verifierAgent->qa_threshold ?? 75) === $threshold)>
-                            QA {{ $threshold }}%
-                        </option>
-                    @endforeach
-                </select>
-            @endforeach
             <button type="submit"
                     class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2">
                 ▶ Стартирай
@@ -143,96 +126,126 @@ $activeVerifierAgents = $flow->agents
                 <div x-show="editingIndex === index" x-cloak
                      class="mx-4 mb-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
                     <h4 class="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-3">Редактиране на агент</h4>
-                    <div class="grid grid-cols-2 gap-3 mb-3">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">Име</label>
-                            <input type="text" x-model="agent.name"
-                                   class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">Тип</label>
-                            @include('partials.agent-type-select', [
-                                'xIdExpr' => "'show-type-ts-' + index",
-                            ])
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-xs font-medium text-gray-600 mb-1">Роля / Описание</label>
-                            <textarea x-model="agent.role" rows="2"
-                                      class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-xs font-medium text-gray-600 mb-1">System промпт</label>
-                            <textarea x-model="agent.system_prompt" rows="3"
-                                      class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                      placeholder="Ти си специализиран агент за..."></textarea>
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-xs font-medium text-gray-600 mb-1">Промпт шаблон</label>
-                            <textarea x-model="agent.prompt_template" rows="5"
-                                      class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                      placeholder="Инструкции за агента с @{{placeholder}}-и..."></textarea>
-                        </div>
-                        <div class="col-span-2">
-                            <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
-                            <select :id="'show-model-ts-' + index"></select>
-                        </div>
-                        <div x-show="agent.is_verifier || agent.type === 'qa_verifier'" x-cloak>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">QA праг (%)</label>
-                            <select x-model.number="agent.qa_threshold"
-                                    class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                @foreach($qaThresholdOptions as $threshold)
-                                    <option value="{{ $threshold }}">{{ $threshold }}%</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div x-show="!agent.is_verifier && agent.type !== 'qa_verifier'" x-cloak class="col-span-2 border border-emerald-200 bg-emerald-50 rounded-lg p-3">
-                            <label class="flex items-center gap-2 text-sm font-semibold text-emerald-800">
-                                <input type="checkbox"
-                                       x-model="agent.config.qa.enabled"
-                                       @change="ensureStepQaDefaults(agent)"
-                                       class="w-4 h-4 text-emerald-600 border-gray-300 rounded">
-                                QA след тази стъпка
-                            </label>
-                            <p class="text-xs text-emerald-700/80 mt-1">
-                                Ако QA не мине, този агент ще се изпълни отново до зададения лимит.
-                            </p>
-                            <div x-show="agent.config.qa.enabled" x-cloak class="grid grid-cols-3 gap-3 mt-3">
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">QA агент</label>
-                                    <select x-model.number="agent.config.qa.verifier_agent_id"
-                                            class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                                        <option value="">Избери QA</option>
-                                        <template x-for="verifier in verifierOptions(agent)" :key="verifier.id">
-                                            <option :value="verifier.id" x-text="verifier.name"></option>
-                                        </template>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Праг (%)</label>
-                                    <select x-model.number="agent.config.qa.threshold"
-                                            class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                                        @foreach($qaThresholdOptions as $threshold)
-                                            <option value="{{ $threshold }}">{{ $threshold }}%</option>
-                                        @endforeach
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Повторения</label>
-                                    <input type="number"
-                                           min="0"
-                                           max="10"
-                                           x-model.number="agent.config.qa.max_retries"
-                                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                                </div>
+
+                    {{-- Tab switcher --}}
+                    <div class="flex border-b border-indigo-200 mb-4 -mx-4 px-4">
+                        <button type="button" @click="editTab = 'agent'"
+                                :class="editTab === 'agent' ? 'border-b-2 border-indigo-600 text-indigo-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+                                class="px-4 py-2 text-sm transition">Агент</button>
+                        <button type="button" x-show="!agent.is_verifier && agent.type !== 'qa_verifier'" @click="editTab = 'qa'"
+                                :class="editTab === 'qa' ? 'border-b-2 border-emerald-600 text-emerald-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+                                class="px-4 py-2 text-sm transition">QA Верификация</button>
+                    </div>
+
+                    {{-- Tab: Агент --}}
+                    <div x-show="editTab === 'agent'">
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Име</label>
+                                <input type="text" x-model="agent.name"
+                                       class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
-                            <p x-show="agent.config.qa.enabled && verifierOptions(agent).length === 0"
-                               x-cloak
-                               class="text-xs text-red-600 mt-2">
-                                Добави активен QA verifier агент, за да включиш тази проверка.
-                            </p>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Тип</label>
+                                @include('partials.agent-type-select', [
+                                    'xIdExpr' => "'show-type-ts-' + index",
+                                ])
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Роля / Описание</label>
+                                <textarea x-model="agent.role" rows="2"
+                                          class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">System промпт</label>
+                                <textarea x-model="agent.system_prompt" rows="3"
+                                          class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                          placeholder="Ти си специализиран агент за..."></textarea>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Промпт шаблон</label>
+                                <textarea x-model="agent.prompt_template" rows="5"
+                                          class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                          placeholder="Инструкции за агента с @{{placeholder}}-и..."></textarea>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
+                                <select :id="'show-model-ts-' + index"></select>
+                            </div>
+                            <div x-show="agent.is_verifier || agent.type === 'qa_verifier'" x-cloak>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">QA праг (%)</label>
+                                <select x-model.number="agent.qa_threshold"
+                                        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    @foreach($qaThresholdOptions as $threshold)
+                                        <option value="{{ $threshold }}">{{ $threshold }}%</option>
+                                    @endforeach
+                                </select>
+                            </div>
                         </div>
                     </div>
-                    <div class="flex justify-end gap-2">
+
+                    {{-- Tab: QA Верификация --}}
+                    <div x-show="editTab === 'qa'" x-cloak>
+                        {{-- Toggle row --}}
+                        <div class="flex items-center justify-between mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                            <div>
+                                <p class="text-sm font-semibold text-emerald-800">QA след тази стъпка</p>
+                                <p class="text-xs text-emerald-700/80">Ако QA не мине, агентът ще се изпълни отново до зададения лимит.</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" x-model="agent.config.qa.enabled" @change="ensureStepQaDefaults(agent)" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-emerald-600 after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                            </label>
+                        </div>
+
+                        {{-- Config fields (shown when enabled) --}}
+                        <div x-show="agent.config.qa.enabled" x-cloak class="grid grid-cols-3 gap-3 mb-4">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">QA Агент</label>
+                                <select x-model.number="agent.config.qa.verifier_agent_id"
+                                        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    <option value="">Избери QA</option>
+                                    <template x-for="verifier in verifierOptions(agent)" :key="verifier.id">
+                                        <option :value="verifier.id" x-text="verifier.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Прагова стойност</label>
+                                <select x-model.number="agent.config.qa.threshold"
+                                        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    @foreach($qaThresholdOptions as $threshold)
+                                        <option value="{{ $threshold }}">{{ $threshold }}%</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Макс. повторения</label>
+                                <input type="number" min="0" max="10" x-model.number="agent.config.qa.max_retries"
+                                       class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            </div>
+                        </div>
+
+                        {{-- Custom prompt --}}
+                        <div x-show="agent.config.qa.enabled" x-cloak>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">
+                                Какво да проверява QA-то
+                                <span class="font-normal text-gray-400">(по избор — оставете празно за дефолтна проверка)</span>
+                            </label>
+                            <textarea x-model="agent.config.qa.custom_prompt" rows="4"
+                                      class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                      placeholder="Провери дали резултатът съдържа..."></textarea>
+                            <p class="text-xs text-gray-400 mt-1">Този промпт се изпраща на QA агента заедно с изхода на стъпката.</p>
+                        </div>
+
+                        {{-- No verifier warning --}}
+                        <p x-show="agent.config.qa.enabled && verifierOptions(agent).length === 0" x-cloak
+                           class="text-xs text-red-600 mt-2">
+                            Добави активен QA verifier агент, за да включиш тази проверка.
+                        </p>
+                    </div>
+
+                    <div class="flex justify-end gap-2 mt-4">
                         <button type="button" @click="closeEdit()"
                                 class="bg-white border border-gray-300 text-gray-600 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
                             Откажи
@@ -393,12 +406,7 @@ $activeVerifierAgents = $flow->agents
         </div>
     </div>
 
-    {{-- QA position warning --}}
-    <div x-show="agents.length > 0 && agents[agents.length-1] && agents[agents.length-1].type !== 'qa_verifier' && agents.some(a => a.type === 'qa_verifier')"
-         x-cloak
-         class="mx-4 mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">
-        ⚠ QA verifier агентът не е последен в pipeline-а. Препоръчително е да е на последна позиция.
-    </div>
+
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
@@ -414,6 +422,7 @@ function flowAgentManager() {
         agents: [],
         models: [],
         editingIndex: null,
+        editTab: 'agent',
         saving: false,
         saveStatus: '',
         _sortable: null,
@@ -448,6 +457,7 @@ function flowAgentManager() {
             agent.config.qa.verifier_agent_id = agent.config.qa.verifier_agent_id ? Number(agent.config.qa.verifier_agent_id) : null;
             agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
+            agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
 
             return agent;
         },
@@ -477,6 +487,7 @@ function flowAgentManager() {
             }
             agent.config.qa.threshold = Number(agent.config.qa.threshold ?? 75);
             agent.config.qa.max_retries = Number(agent.config.qa.max_retries ?? 3);
+            agent.config.qa.custom_prompt = agent.config.qa.custom_prompt || '';
         },
 
         initSortable() {
@@ -541,6 +552,7 @@ function flowAgentManager() {
 
         openEdit(index) {
             this.editingIndex = index;
+            this.editTab = 'agent';
             this.$nextTick(() => {
                 initAgentTypeSelect('show-type-ts-' + index, this.agents[index].type, v => {
                     this.agents[index].type = v;
@@ -560,6 +572,7 @@ function flowAgentManager() {
         closeEdit() {
             if (this._modelTS) { this._modelTS.destroy(); this._modelTS = null; }
             this.editingIndex = null;
+            this.editTab = 'agent';
         },
 
         moveAgent(index, direction) {
