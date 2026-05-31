@@ -293,6 +293,11 @@ class FlowExecutorService
         $verifier->qa_threshold = $policy['threshold'];
         $this->log("STEP QA: {$verifier->name} validates {$agent->name} (threshold {$policy['threshold']}%, retries {$retriesUsed}/{$policy['max_retries']})");
 
+        if (! empty($policy['custom_prompt'])) {
+            $verifier = clone $verifier;
+            $verifier->system_prompt = $policy['custom_prompt'];
+        }
+
         $execution = $this->executeAgent($flowRun, $verifier, $context, $verifier->order, collect($agents)->count());
         if (! $execution['success']) {
             return [
@@ -414,6 +419,7 @@ class FlowExecutorService
                 'verifier_agent_id' => $verifierId,
                 'threshold' => (int) ($qa['threshold'] ?? $verifier?->qa_threshold ?? 75),
                 'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
+                'custom_prompt' => $qa['custom_prompt'] ?? '',
             ];
             $changed = true;
         }
