@@ -658,10 +658,6 @@ function flowRunMonitor() {
             return 'QA' + (agent.qa_threshold !== null && agent.qa_threshold !== undefined ? ' ' + agent.qa_threshold + '%' : '');
         },
 
-        stepQaResult(agentId) {
-            return this.stepQaResults[String(agentId)] || null;
-        },
-
         stepQaBadge(agent) {
             const policy = this.stepQaPolicies[String(agent.id)] || agent.step_qa_policy;
             if (!policy) return null;
