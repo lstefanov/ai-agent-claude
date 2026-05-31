@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AgentRun extends Model
 {
     protected $fillable = [
-        'flow_run_id', 'agent_id', 'status', 'input', 'output',
+        'flow_run_id', 'agent_id', 'status', 'input', 'output', 'raw_output',
         'model_used', 'tokens_used', 'duration_ms', 'error', 'started_at', 'completed_at',
     ];
 

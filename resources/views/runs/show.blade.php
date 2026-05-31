@@ -33,6 +33,7 @@ $initialRuns = (object) $initialAgentRuns->mapWithKeys(fn($r) => [
         'model_used'   => $r->model_used,
         'input'        => $r->input,
         'output'       => $r->output,
+        'raw_output'   => $r->raw_output,
         'error'        => $r->error,
         'duration_ms'  => $r->duration_ms,
         'tokens_used'  => $r->tokens_used,
@@ -148,15 +149,19 @@ window.__runData = {
         <div class="mt-3 rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-700" x-text="failureMessage"></div>
     </template>
 
-    <div class="relative h-2.5 bg-gray-100 rounded-full overflow-hidden">
-        <div class="absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out"
+    <div class="relative h-2.5 bg-gray-100 rounded-full overflow-hidden"
+         role="progressbar"
+         aria-valuemin="0"
+         aria-valuemax="100"
+         :aria-valuenow="progressPercent">
+        <div class="absolute inset-y-0 left-0 h-full block rounded-full transition-all duration-700 ease-out"
              :class="{
                  'progress-bar-running': flowStatus === 'running',
                  'bg-gradient-to-r from-green-400 to-emerald-500': flowStatus === 'completed',
                  'bg-red-400':  flowStatus === 'failed',
                  'bg-gray-300': flowStatus === 'pending',
              }"
-             :style="'width:' + progressPercent + '%'">
+             :style="{ width: progressPercent + '%' }">
         </div>
     </div>
 
@@ -271,7 +276,7 @@ window.__runData = {
 
         @else
         {{-- Generic output --}}
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm max-w-2xl">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm max-w-4xl">
             <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
                 <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Финален изход</p>
                 <button @click="copyFinalOutput()" class="text-xs text-gray-400 hover:text-gray-600 transition"
@@ -282,8 +287,10 @@ window.__runData = {
                     <img :src="extractImageUrl(finalOutput)" class="rounded-lg max-h-56 object-cover border border-gray-200" alt="">
                 </div>
             </template>
-            <div class="md-output px-5 py-4 text-sm text-gray-800 leading-relaxed"
-                 x-html="renderMd(finalOutput)"></div>
+            <div class="overflow-x-auto">
+                <div class="md-output px-5 py-4 text-sm text-gray-800 leading-relaxed min-w-0"
+                     x-html="renderMd(finalOutput)"></div>
+            </div>
         </div>
         @endif
 
@@ -436,6 +443,18 @@ window.__runData = {
                     </div>
                 </template>
 
+                <template x-if="getRun(agent.id) && getRun(agent.id).raw_output">
+                    <div class="px-5 pb-4">
+                        <details class="rounded-lg border border-amber-100 bg-amber-50/60">
+                            <summary class="cursor-pointer px-3 py-2 text-xs font-semibold text-amber-700 uppercase tracking-wider">
+                                Reasoning (raw)
+                            </summary>
+                            <pre class="text-xs text-amber-900 p-3 pt-1 overflow-auto max-h-60 whitespace-pre-wrap font-mono"
+                                 x-text="getRun(agent.id).raw_output"></pre>
+                        </details>
+                    </div>
+                </template>
+
                 <template x-if="getRun(agent.id) && getRun(agent.id).tokens_used && !agent.is_verifier">
                     <div class="px-5 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400">
                         Токени: <span x-text="Number(getRun(agent.id).tokens_used).toLocaleString()"></span>
@@ -493,6 +512,9 @@ window.__runData = {
 .md-output li{margin-bottom:.15em}
 .md-output hr{border:none;border-top:1px solid #e5e7eb;margin:.75em 0}
 .md-output code{font-family:monospace;background:#f3f4f6;padding:.1em .3em;border-radius:3px;font-size:.9em}
+.md-output table{width:max-content;min-width:100%;border-collapse:collapse;margin:.75em 0;font-size:.92em}
+.md-output th,.md-output td{border:1px solid #e5e7eb;padding:.45rem .6rem;text-align:left;vertical-align:top;white-space:nowrap}
+.md-output th{background:#f9fafb;font-weight:600;color:#374151}
 @keyframes shimmer {
     0%   { transform: translateX(-100%); }
     100% { transform: translateX(200%); }

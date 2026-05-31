@@ -151,6 +151,7 @@ class FlowRunController extends Controller
                 'model_used' => $r->model_used,
                 'input' => $r->input,
                 'output' => $r->output,
+                'raw_output' => $r->raw_output,
                 'error' => $r->error,
                 'duration_ms' => $r->duration_ms,
                 'tokens_used' => $r->tokens_used,

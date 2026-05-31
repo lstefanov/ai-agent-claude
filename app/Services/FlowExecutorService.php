@@ -8,6 +8,7 @@ use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Flow;
 use App\Models\FlowRun;
+use App\Support\ReasoningStripper;
 use Throwable;
 
 class FlowExecutorService
@@ -73,6 +74,7 @@ class FlowExecutorService
         foreach ($agents as $agentIndex => $agent) {
             if ($agent->is_verifier && in_array((int) $agent->id, $referencedVerifierIds, true)) {
                 $this->log("Skipping standalone QA verifier {$agent->name}; it is used by a step QA policy.");
+
                 continue;
             }
 
@@ -200,6 +202,7 @@ class FlowExecutorService
         $maxAttempts = 3;
         $lastError = null;
         $output = null;
+        $rawOutput = null;
         $agentInstance = null;
         $startMs = now()->valueOf();
 
@@ -212,7 +215,9 @@ class FlowExecutorService
                 }
 
                 $agentInstance = $this->factory->make($agent);
-                $output = $agentInstance->run($agent, $agentRun, $context);
+                $returnedOutput = $agentInstance->run($agent, $agentRun, $context);
+                $rawOutput = $agentInstance->rawOutput() ?? $returnedOutput;
+                $output = ReasoningStripper::strip($rawOutput);
                 $lastError = null;
                 break;
 
@@ -252,6 +257,7 @@ class FlowExecutorService
         $agentRun->update([
             'status' => 'completed',
             'output' => $output,
+            'raw_output' => $rawOutput !== $output ? $rawOutput : null,
             'duration_ms' => $durationMs,
             'completed_at' => now(),
         ]);
@@ -481,11 +487,12 @@ class FlowExecutorService
     // Build the input message for an agent.
     // ──────────────────────────────────────────────────────────────────────
     // Keys that are system/alias variables, not agent outputs
-    private const SYSTEM_CONTEXT_KEYS = ['company_description', 'company_name', 'company_industry', 'input', 'topic'];
+    private const SYSTEM_CONTEXT_KEYS = ['company_description', 'company_name', 'company_industry', 'input', 'topic', 'flow_topic'];
 
     private function buildInput(object $agent, array $context): string
     {
         $prompt = $agent->prompt_template ?? '';
+        $originalPrompt = $prompt;
 
         // Replace {{variable}} and {variable} placeholders
         foreach ($context as $key => $value) {
@@ -505,8 +512,11 @@ class FlowExecutorService
         if (! empty($agentOutputs)) {
             $lines = [];
             foreach ($agentOutputs as $agentName => $output) {
+                if ($this->promptReferencesContextKey($originalPrompt, (string) $agentName)) {
+                    continue;
+                }
                 if (is_string($output) && $output !== '') {
-                    $lines[] = "[{$agentName}]:\n".mb_substr($output, 0, 1000);
+                    $lines[] = "[{$agentName}]:\n".$this->handoffText($output);
                 }
             }
             if ($lines) {
@@ -515,6 +525,24 @@ class FlowExecutorService
         }
 
         return $prompt;
+    }
+
+    private function promptReferencesContextKey(string $prompt, string $key): bool
+    {
+        return str_contains($prompt, '{{'.$key.'}}')
+            || str_contains($prompt, '{'.$key.'}');
+    }
+
+    private function handoffText(string $output): string
+    {
+        $maxChars = 20000;
+
+        if (mb_strlen($output) <= $maxChars) {
+            return $output;
+        }
+
+        return mb_substr($output, 0, $maxChars)
+            ."\n\n[Truncated after {$maxChars} chars for agent handoff.]";
     }
 
     private function extractScoreFromOutput(string $output): int

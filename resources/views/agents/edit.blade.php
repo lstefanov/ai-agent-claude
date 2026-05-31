@@ -220,13 +220,20 @@ $cfg     = $agent->config ?? [];
 
     {{-- ── TAB: ПАРАМЕТРИ ───────────────────────────────────────── --}}
     <div x-show="tab === 'params'" class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-        <p class="text-xs text-gray-500 bg-indigo-50 rounded-lg px-3 py-2">
-            Оставените <strong>празни полета</strong> използват стойностите по подразбиране на модела.
-            Подходящи стойности зависят от задачата — виж <a href="https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values" target="_blank" class="text-indigo-600 hover:underline">Ollama docs</a>.
-        </p>
+        <div class="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 space-y-2">
+            <h2 class="font-semibold text-indigo-900">Как да мислим за тези параметри</h2>
+            <p>
+                Оставените <strong>празни полета</strong> използват стойностите по подразбиране на модела.
+                Променяй по една настройка наведнъж, защото Temperature, Top P и Top K заедно контролират колко свободно моделът избира следващия токен.
+            </p>
+            <p class="text-xs text-indigo-700">
+                За точни QA/verifier или research агенти дръж стойностите по-консервативни. За creative writer, идеи и маркетинг можеш да дадеш повече свобода.
+                Виж и <a href="https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values" target="_blank" class="font-medium text-indigo-700 hover:underline">Ollama docs</a>.
+            </p>
+        </div>
 
-        <div class="grid grid-cols-2 gap-5">
-            <div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                     Temperature
                     <span class="text-xs font-normal text-gray-400">(0 – 2, default: 0.7)</span>
@@ -235,11 +242,15 @@ $cfg     = $agent->config ?? [];
                        value="{{ old('config.temperature', $cfg['temperature'] ?? '') }}"
                        placeholder="0.7"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <p class="text-xs text-gray-400 mt-1">Ниско = детерминиран. Високо = творчески.</p>
+                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                    <p><strong class="text-gray-700">Какво прави:</strong> контролира колко смело моделът избира следващата дума.</p>
+                    <p><strong class="text-gray-700">Ниско: по-предвидими и повторяеми отговори</strong>, подходящи за факти, проверки и структурирани задачи.</p>
+                    <p><strong class="text-gray-700">Високо: повече разнообразие</strong>, идеи и по-креативен стил, но и по-голям риск от отклонения.</p>
+                </div>
                 @error('config.temperature') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
 
-            <div>
+            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                     Top P
                     <span class="text-xs font-normal text-gray-400">(0 – 1, default: 0.9)</span>
@@ -248,11 +259,15 @@ $cfg     = $agent->config ?? [];
                        value="{{ old('config.top_p', $cfg['top_p'] ?? '') }}"
                        placeholder="0.9"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <p class="text-xs text-gray-400 mt-1">Nucleus sampling — ограничава токените.</p>
+                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                    <p><strong class="text-gray-700">Какво прави:</strong> Top P избира най-вероятните токени, докато общата им вероятност стигне зададения праг.</p>
+                    <p><strong class="text-gray-700">По-ниско:</strong> моделът избира от по-малък и по-сигурен набор, което помага за последователност.</p>
+                    <p><strong class="text-gray-700">По-високо:</strong> позволява по-богат речник и повече вариации, особено при писане на съдържание.</p>
+                </div>
                 @error('config.top_p') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
 
-            <div>
+            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                     Top K
                     <span class="text-xs font-normal text-gray-400">(1 – 200, default: 40)</span>
@@ -261,11 +276,15 @@ $cfg     = $agent->config ?? [];
                        value="{{ old('config.top_k', $cfg['top_k'] ?? '') }}"
                        placeholder="40"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <p class="text-xs text-gray-400 mt-1">Брой токени за разглеждане при всяка стъпка.</p>
+                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                    <p><strong class="text-gray-700">Какво прави:</strong> Top K поставя твърд лимит колко възможни токена се разглеждат на всяка стъпка.</p>
+                    <p><strong class="text-gray-700">По-ниско:</strong> по-стегнат и безопасен избор, но текстът може да стане по-еднообразен.</p>
+                    <p><strong class="text-gray-700">По-високо:</strong> повече варианти за модела, което е полезно за творчески задачи.</p>
+                </div>
                 @error('config.top_k') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
 
-            <div>
+            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                     Repeat Penalty
                     <span class="text-xs font-normal text-gray-400">(0 – 2, default: 1.1)</span>
@@ -274,11 +293,15 @@ $cfg     = $agent->config ?? [];
                        value="{{ old('config.repeat_penalty', $cfg['repeat_penalty'] ?? '') }}"
                        placeholder="1.1"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <p class="text-xs text-gray-400 mt-1">> 1 намалява повторенията в текста.</p>
+                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                    <p><strong class="text-gray-700">Какво прави:</strong> Repeat Penalty наказва вече използвани думи и фрази, за да намали повтарянето.</p>
+                    <p><strong class="text-gray-700">Около 1.0:</strong> почти без наказание, моделът може да повтаря фрази, ако задачата го подтикне.</p>
+                    <p><strong class="text-gray-700">Над 1.0:</strong> помага при дълги отговори, но твърде висока стойност може да направи текста неестествен.</p>
+                </div>
                 @error('config.repeat_penalty') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
 
-            <div class="col-span-2">
+            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3 md:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                     Max Tokens (num_predict)
                     <span class="text-xs font-normal text-gray-400">(-1 = без лимит, default: -1)</span>
@@ -287,7 +310,11 @@ $cfg     = $agent->config ?? [];
                        value="{{ old('config.num_predict', $cfg['num_predict'] ?? '') }}"
                        placeholder="-1"
                        class="w-64 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <p class="text-xs text-gray-400 mt-1">Ограничава дължината на отговора в токени.</p>
+                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                    <p><strong class="text-gray-700">Какво прави:</strong> num_predict задава горна граница за дължината на отговора в токени.</p>
+                    <p><strong class="text-gray-700">По-ниско:</strong> пази от прекалено дълги отговори и ускорява изпълнението, но може да отреже важен текст.</p>
+                    <p><strong class="text-gray-700">-1:</strong> оставя модела без този лимит; използвай го само когато очакваш дълъг доклад или анализ.</p>
+                </div>
                 @error('config.num_predict') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
         </div>

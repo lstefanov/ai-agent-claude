@@ -16,8 +16,10 @@ class DeepResearcherAgent extends BaseAgent
 
     private const PRICING_PATHS = [
         '/цени', '/цена', '/абонамент', '/абонаменти', '/карти',
-        '/ceni', '/tseni', '/tseni.html', '/abonamant', '/abonament',
-        '/prices', '/pricing', '/membership', '/memberships',
+        '/ceni', '/tseni', '/tseni.html', '/cenorazpis', '/cennik',
+        '/abonamant', '/abonament', '/abonamenti', '/karti',
+        '/prices', '/price', '/pricing', '/price-list', '/price-list.html',
+        '/membership', '/memberships',
         '/plans', '/plan', '/tarifi', '/tariffs', '/subscribe', '/karti',
     ];
 
@@ -33,7 +35,7 @@ class DeepResearcherAgent extends BaseAgent
             foreach ($queryTemplates as &$tpl) {
                 foreach ($context as $key => $value) {
                     if (is_string($value)) {
-                        $tpl = str_replace('{{' . $key . '}}', $value, $tpl);
+                        $tpl = str_replace('{{'.$key.'}}', $value, $tpl);
                     }
                 }
             }
@@ -43,7 +45,7 @@ class DeepResearcherAgent extends BaseAgent
         foreach ($queryTemplates as $i => $query) {
             $results = $this->useTool('web_search', ['query' => $query]);
             if ($results !== null) {
-                $num        = $i + 1;
+                $num = $i + 1;
                 $allResults .= "\n\n=== SEARCH {$num}: \"{$query}\" ===\n{$results}";
             }
         }
@@ -51,7 +53,7 @@ class DeepResearcherAgent extends BaseAgent
         // Phase 2: Scrape pricing pages (only if tool registered and config allows)
         $scrapedContent = '';
         if ($allResults && ($config['scrape_pricing_pages'] ?? true) && $this->hasTool('scrape_page')) {
-            $maxPages       = (int) ($config['max_pages_to_scrape'] ?? config('services.crawl.max_pages', 3));
+            $maxPages = (int) ($config['max_pages_to_scrape'] ?? config('services.crawl.max_pages', 3));
             $scrapedContent = $this->scrapeTopPricingPages($allResults, $maxPages);
         }
 
@@ -70,8 +72,8 @@ class DeepResearcherAgent extends BaseAgent
     private function scrapeTopPricingPages(string $searchResults, int $maxPages): string
     {
         $domainMap = $this->extractDomainUrls($searchResults);
-        $scraped   = '';
-        $count     = 0;
+        $scraped = '';
+        $count = 0;
 
         foreach ($domainMap as $domain => $knownUrl) {
             if ($count >= $maxPages) {
@@ -100,7 +102,7 @@ class DeepResearcherAgent extends BaseAgent
         preg_match_all('/URL:\s*(https?:\/\/\S+)/i', $searchResults, $matches);
         $domainMap = [];
         foreach ($matches[1] as $url) {
-            $host   = parse_url($url, PHP_URL_HOST) ?? '';
+            $host = parse_url($url, PHP_URL_HOST) ?? '';
             $domain = strtolower(preg_replace('/^www\./i', '', $host));
             if (! $domain) {
                 continue;
@@ -118,6 +120,7 @@ class DeepResearcherAgent extends BaseAgent
                 }
             }
         }
+
         return $domainMap;
     }
 
@@ -135,12 +138,12 @@ class DeepResearcherAgent extends BaseAgent
             }
         }
 
-        $baseUrl = 'https://' . $domain;
+        $baseUrl = 'https://'.$domain;
         foreach (self::PRICING_PATHS as $pricingPath) {
             try {
-                $response = Http::timeout(3)->head($baseUrl . $pricingPath);
+                $response = Http::timeout(3)->head($baseUrl.$pricingPath);
                 if ($response->successful()) {
-                    return $baseUrl . $pricingPath;
+                    return $baseUrl.$pricingPath;
                 }
             } catch (\Exception) {
                 // Try next path
@@ -156,7 +159,7 @@ class DeepResearcherAgent extends BaseAgent
         $topic = ! empty($context['flow_topic']) ? $context['flow_topic'] : mb_substr($input, 0, 300);
 
         $systemPrompt = 'You are a search query specialist. Output ONLY a JSON array of strings. No explanation.';
-        $userMessage  = "Generate {$count} specific search queries to thoroughly research this topic from multiple angles.\n\nTopic: {$topic}\n\nRules:\n- Each query must target a SPECIFIC aspect, source type, or subtopic\n- Include the market/location if evident from the topic\n- Queries must be in the same language as the topic\n- Output ONLY valid JSON array, example: [\"query 1\",\"query 2\"]";
+        $userMessage = "Generate {$count} specific search queries to thoroughly research this topic from multiple angles.\n\nTopic: {$topic}\n\nRules:\n- Each query must target a SPECIFIC aspect, source type, or subtopic\n- Include the market/location if evident from the topic\n- Queries must be in the same language as the topic\n- Output ONLY valid JSON array, example: [\"query 1\",\"query 2\"]";
 
         $raw = $this->ollama->chat(
             model: $agent->model,
