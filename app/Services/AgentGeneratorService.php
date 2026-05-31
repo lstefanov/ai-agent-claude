@@ -90,7 +90,6 @@ Flow за изграждане: "{$flow->description}"
 }
 
 За qa_verifier: is_verifier=true, qa_threshold=75, temperature=0.1, uid="qa_main", config НЕ включва qa поле
-За qa_verifier: uid="qa_main"
 За всеки НЕ-verifier агент: config ТРЯБВА да включва qa обект с enabled=true, verifier_agent_uid="qa_main", threshold=60, max_retries=3
 За custom_prompt в config.qa — пиши конкретна проверка подходяща за изхода на агента:
   - competitor_profiler/researcher: "Провери дали са намерени поне 3 конкурента/резултата с имена и уебсайтове. Ако липсват цени — допустимо е, но трябва да е отбелязано. Структурата трябва да е ясна."
