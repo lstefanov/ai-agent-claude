@@ -51,6 +51,10 @@ class FlowController extends Controller
             'agents.*.prompt_template'  => 'required|string',
             'agents.*.order'            => 'required|integer|min:1',
             'agents.*.system_prompt'    => 'nullable|string',
+            'agents.*.output_language'   => 'nullable|string|max:10',
+            'agents.*.output_tone'       => 'nullable|string|max:30',
+            'agents.*.output_style'      => 'nullable|string|max:30',
+            'agents.*.output_format'     => 'nullable|string|max:30',
             'agents.*.is_verifier'      => 'nullable|boolean',
             'agents.*.qa_threshold'     => 'nullable|integer|min:0|max:100',
             'agents.*.config'           => 'nullable|array',
@@ -95,6 +99,10 @@ class FlowController extends Controller
                 'system_prompt'     => $agentData['system_prompt'] ?? null,
                 'model'             => $agentData['model'],
                 'model_reason'      => $agentData['model_reason'] ?? null,
+                'output_language'   => $agentData['output_language'] ?? 'bg',
+                'output_tone'       => $agentData['output_tone'] ?? null,
+                'output_style'      => $agentData['output_style'] ?? null,
+                'output_format'     => $agentData['output_format'] ?? null,
                 'order'             => (int) $agentData['order'],
                 'is_verifier'       => $isVerifier,
                 'qa_threshold'      => $isVerifier ? $this->qaThresholdOrDefault($agentData['qa_threshold'] ?? null) : null,
@@ -163,6 +171,20 @@ class FlowController extends Controller
         return back()->with('success', 'Flow "' . $flow->name . '" е възстановен.');
     }
 
+    public function generateWebhookSecret(Flow $flow)
+    {
+        $flow->update(['webhook_secret' => \Illuminate\Support\Str::random(40)]);
+
+        return back()->with('success', 'Webhook URL е генериран.');
+    }
+
+    public function revokeWebhookSecret(Flow $flow)
+    {
+        $flow->update(['webhook_secret' => null]);
+
+        return back()->with('success', 'Webhook URL е деактивиран.');
+    }
+
     public function destroy(Flow $flow)
     {
         $company = $flow->company;
@@ -227,6 +249,12 @@ MSG;
             'description' => 'required|string|min:10',
         ]);
 
+        if (! $this->ollama->isAvailable()) {
+            return response()->json([
+                'error' => 'Ollama не е достъпна. Стартирай Ollama и опитай отново.',
+            ], 503);
+        }
+
         $token = Str::uuid()->toString();
 
         // Store request data so the background command can read it
@@ -241,6 +269,8 @@ MSG;
             'status' => 'pending',
             'agents' => [],
             'error'  => null,
+            'stage' => 'Стартиране...',
+            'updated_at' => now()->timestamp,
         ], now()->addMinutes(15));
 
         // Launch background artisan command (won't be killed by Apache timeout)

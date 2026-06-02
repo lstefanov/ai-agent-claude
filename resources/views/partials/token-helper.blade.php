@@ -47,19 +47,19 @@
 
     {{-- Expanded panel --}}
     <div x-show="open" x-cloak
-         class="mt-1.5 border border-indigo-200 rounded-lg overflow-hidden text-xs">
+         class="mt-1.5 border border-indigo-200 rounded-lg overflow-hidden text-sm">
 
         {{-- Panel header --}}
         <div class="px-3 py-1.5 bg-indigo-50 flex justify-between items-center border-b border-indigo-100">
-            <span class="font-semibold text-indigo-700 text-[11px]">НАЛИЧНИ ТОКЪНИ</span>
-            <span class="text-indigo-400 text-[10px]">Клик → вмъкни в курсора</span>
+            <span class="font-semibold text-indigo-700 text-xs">НАЛИЧНИ ТОКЪНИ</span>
+            <span class="text-indigo-400 text-xs">Клик → вмъкни в курсора</span>
         </div>
 
         <div class="bg-indigo-50/40 divide-y divide-indigo-100/60">
 
             {{-- ── COMPANY ──────────────────────────────────────────────── --}}
             <div class="px-3 py-2.5 space-y-1.5">
-                <p class="text-[9px] font-bold text-violet-700 uppercase tracking-wider mb-2">🏢 Компания</p>
+                <p class="text-[11px] font-bold text-violet-700 uppercase tracking-wider mb-2">🏢 Компания</p>
 
                 @foreach($companyTokens as $tok => $desc)
                 @php $display = '{' . '{' . $tok . '}' . '}'; @endphp
@@ -67,20 +67,20 @@
                     @if($isAlpine)
                     <button type="button"
                             @click="insertToken($el.closest('[data-tid]').dataset.tid, '{{ $tok }}')"
-                            class="shrink-0 font-mono bg-violet-100 text-violet-800 hover:bg-violet-200 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition">{{ $display }}</button>
+                            class="shrink-0 font-mono bg-violet-100 text-violet-800 hover:bg-violet-200 px-1.5 py-0.5 rounded text-xs cursor-pointer transition">{{ $display }}</button>
                     @else
                     <button type="button"
                             onclick="insertToken('{{ $staticId }}', '{{ $tok }}')"
-                            class="shrink-0 font-mono bg-violet-100 text-violet-800 hover:bg-violet-200 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition">{{ $display }}</button>
+                            class="shrink-0 font-mono bg-violet-100 text-violet-800 hover:bg-violet-200 px-1.5 py-0.5 rounded text-xs cursor-pointer transition">{{ $display }}</button>
                     @endif
-                    <span class="text-gray-500 text-[10px] leading-4 pt-0.5">{{ $desc }}</span>
+                    <span class="text-gray-500 text-xs leading-5 pt-0.5">{{ $desc }}</span>
                 </div>
                 @endforeach
             </div>
 
             {{-- ── FLOW INPUT ───────────────────────────────────────────── --}}
             <div class="px-3 py-2.5 space-y-1.5">
-                <p class="text-[9px] font-bold text-sky-700 uppercase tracking-wider mb-2">📥 Вход на флоуто</p>
+                <p class="text-[11px] font-bold text-sky-700 uppercase tracking-wider mb-2">📥 Вход на флоуто</p>
 
                 @foreach($flowTokens as $tok => $desc)
                 @php $display = '{' . '{' . $tok . '}' . '}'; @endphp
@@ -88,20 +88,20 @@
                     @if($isAlpine)
                     <button type="button"
                             @click="insertToken($el.closest('[data-tid]').dataset.tid, '{{ $tok }}')"
-                            class="shrink-0 font-mono bg-sky-100 text-sky-800 hover:bg-sky-200 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition">{{ $display }}</button>
+                            class="shrink-0 font-mono bg-sky-100 text-sky-800 hover:bg-sky-200 px-1.5 py-0.5 rounded text-xs cursor-pointer transition">{{ $display }}</button>
                     @else
                     <button type="button"
                             onclick="insertToken('{{ $staticId }}', '{{ $tok }}')"
-                            class="shrink-0 font-mono bg-sky-100 text-sky-800 hover:bg-sky-200 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition">{{ $display }}</button>
+                            class="shrink-0 font-mono bg-sky-100 text-sky-800 hover:bg-sky-200 px-1.5 py-0.5 rounded text-xs cursor-pointer transition">{{ $display }}</button>
                     @endif
-                    <span class="text-gray-500 text-[10px] leading-4 pt-0.5">{{ $desc }}</span>
+                    <span class="text-gray-500 text-xs leading-5 pt-0.5">{{ $desc }}</span>
                 </div>
                 @endforeach
             </div>
 
             {{-- ── AGENT OUTPUTS ────────────────────────────────────────── --}}
             <div class="px-3 py-2.5">
-                <p class="text-[9px] font-bold text-emerald-700 uppercase tracking-wider mb-2">🤖 Изходи от агенти</p>
+                <p class="text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-2">🤖 Изходи от агенти</p>
 
                 @if($isAlpine)
                 {{-- Alpine-driven: render chips from Alpine state --}}
@@ -109,13 +109,13 @@
                     <div class="flex items-start gap-2 mb-1.5">
                         <button type="button"
                                 @click="insertToken($el.closest('[data-tid]').dataset.tid, ag.name)"
-                                class="shrink-0 font-mono bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition"
+                                class="shrink-0 font-mono bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-1.5 py-0.5 rounded text-xs cursor-pointer transition"
                                 x-text="'{' + '{' + ag.name + '}' + '}'"></button>
-                        <span class="text-gray-500 text-[10px] leading-4 pt-0.5">Пълният изход на агент "<span x-text="ag.name"></span>". Достъпен само след като агентът е изпълнен.</span>
+                        <span class="text-gray-500 text-xs leading-5 pt-0.5">Пълният изход на агент "<span x-text="ag.name"></span>". Достъпен само след като агентът е изпълнен.</span>
                     </div>
                 </template>
                 <div x-show="{{ $xAgents }}.filter(a => a.order < {{ $xCurrentOrder }}).length === 0"
-                     class="text-[10px] text-gray-400 italic bg-gray-50 rounded p-2 border border-dashed border-gray-200">
+                     class="text-xs text-gray-400 italic bg-gray-50 rounded p-2 border border-dashed border-gray-200">
                     Няма предишни агенти в това флоу. Добави агенти преди текущия за да ползваш техните изходи.
                 </div>
 
@@ -126,14 +126,14 @@
                 <div class="flex items-start gap-2 mb-1.5">
                     <button type="button"
                             onclick="insertToken('{{ $staticId }}', {{ json_encode($name) }})"
-                            class="shrink-0 font-mono bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition">{{ $agDisplay }}</button>
-                    <span class="text-gray-500 text-[10px] leading-4 pt-0.5">Пълният изход на агент "{{ $name }}". Достъпен само след като агентът е изпълнен преди текущия.</span>
+                            class="shrink-0 font-mono bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-1.5 py-0.5 rounded text-xs cursor-pointer transition">{{ $agDisplay }}</button>
+                    <span class="text-gray-500 text-xs leading-5 pt-0.5">Пълният изход на агент "{{ $name }}". Достъпен само след като агентът е изпълнен преди текущия.</span>
                 </div>
                 @endforeach
 
                 @else
                 {{-- No flow context (template editing) --}}
-                <div class="text-[10px] text-gray-400 italic bg-gray-50 rounded p-2 border border-dashed border-gray-200 leading-relaxed">
+                <div class="text-xs text-gray-400 italic bg-gray-50 rounded p-2 border border-dashed border-gray-200 leading-relaxed">
                     Достъпни само при редакция в контекст на флоу. При добавяне на шаблона към флоу, тук ще се появят
                     <span class="font-mono bg-gray-100 px-1 rounded not-italic text-gray-500">{{ '{' . '{' . 'ИмеНаАгент' . '}' . '}' }}</span>
                     токъни за всеки предходен агент.

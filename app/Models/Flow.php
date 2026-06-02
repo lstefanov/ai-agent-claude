@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Flow extends Model
 {
-    protected $fillable = ['company_id', 'name', 'description', 'status', 'schedule_cron', 'last_run_at', 'is_archived', 'archived_at'];
+    protected $fillable = ['company_id', 'name', 'description', 'status', 'schedule_cron', 'last_run_at', 'is_archived', 'archived_at', 'webhook_secret'];
 
     protected $casts = [
         'last_run_at'  => 'datetime',

@@ -50,6 +50,41 @@ return [
     'email' => ['output_role' => 'appendix',  'label' => 'Имейл (appendix)',            'description' => 'Генерира email съдържание като appendix към основния изход'],
     'image_prompt' => ['output_role' => 'appendix',  'label' => 'Промпт за изображения',      'description' => 'Пише детайлни промпти за генериране на изображения с ComfyUI/Stable Diffusion'],
 
+    // --- Social Media & Content ---
+    'story_writer' => ['output_role' => 'body',      'label' => 'Story Сценарист',            'description' => 'Пише Instagram/Facebook Stories сценарии с последователни слайдове, CTA и емоджи'],
+    'video_script_writer' => ['output_role' => 'body',      'label' => 'Видео Сценарист',            'description' => 'Генерира сценарии за Reels, YouTube Shorts и TikTok с хук, тяло и CTA'],
+    'calendar_planner' => ['output_role' => 'body',      'label' => 'Контент Календар',           'description' => 'Изгражда седмичен/месечен контент календар с теми, формат и публикационни часове'],
+    'ab_test_generator' => ['output_role' => 'body',      'label' => 'A/B Тест Генератор',         'description' => 'Създава 2-3 варианта на текст/заглавие за A/B тестване'],
+    'brand_voice_checker' => ['output_role' => 'hidden',    'label' => 'Brand Voice Верификатор',    'description' => 'Проверява дали съдържанието съответства на тона и стила на марката'],
+    'whatsapp_message_writer' => ['output_role' => 'body',      'label' => 'WhatsApp Копирайтър',        'description' => 'Пише кратки, ангажиращи WhatsApp Business съобщения с персонализация'],
+    'podcast_outline' => ['output_role' => 'body',      'label' => 'Подкаст Структуратор',       'description' => 'Генерира теми, въпроси и структура за подкаст епизод'],
+
+    // --- Customer & CRM ---
+    'review_responder' => ['output_role' => 'body',      'label' => 'Ревю Отговорник',            'description' => 'Генерира персонализирани отговори на Google/Facebook ревюта (позитивни и негативни)'],
+    'chatbot_responder' => ['output_role' => 'body',      'label' => 'Чатбот Генератор',           'description' => 'Изгражда отговори за customer support chatbot на база FAQ и бизнес данни'],
+    'lead_scorer' => ['output_role' => 'hidden',    'label' => 'Лийд Скорер',               'description' => 'Оценява и класира потенциални клиенти по зададени критерии (score 0-100)'],
+    'crm_note_writer' => ['output_role' => 'body',      'label' => 'CRM Бележки',               'description' => 'Структурира бележки от срещи/разговори в CRM-ready формат с action items'],
+    'survey_builder' => ['output_role' => 'body',      'label' => 'Анкетен Конструктор',        'description' => 'Създава анкети и въпросници с логика на разклонение'],
+    'testimonial_extractor' => ['output_role' => 'body',      'label' => 'Testimonial Куратор',        'description' => 'Извлича и форматира клиентски отзиви за маркетингова употреба'],
+
+    // --- E-commerce & Sales ---
+    'product_describer' => ['output_role' => 'body',      'label' => 'Продуктов Описател',         'description' => 'Пише SEO-оптимизирани продуктови описания за онлайн магазин'],
+    'price_optimizer' => ['output_role' => 'hidden',    'label' => 'Ценови Стратег',             'description' => 'Анализира данни и препоръчва оптимална ценова стратегия с мотивация'],
+    'invoice_generator' => ['output_role' => 'body',      'label' => 'Оферта Генератор',           'description' => 'Създава структурирани оферти и проформи готови за изпращане'],
+    'customer_segmenter' => ['output_role' => 'hidden',    'label' => 'Клиентски Сегментатор',      'description' => 'Разделя клиентска база на сегменти по поведение, демография или стойност'],
+
+    // --- PR & Communications ---
+    'press_release_writer' => ['output_role' => 'body',      'label' => 'Прес Съобщение',             'description' => 'Пише официални прес съобщения по стандартна PR структура (датлайн, лийд, бойлерплейт)'],
+    'event_planner' => ['output_role' => 'body',      'label' => 'Събитиен Планировчик',       'description' => 'Планира детайли, програма и промоционален план за събития'],
+    'persona_builder' => ['output_role' => 'hidden',    'label' => 'Buyer Persona Строител',     'description' => 'Изгражда детайлен buyer persona профил с демография, болки и мотивации'],
+
+    // --- Technical & Integrations ---
+    'telegram_bot_responder' => ['output_role' => 'body',      'label' => 'Telegram Отговорник',        'description' => 'Генерира отговори за Telegram Business bot с форматиране за Telegram Markdown'],
+    'email_sequence_writer' => ['output_role' => 'body',      'label' => 'Имейл Поредица',             'description' => 'Пише автоматизирана имейл последователност (welcome series, drip campaign)'],
+    'budget_analyzer' => ['output_role' => 'hidden',    'label' => 'Бюджет Анализатор',          'description' => 'Анализира маркетинг разходи и изчислява ROI по канали'],
+    'influencer_finder' => ['output_role' => 'hidden',    'label' => 'Инфлуенсър Идентификатор',   'description' => 'Анализира ниша и предлага критерии + профили на подходящи инфлуенсъри'],
+    'airtable_writer' => ['output_role' => 'hidden',    'label' => 'Airtable Форматьор',         'description' => 'Форматира изхода като JSON структура за Airtable REST API запис'],
+
     // --- Integration / Webhooks ---
     'webhook_sender' => ['output_role' => 'hidden',    'label' => 'Webhook изпращач',           'description' => 'Изпраща резултатите към external URL (CRM, Zapier, n8n, Make) — изисква config.webhook_url'],
     'slack_notifier' => ['output_role' => 'hidden',    'label' => 'Slack нотификатор',          'description' => 'Изпраща summary нотификация в Slack канал — изисква config.webhook_url'],

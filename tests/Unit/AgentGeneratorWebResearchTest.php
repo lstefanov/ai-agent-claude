@@ -5,10 +5,13 @@ namespace Tests\Unit;
 use App\Services\AgentGeneratorService;
 use App\Services\ModelSelectorService;
 use App\Services\OllamaService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class AgentGeneratorWebResearchTest extends TestCase
 {
+    use RefreshDatabase;
+
     private function makeService(string $llmResponse = 'NO'): AgentGeneratorService
     {
         $ollama = \Mockery::mock(OllamaService::class);
@@ -231,6 +234,54 @@ class AgentGeneratorWebResearchTest extends TestCase
         $this->assertSame('bg_text_corrector', $result[count($result) - 2]['type']);
         $this->assertSame('qa_verifier', $result[count($result) - 1]['type']);
         $this->assertSame([1, 2, 3, 4], array_column($result, 'order'));
+    }
+
+    public function test_generate_forwards_progress_callback_and_uses_bounded_architect_output(): void
+    {
+        $stages = [];
+        $onProgress = function (?string $stage = null) use (&$stages): void {
+            if ($stage) {
+                $stages[] = $stage;
+            }
+        };
+
+        $ollama = \Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')
+            ->once()
+            ->withArgs(function ($model, $systemPrompt, $userMessage, $options, $progressCallback) use ($onProgress) {
+                return $model !== ''
+                    && str_contains($systemPrompt, 'AI архитект')
+                    && str_contains($userMessage, 'Flow за изграждане')
+                    && ($options['num_predict'] ?? null) === 4000
+                    && $progressCallback === $onProgress;
+            })
+            ->andReturn(json_encode([
+                ['name' => 'Researcher', 'type' => 'researcher', 'role' => 'Researches', 'order' => 1],
+                ['name' => 'Writer', 'type' => 'content_bg', 'role' => 'Writes', 'order' => 2],
+                ['name' => 'Corrector', 'type' => 'bg_text_corrector', 'role' => 'Corrects', 'order' => 3],
+                ['name' => 'QA', 'type' => 'qa_verifier', 'role' => 'Checks', 'order' => 4],
+            ]));
+
+        $selector = \Mockery::mock(ModelSelectorService::class);
+        $selector->shouldReceive('selectModel')->with('bg_text_corrector')->andReturn('todorov/bggpt')->byDefault();
+        $selector->shouldReceive('selectModel')->with('qa_verifier')->andReturn('phi3.5:mini')->byDefault();
+
+        $company = new \App\Models\Company([
+            'name' => 'Test Company',
+            'industry' => 'Marketing',
+            'description' => 'Company description',
+        ]);
+        $flow = new \App\Models\Flow([
+            'name' => 'Test Flow',
+            'description' => 'Create weekly content with актуални новини.',
+        ]);
+        $flow->setRelation('company', $company);
+
+        $agents = (new AgentGeneratorService($ollama, $selector))->generate($flow, $onProgress);
+
+        $this->assertNotEmpty($agents);
+        $this->assertContains('Генериране на агенти', $stages);
+        $this->assertContains('Обработка на резултата', $stages);
     }
 
     private function invokeNeedsWebResearch(AgentGeneratorService $service, string $description): bool

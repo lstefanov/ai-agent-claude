@@ -55,6 +55,111 @@ $qaThresholdOptions = range(0, 100, 5);
 </div>
 @endif
 
+{{-- Webhook / n8n Integration Panel --}}
+<div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+        <h2 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <span>🔗</span> Webhook / n8n интеграция
+        </h2>
+        @if($flow->webhook_secret)
+            <span class="inline-flex items-center gap-1.5 text-xs bg-green-100 text-green-700 px-2.5 py-1 rounded-full font-medium">
+                <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span> Активен
+            </span>
+        @else
+            <span class="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">
+                <span class="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span> Неактивен
+            </span>
+        @endif
+    </div>
+
+    <div class="px-6 py-5">
+        @if($flow->webhook_secret)
+            <p class="text-sm text-gray-500 mb-4">
+                Изпрати <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">POST</code> заявка към URL-а по-долу, за да стартираш flow-а от n8n, Zapier, Make или друга платформа. Добави JSON тяло с произволни данни — те ще бъдат достъпни като <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">&#123;&#123;webhook_payload&#125;&#125;</code> в промптовете на агентите.
+            </p>
+
+            {{-- Webhook URL --}}
+            @php
+                $webhookUrl = url('/api/webhook/flows/' . $flow->id . '/run') . '?token=' . $flow->webhook_secret;
+            @endphp
+            <div class="flex items-center gap-2 mb-4">
+                <input type="text"
+                       id="webhookUrlInput"
+                       value="{{ $webhookUrl }}"
+                       readonly
+                       class="flex-1 font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-gray-700 select-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                       onclick="this.select()" />
+                <button onclick="copyWebhookUrl()"
+                        class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-2.5 rounded-lg transition">
+                    Копирай
+                </button>
+            </div>
+
+            {{-- n8n example hint --}}
+            <details class="mb-4">
+                <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+                    Как да настроиш в n8n?
+                </summary>
+                <div class="mt-3 bg-gray-50 rounded-lg p-4 text-xs text-gray-600 space-y-2 border border-gray-100">
+                    <p><strong>Вариант 1 — n8n изпраща към FlowAI (trigger):</strong></p>
+                    <ol class="list-decimal list-inside space-y-1 ml-1">
+                        <li>В n8n добави нов нод <strong>HTTP Request</strong></li>
+                        <li>Метод: <code class="bg-white px-1 rounded border border-gray-200">POST</code> | URL: горният webhook адрес</li>
+                        <li>Body: JSON с данните, които искаш да подадеш на агентите</li>
+                        <li>Свържи нода след trigger (Gmail, Google Drive, Schedule и др.)</li>
+                    </ol>
+                    <p class="pt-1"><strong>Вариант 2 — FlowAI изпраща към n8n (action):</strong></p>
+                    <ol class="list-decimal list-inside space-y-1 ml-1">
+                        <li>В n8n добави нод <strong>Webhook</strong> и копирай неговия URL</li>
+                        <li>В FlowAI добави агент тип <strong>webhook_sender</strong> като последен агент</li>
+                        <li>В конфигурацията на агента постави URL-а на n8n webhook</li>
+                        <li>n8n получава резултата и го разпраща: Gmail, Sheets, Twitter и т.н.</li>
+                    </ol>
+                </div>
+            </details>
+
+            {{-- Revoke button --}}
+            <form action="{{ route('flows.webhook.revoke', $flow) }}" method="POST"
+                  onsubmit="return confirm('Деактивирай webhook? Всички n8n connections с текущия URL ще спрат да работят.')">
+                @csrf
+                <button type="submit"
+                        class="text-xs text-red-500 hover:text-red-700 underline transition">
+                    Деактивирай webhook URL
+                </button>
+            </form>
+        @else
+            <p class="text-sm text-gray-500 mb-4">
+                Генерирай webhook URL, за да можеш да стартираш този flow автоматично от <strong>n8n</strong>, Zapier, Make или друга платформа — при нов email, файл в Google Drive, Facebook коментар и т.н.
+            </p>
+            <form action="{{ route('flows.webhook.generate', $flow) }}" method="POST">
+                @csrf
+                <button type="submit"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                    🔗 Генерирай Webhook URL
+                </button>
+            </form>
+        @endif
+    </div>
+</div>
+
+<script>
+function copyWebhookUrl() {
+    const input = document.getElementById('webhookUrlInput');
+    navigator.clipboard.writeText(input.value).then(() => {
+        const btn = event.target;
+        const orig = btn.textContent;
+        btn.textContent = 'Копирано ✓';
+        btn.classList.replace('bg-indigo-600', 'bg-green-600');
+        btn.classList.replace('hover:bg-indigo-700', 'hover:bg-green-700');
+        setTimeout(() => {
+            btn.textContent = orig;
+            btn.classList.replace('bg-green-600', 'bg-indigo-600');
+            btn.classList.replace('hover:bg-green-700', 'hover:bg-indigo-700');
+        }, 2000);
+    });
+}
+</script>
+
 {{-- Agents Manager --}}
 @php $agentsJson = $flow->agents->sortBy('order')->values(); @endphp
 <div x-data="flowAgentManager()" x-init="init()" class="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">

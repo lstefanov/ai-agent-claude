@@ -2,6 +2,13 @@
 
 @section('title', 'Нов flow — ' . $company->name)
 
+@php
+$tones   = config('output_preferences.tones');
+$styles  = config('output_preferences.styles');
+$formats = config('output_preferences.formats');
+$langs   = config('output_preferences.langs');
+@endphp
+
 @section('content')
 <div x-data="flowCreator()" x-init="init()">
 
@@ -13,7 +20,7 @@
         <p class="text-gray-500 mt-1">Опиши flow-а и AI ще генерира агентите автоматично.</p>
     </div>
 
-    <form action="{{ route('companies.flows.store', $company) }}" method="POST" id="flow-form">
+    <form action="{{ route('companies.flows.store', $company) }}" method="POST" id="flow-form" @submit="guardSubmit">
         @csrf
 
         {{-- Step 1: Basic Info --}}
@@ -187,15 +194,31 @@
             <h2 class="text-lg font-semibold text-gray-900 mb-2">2. Генерирай агенти с AI</h2>
             <p class="text-sm text-gray-500 mb-4">AI ще анализира описанието и ще предложи оптималните агенти.</p>
 
-            <button type="button" @click="generateAgents"
-                    :disabled="isGenerating || !flowDescription.trim() || !flowName.trim()"
-                    class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition flex items-center gap-2">
-                <span x-show="isGenerating" class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                <span x-text="isGenerating ? 'Анализирам и генерирам агенти... (60-120 сек)' : '✨ Генерирай агенти с AI'"></span>
-            </button>
+            <div class="flex flex-wrap items-center gap-3">
+                <button type="button" @click="generateAgents"
+                        :disabled="isGenerating || !flowDescription.trim() || !flowName.trim()"
+                        class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium transition flex items-center gap-2">
+                    <span x-show="isGenerating" class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span x-text="isGenerating ? 'Анализирам и генерирам агенти... (60-120 сек)' : '✨ Генерирай агенти с AI'"></span>
+                </button>
+                <button type="button" @click="openAgentPicker"
+                        class="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 px-6 py-2 rounded-lg font-medium transition flex items-center gap-2">
+                    ＋ Добави агент ръчно
+                </button>
+            </div>
             <p x-show="isGenerating" x-cloak class="mt-2 text-xs text-gray-400 animate-pulse">
-                AI анализира описанието и проектира пълния pipeline — изчакай, не затваряй страницата.
+                <span x-text="generationStage || 'AI анализира описанието и проектира пълния pipeline'"></span>
+                — изчакай, не затваряй страницата.
             </p>
+            <div x-show="genStalled" x-cloak class="mt-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm">
+                <p class="mb-2">
+                    Генерацията още няма нов статус. Възможно е Ollama да продължава да работи във фонов режим.
+                </p>
+                <button type="button" @click="resumePolling"
+                        class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded-lg font-semibold text-xs transition">
+                    Продължи да изчакваш / Провери резултата
+                </button>
+            </div>
 
             <div x-show="errorMessage" x-cloak class="mt-4 bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-lg text-sm">
                 <span x-text="errorMessage"></span>
@@ -203,7 +226,7 @@
         </div>
 
         {{-- Step 3: Agent Preview + Inline Editor --}}
-        <div x-show="agents.length > 0" x-cloak class="bg-white rounded-xl border border-gray-200 mb-6">
+        <div x-show="agents.length > 0 || showPicker" x-cloak class="bg-white rounded-xl border border-gray-200 mb-6">
             <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h2 class="text-lg font-semibold text-gray-900">
                     3. Агенти (<span x-text="agents.length"></span>)
@@ -226,10 +249,17 @@
                         <input type="hidden" :name="'agents['+index+'][output_description]'" :value="agent.output_description">
                         <input type="hidden" :name="'agents['+index+'][prompt_template]'"   :value="agent.prompt_template">
                         <input type="hidden" :name="'agents['+index+'][model_reason]'"      :value="agent.model_reason">
+                        <input type="hidden" :name="'agents['+index+'][output_language]'"   :value="agent.output_language || 'bg'">
+                        <input type="hidden" :name="'agents['+index+'][output_tone]'"       :value="agent.output_tone || ''">
+                        <input type="hidden" :name="'agents['+index+'][output_style]'"      :value="agent.output_style || ''">
+                        <input type="hidden" :name="'agents['+index+'][output_format]'"     :value="agent.output_format || ''">
                         <input type="hidden" :name="'agents['+index+'][order]'"             :value="agent.order">
                         <input type="hidden" :name="'agents['+index+'][is_verifier]'"       :value="agent.is_verifier ? '1' : '0'">
                         <input type="hidden" :name="'agents['+index+'][qa_threshold]'"      :value="agent.qa_threshold">
                         <input type="hidden" :name="'agents['+index+'][config][temperature]'" :value="agent.config ? agent.config.temperature : 0.7">
+                        <input type="hidden" :name="'agents['+index+'][config][top_p]'" :value="agent.config && agent.config.top_p !== undefined && agent.config.top_p !== null ? agent.config.top_p : ''">
+                        <input type="hidden" :name="'agents['+index+'][config][top_k]'" :value="agent.config && agent.config.top_k !== undefined && agent.config.top_k !== null ? agent.config.top_k : ''">
+                        <input type="hidden" :name="'agents['+index+'][config][repeat_penalty]'" :value="agent.config && agent.config.repeat_penalty !== undefined && agent.config.repeat_penalty !== null ? agent.config.repeat_penalty : ''">
                         <input type="hidden" :name="'agents['+index+'][config][num_predict]'" :value="agent.config ? agent.config.num_predict : 1000">
                         <input type="hidden" :name="'agents['+index+'][config][qa][enabled]'" :value="agent.config && agent.config.qa && agent.config.qa.enabled ? '1' : '0'">
                         <input type="hidden" :name="'agents['+index+'][config][qa][verifier_agent_uid]'" :value="agent.config && agent.config.qa ? agent.config.qa.verifier_agent_uid : ''">
@@ -435,6 +465,157 @@
                                     </p>
                                 </div>
                             </div>
+                            <div x-data="{ adv: false }" class="mb-3 rounded-xl border border-indigo-200 bg-white/70 overflow-hidden">
+                                <button type="button"
+                                        @click="adv = !adv"
+                                        class="w-full flex items-center justify-between px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 transition">
+                                    <span>Разширени настройки</span>
+                                    <span x-text="adv ? '▲' : '▼'" class="text-xs text-indigo-400"></span>
+                                </button>
+                                <div x-show="adv" x-cloak class="border-t border-indigo-100 p-4 space-y-5">
+                                    <div class="space-y-3">
+                                        <div>
+                                            <h5 class="text-xs font-semibold text-gray-700 uppercase tracking-wide">Output</h5>
+                                            <p class="text-xs text-gray-500 bg-indigo-50 rounded-lg px-3 py-2 mt-2">
+                                                Тези настройки се <strong>инжектират автоматично</strong> в system prompt-а на агента при изпълнение.
+                                                Не е нужно да ги пишеш ръчно в промпта.
+                                            </p>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">Език на изхода</label>
+                                                <select x-model="agent.output_language"
+                                                        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                    @foreach($langs as $code => $label)
+                                                        <option value="{{ $code }}">{{ $label }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">Тон</label>
+                                                <select x-model="agent.output_tone"
+                                                        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                    <option value="">— без предпочитание —</option>
+                                                    @foreach($tones as $tone => $label)
+                                                        <option value="{{ $tone }}">{{ $label }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">Стил</label>
+                                                <select x-model="agent.output_style"
+                                                        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                    <option value="">— без предпочитание —</option>
+                                                    @foreach($styles as $style => $label)
+                                                        <option value="{{ $style }}">{{ $label }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">Формат</label>
+                                                <select x-model="agent.output_format"
+                                                        class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                    <option value="">— без предпочитание —</option>
+                                                    @foreach($formats as $format => $label)
+                                                        <option value="{{ $format }}">{{ $label }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="space-y-3">
+                                        <div class="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 space-y-2">
+                                            <h5 class="font-semibold text-indigo-900">Как да мислим за тези параметри</h5>
+                                            <p>
+                                                Оставените <strong>празни полета</strong> използват стойностите по подразбиране на модела.
+                                                Променяй по една настройка наведнъж, защото Temperature, Top P и Top K заедно контролират колко свободно моделът избира следващия токен.
+                                            </p>
+                                            <p class="text-xs text-indigo-700">
+                                                За точни QA/verifier или research агенти дръж стойностите по-консервативни. За creative writer, идеи и маркетинг можеш да дадеш повече свобода.
+                                                Виж и <a href="https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values" target="_blank" class="font-medium text-indigo-700 hover:underline">Ollama docs</a>.
+                                            </p>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                    Temperature
+                                                    <span class="text-xs font-normal text-gray-400">(0 – 2, default: 0.7)</span>
+                                                </label>
+                                                <input type="number" x-model.number="agent.config.temperature" step="0.05" min="0" max="2"
+                                                       placeholder="0.7"
+                                                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                                                    <p><strong class="text-gray-700">Какво прави:</strong> контролира колко смело моделът избира следващата дума.</p>
+                                                    <p><strong class="text-gray-700">Ниско: по-предвидими и повторяеми отговори</strong>, подходящи за факти, проверки и структурирани задачи.</p>
+                                                    <p><strong class="text-gray-700">Високо: повече разнообразие</strong>, идеи и по-креативен стил, но и по-голям риск от отклонения.</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                    Top P
+                                                    <span class="text-xs font-normal text-gray-400">(0 – 1, default: 0.9)</span>
+                                                </label>
+                                                <input type="number" x-model.number="agent.config.top_p" step="0.05" min="0" max="1"
+                                                       placeholder="0.9"
+                                                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                                                    <p><strong class="text-gray-700">Какво прави:</strong> Top P избира най-вероятните токени, докато общата им вероятност стигне зададения праг.</p>
+                                                    <p><strong class="text-gray-700">По-ниско:</strong> моделът избира от по-малък и по-сигурен набор, което помага за последователност.</p>
+                                                    <p><strong class="text-gray-700">По-високо:</strong> позволява по-богат речник и повече вариации, особено при писане на съдържание.</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                    Top K
+                                                    <span class="text-xs font-normal text-gray-400">(1 – 200, default: 40)</span>
+                                                </label>
+                                                <input type="number" x-model.number="agent.config.top_k" step="1" min="1" max="200"
+                                                       placeholder="40"
+                                                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                                                    <p><strong class="text-gray-700">Какво прави:</strong> Top K поставя твърд лимит колко възможни токена се разглеждат на всяка стъпка.</p>
+                                                    <p><strong class="text-gray-700">По-ниско:</strong> по-стегнат и безопасен избор, но текстът може да стане по-еднообразен.</p>
+                                                    <p><strong class="text-gray-700">По-високо:</strong> повече варианти за модела, което е полезно за творчески задачи.</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                    Repeat Penalty
+                                                    <span class="text-xs font-normal text-gray-400">(0 – 2, default: 1.1)</span>
+                                                </label>
+                                                <input type="number" x-model.number="agent.config.repeat_penalty" step="0.05" min="0" max="2"
+                                                       placeholder="1.1"
+                                                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                                                    <p><strong class="text-gray-700">Какво прави:</strong> Repeat Penalty наказва вече използвани думи и фрази, за да намали повтарянето.</p>
+                                                    <p><strong class="text-gray-700">Около 1.0:</strong> почти без наказание, моделът може да повтаря фрази, ако задачата го подтикне.</p>
+                                                    <p><strong class="text-gray-700">Над 1.0:</strong> помага при дълги отговори, но твърде висока стойност може да направи текста неестествен.</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3 md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                    Max Tokens (num_predict)
+                                                    <span class="text-xs font-normal text-gray-400">(-1 = без лимит, default: -1)</span>
+                                                </label>
+                                                <input type="number" x-model.number="agent.config.num_predict" step="1" min="-1"
+                                                       placeholder="-1"
+                                                       class="w-64 max-w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                <div class="rounded-lg bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                                                    <p><strong class="text-gray-700">Какво прави:</strong> num_predict задава горна граница за дължината на отговора в токени.</p>
+                                                    <p><strong class="text-gray-700">По-ниско:</strong> пази от прекалено дълги отговори и ускорява изпълнението, но може да отреже важен текст.</p>
+                                                    <p><strong class="text-gray-700">-1:</strong> оставя модела без този лимит; използвай го само когато очакваш дълъг доклад или анализ.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="flex justify-end gap-2">
                                 <button type="button" @click="closeEdit"
                                         class="bg-white border border-gray-300 text-gray-600 text-sm px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
@@ -468,7 +649,7 @@
                     {{-- Header --}}
                     <div class="px-6 pt-5 pb-0 flex items-center justify-between">
                         <h3 class="text-lg font-bold text-gray-900">Добави агент</h3>
-                        <button @click="showPicker = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                        <button type="button" @click="showPicker = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
                     </div>
 
                     {{-- Tabs --}}
@@ -637,6 +818,12 @@ function flowCreator() {
         agents: [],
         isGenerating: false,
         errorMessage: '',
+        genToken: null,
+        generationStage: '',
+        genStalled: false,
+        lastHeartbeat: null,
+        lastHeartbeatSeenAt: null,
+        generationStartedAt: null,
         isImproving: false,
         improvedDescription: '',
         showImprovePreview: false,
@@ -763,9 +950,23 @@ function flowCreator() {
             this.improvedDescription = '';
         },
 
+        guardSubmit(event) {
+            if (this.agents.length > 0) return;
+
+            event.preventDefault();
+            this.errorMessage = 'Добави поне един агент, преди да запазиш flow-а.';
+            document.getElementById('flow-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+
         async generateAgents() {
             this.isGenerating = true;
             this.errorMessage = '';
+            this.genStalled = false;
+            this.generationStage = 'Стартиране...';
+            this.genToken = null;
+            this.lastHeartbeat = null;
+            this.lastHeartbeatSeenAt = Date.now();
+            this.generationStartedAt = Date.now();
             this.agents       = [];
 
             const csrf = document.querySelector('meta[name="csrf-token"]').content;
@@ -785,79 +986,136 @@ function flowCreator() {
                 const data = await resp.json();
                 if (!resp.ok) { this.errorMessage = data.error || 'Грешка при стартиране.'; this.isGenerating = false; return; }
                 token = data.token;
+                this.genToken = token;
             } catch (e) {
                 this.errorMessage = 'Мрежова грешка: ' + e.message;
                 this.isGenerating = false;
                 return;
             }
 
-            // ── Step 2: poll every 2 seconds until completed/failed ───────
-            const maxWait = 300; // seconds
-            const started = Date.now();
+            // ── Step 2: poll until completed/failed; stall detection uses server heartbeat ───────
+            setTimeout(() => this.pollGeneration(), 2000);
+        },
 
-            const poll = async () => {
-                if ((Date.now() - started) / 1000 > maxWait) {
-                    this.errorMessage = 'Генерацията отне прекалено дълго. Провери дали Ollama работи и опитай отново.';
+        async resumePolling() {
+            if (!this.genToken) return;
+
+            this.isGenerating = true;
+            this.errorMessage = '';
+            this.genStalled = false;
+            this.lastHeartbeatSeenAt = this.lastHeartbeatSeenAt || Date.now();
+            this.generationStartedAt = this.generationStartedAt || Date.now();
+
+            await this.pollGeneration();
+        },
+
+        async pollGeneration() {
+            const STALL_LIMIT = 90 * 1000;
+            const HARD_LIMIT = 660 * 1000;
+
+            if (!this.genToken) return;
+
+            try {
+                const data = await this.fetchGenerationStatus(this.genToken);
+                if (this.applyGenerationStatus(data)) return;
+
+                const now = Date.now();
+                const elapsed = now - (this.generationStartedAt || now);
+                const sinceHeartbeat = now - (this.lastHeartbeatSeenAt || this.generationStartedAt || now);
+
+                if (sinceHeartbeat > STALL_LIMIT || elapsed > HARD_LIMIT) {
+                    const finalData = await this.fetchGenerationStatus(this.genToken);
+                    if (this.applyGenerationStatus(finalData)) return;
+
                     this.isGenerating = false;
+                    this.genStalled = true;
+                    this.errorMessage = '';
                     return;
                 }
 
-                try {
-                    const resp = await fetch(`/flows/generation-status/${token}`, { headers: { 'Accept': 'application/json' } });
-                    const data = await resp.json();
+                const nextDelay = elapsed < 60 * 1000 ? 2000 : 4000;
+                setTimeout(() => this.pollGeneration(), nextDelay);
+            } catch (e) {
+                this.errorMessage = 'Грешка при polling: ' + e.message;
+                this.isGenerating = false;
+            }
+        },
 
-                    if (data.status === 'pending') {
-                        setTimeout(poll, 2000); // still running — check again
-                        return;
-                    }
+        async fetchGenerationStatus(token) {
+            const resp = await fetch(`/flows/generation-status/${token}`, { headers: { 'Accept': 'application/json' } });
+            return await resp.json();
+        },
 
-                    if (data.status === 'failed') {
-                        this.errorMessage = data.error || 'Генерацията се провали. Опитай отново.';
-                        this.isGenerating = false;
-                        return;
-                    }
+        applyGenerationStatus(data) {
+            this.updateGenerationHeartbeat(data);
 
-                    if (data.status === 'completed') {
-                        this.agents = (data.agents || []).map(agent => {
-                            // If AI suggested a model that isn't in our list at all,
-                            // or the model tag doesn't exist, fall back to first available.
-                            if (!ALL_MODEL_TAGS.includes(agent.model)) {
-                                const fallback = AVAILABLE_MODELS[0] || ALL_MODEL_TAGS[0];
-                                agent.model_reason = `(Оригинален модел "${agent.model}" не е в списъка — заменен с ${fallback}) ${agent.model_reason || ''}`;
-                                agent.model = fallback;
-                            }
-                            // normalizeAgent uses agent.uid to set _uid, so preserve it before calling
-                            return this.normalizeAgent(agent);
-                        });
-                        // Wire up verifier UIDs from AI generation:
-                        // The qa_verifier has uid="qa_main" so _uid is "qa_main".
-                        // Non-verifiers reference verifier_agent_uid="qa_main" — replace with actual _uid.
-                        const qaMainAgent = this.agents.find(a => a.uid === 'qa_main' || a._uid === 'qa_main' || a.is_verifier);
-                        if (qaMainAgent) {
-                            this.agents.forEach(a => {
-                                if (!a.is_verifier && a.config && a.config.qa && a.config.qa.verifier_agent_uid === 'qa_main') {
-                                    a.config.qa.verifier_agent_uid = qaMainAgent._uid;
-                                }
-                            });
-                        }
-                        if (this.agents.length === 0) {
-                            this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
-                        }
-                        this.isGenerating = false;
-                        return;
-                    }
+            if (data.status === 'pending') {
+                return false;
+            }
 
-                    // Expired or unknown
-                    this.errorMessage = data.error || 'Неочаквана грешка.';
-                    this.isGenerating = false;
+            this.genStalled = false;
 
-                } catch (e) {
-                    this.errorMessage = 'Грешка при polling: ' + e.message;
-                    this.isGenerating = false;
+            if (data.status === 'failed') {
+                this.errorMessage = data.error || 'Генерацията се провали. Опитай отново.';
+                this.isGenerating = false;
+                return true;
+            }
+
+            if (data.status === 'completed') {
+                this.acceptGeneratedAgents(data.agents || []);
+                this.isGenerating = false;
+                return true;
+            }
+
+            this.errorMessage = data.error || 'Неочаквана грешка.';
+            this.isGenerating = false;
+            return true;
+        },
+
+        updateGenerationHeartbeat(data) {
+            if (data.stage) {
+                this.generationStage = data.stage;
+            }
+
+            if (!data.updated_at) {
+                return;
+            }
+
+            const heartbeat = Number(data.updated_at);
+            if (heartbeat && heartbeat !== this.lastHeartbeat) {
+                this.lastHeartbeat = heartbeat;
+                this.lastHeartbeatSeenAt = Date.now();
+            }
+        },
+
+        acceptGeneratedAgents(generatedAgents) {
+            this.agents = generatedAgents.map(agent => {
+                // If AI suggested a model that isn't in our list at all,
+                // or the model tag doesn't exist, fall back to first available.
+                if (!ALL_MODEL_TAGS.includes(agent.model)) {
+                    const fallback = AVAILABLE_MODELS[0] || ALL_MODEL_TAGS[0];
+                    agent.model_reason = `(Оригинален модел "${agent.model}" не е в списъка — заменен с ${fallback}) ${agent.model_reason || ''}`;
+                    agent.model = fallback;
                 }
-            };
+                // normalizeAgent uses agent.uid to set _uid, so preserve it before calling
+                return this.normalizeAgent(agent);
+            });
 
-            setTimeout(poll, 2000);
+            // Wire up verifier UIDs from AI generation:
+            // The qa_verifier has uid="qa_main" so _uid is "qa_main".
+            // Non-verifiers reference verifier_agent_uid="qa_main" — replace with actual _uid.
+            const qaMainAgent = this.agents.find(a => a.uid === 'qa_main' || a._uid === 'qa_main' || a.is_verifier);
+            if (qaMainAgent) {
+                this.agents.forEach(a => {
+                    if (!a.is_verifier && a.config && a.config.qa && a.config.qa.verifier_agent_uid === 'qa_main') {
+                        a.config.qa.verifier_agent_uid = qaMainAgent._uid;
+                    }
+                });
+            }
+
+            if (this.agents.length === 0) {
+                this.errorMessage = 'AI не върна агенти. Опитай с по-подробно описание.';
+            }
         },
 
         buildModelOptions(agentType) {
@@ -905,10 +1163,19 @@ function flowCreator() {
         normalizeAgent(agent) {
             agent._uid = agent.uid || agent._uid || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random());
             agent.is_verifier = Boolean(agent.is_verifier || agent.type === 'qa_verifier');
+            agent.output_language = agent.output_language || 'bg';
+            agent.output_tone = agent.output_tone || '';
+            agent.output_style = agent.output_style || '';
+            agent.output_format = agent.output_format || '';
             if (agent.is_verifier && (agent.qa_threshold === null || agent.qa_threshold === undefined || agent.qa_threshold === '')) {
                 agent.qa_threshold = 60;
             }
             agent.config = agent.config && typeof agent.config === 'object' ? agent.config : {};
+            agent.config.temperature = agent.config.temperature ?? 0.7;
+            agent.config.top_p = agent.config.top_p ?? '';
+            agent.config.top_k = agent.config.top_k ?? '';
+            agent.config.repeat_penalty = agent.config.repeat_penalty ?? '';
+            agent.config.num_predict = agent.config.num_predict ?? 1000;
             agent.config.qa = agent.config.qa && typeof agent.config.qa === 'object'
                 ? agent.config.qa
                 : { enabled: false };
@@ -1090,7 +1357,18 @@ function flowCreator() {
                 limitations: '',
                 input_description: '',
                 output_description: '',
-                config: { temperature: 0.7, num_predict: 1000, qa: { enabled: false, verifier_agent_uid: '', threshold: 60, max_retries: 3 } },
+                output_language: 'bg',
+                output_tone: '',
+                output_style: '',
+                output_format: '',
+                config: {
+                    temperature: 0.7,
+                    top_p: '',
+                    top_k: '',
+                    repeat_penalty: '',
+                    num_predict: 1000,
+                    qa: { enabled: false, verifier_agent_uid: '', threshold: 60, max_retries: 3, custom_prompt: '' },
+                },
             };
 
             if (tpl) {
@@ -1108,6 +1386,10 @@ function flowCreator() {
                     limitations:        tpl.limitations       || '',
                     input_description:  tpl.input_description || '',
                     output_description: tpl.output_description|| '',
+                    output_language:    tpl.output_language   || defaults.output_language,
+                    output_tone:        tpl.output_tone       || '',
+                    output_style:       tpl.output_style      || '',
+                    output_format:      tpl.output_format     || '',
                     config:             tpl.config            || defaults.config,
                 });
             }

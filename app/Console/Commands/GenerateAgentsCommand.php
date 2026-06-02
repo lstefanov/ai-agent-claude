@@ -38,13 +38,40 @@ class GenerateAgentsCommand extends Command
             $flow->company_id = $company->id;
             $flow->setRelation('company', $company);
 
-            $agents = $generator->generate($flow);
+            $lastHeartbeatAt = 0.0;
+            $onProgress = function (?string $stage = null) use ($cacheKey, &$lastHeartbeatAt): void {
+                $now = microtime(true);
+                $current = Cache::get($cacheKey, [
+                    'status' => 'pending',
+                    'agents' => [],
+                    'error' => null,
+                ]);
+                $nextStage = $stage ?: ($current['stage'] ?? 'Генериране...');
+
+                if ($lastHeartbeatAt > 0 && ($now - $lastHeartbeatAt) < 2 && $nextStage === ($current['stage'] ?? null)) {
+                    return;
+                }
+
+                $lastHeartbeatAt = $now;
+
+                $current['status'] = 'pending';
+                $current['stage'] = $nextStage;
+                $current['updated_at'] = now()->timestamp;
+
+                Cache::put($cacheKey, $current, now()->addMinutes(15));
+            };
+
+            $onProgress('Подготовка на заявката');
+
+            $agents = $generator->generate($flow, $onProgress);
 
             if (empty($agents)) {
                 Cache::put($cacheKey, [
                     'status' => 'failed',
                     'error'  => 'AI не върна валидни агенти. Опитай с по-подробно описание.',
                     'agents' => [],
+                    'stage' => 'Генерацията се провали',
+                    'updated_at' => now()->timestamp,
                 ], now()->addMinutes(10));
 
                 return Command::FAILURE;
@@ -54,6 +81,8 @@ class GenerateAgentsCommand extends Command
                 'status' => 'completed',
                 'agents' => $agents,
                 'error'  => null,
+                'stage' => 'Готово',
+                'updated_at' => now()->timestamp,
             ], now()->addMinutes(10));
 
             Log::info("[GenerateAgents] Done — {$token}: " . count($agents) . " agents");
@@ -67,6 +96,8 @@ class GenerateAgentsCommand extends Command
                 'status' => 'failed',
                 'error'  => $e->getMessage(),
                 'agents' => [],
+                'stage' => 'Генерацията се провали',
+                'updated_at' => now()->timestamp,
             ], now()->addMinutes(10));
 
             return Command::FAILURE;

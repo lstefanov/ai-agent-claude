@@ -20,6 +20,10 @@ Route::resource('companies.flows', FlowController::class)->shallow();
 Route::post('flows/{flow}/archive', [FlowController::class, 'archive'])->name('flows.archive');
 Route::post('flows/{flow}/unarchive', [FlowController::class, 'unarchive'])->name('flows.unarchive');
 
+// Webhook secret management
+Route::post('flows/{flow}/webhook/generate', [FlowController::class, 'generateWebhookSecret'])->name('flows.webhook.generate');
+Route::post('flows/{flow}/webhook/revoke', [FlowController::class, 'revokeWebhookSecret'])->name('flows.webhook.revoke');
+
 // AJAX: generate agents — starts background job, returns token
 Route::post('flows/generate-agents', [FlowController::class, 'generateAgents'])->name('flows.generate-agents');
 // AJAX: improve flow description with AI

@@ -526,9 +526,26 @@ class FlowExecutorService
         );
 
         if (! empty($agentOutputs)) {
+            // Values already injected via system-alias substitutions ({{input}}, {{topic}}, …).
+            // If the same string was inlined by a placeholder, skip it from the context section
+            // to prevent the LLM receiving identical content twice.
+            $alreadyInjected = [];
+            foreach (self::SYSTEM_CONTEXT_KEYS as $sysKey) {
+                if (
+                    isset($context[$sysKey])
+                    && is_string($context[$sysKey])
+                    && $this->promptReferencesContextKey($originalPrompt, $sysKey)
+                ) {
+                    $alreadyInjected[] = $context[$sysKey];
+                }
+            }
+
             $lines = [];
             foreach ($agentOutputs as $agentName => $output) {
                 if ($this->promptReferencesContextKey($originalPrompt, (string) $agentName)) {
+                    continue;
+                }
+                if (is_string($output) && in_array($output, $alreadyInjected, true)) {
                     continue;
                 }
                 if (is_string($output) && $output !== '') {

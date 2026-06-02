@@ -3,10 +3,10 @@
 @section('title', 'Редактирай агент — ' . $agent->name)
 
 @php
-$tones   = ['Neutral','Friendly','Formal','Cold','Analytical','Creative','Ironic','Persuasive','Empathetic','Authoritative'];
-$styles  = ['Professional','Academic','Creative','Critical','Journalistic','Conversational','Technical','Narrative','Minimalist','Descriptive'];
-$formats = ['Report','Blog post','Brochure','Proposal','Email','Social media post','Press release','Newsletter','Product description','Executive summary','FAQ','Listicle'];
-$langs   = ['bg' => 'Български', 'en' => 'English', 'de' => 'Deutsch', 'fr' => 'Français', 'es' => 'Español', 'ru' => 'Русский'];
+$tones   = config('output_preferences.tones');
+$styles  = config('output_preferences.styles');
+$formats = config('output_preferences.formats');
+$langs   = config('output_preferences.langs');
 
 $cfg     = $agent->config ?? [];
 @endphp
@@ -211,9 +211,9 @@ $cfg     = $agent->config ?? [];
                 <label class="block text-sm font-medium text-gray-700 mb-1">Тон</label>
                 <select name="output_tone" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="">— без предпочитание —</option>
-                    @foreach($tones as $tone)
+                    @foreach($tones as $tone => $label)
                         <option value="{{ $tone }}" {{ old('output_tone', $agent->output_tone) === $tone ? 'selected' : '' }}>
-                            {{ $tone }}
+                            {{ $label }}
                         </option>
                     @endforeach
                 </select>
@@ -223,9 +223,9 @@ $cfg     = $agent->config ?? [];
                 <label class="block text-sm font-medium text-gray-700 mb-1">Стил</label>
                 <select name="output_style" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="">— без предпочитание —</option>
-                    @foreach($styles as $style)
+                    @foreach($styles as $style => $label)
                         <option value="{{ $style }}" {{ old('output_style', $agent->output_style) === $style ? 'selected' : '' }}>
-                            {{ $style }}
+                            {{ $label }}
                         </option>
                     @endforeach
                 </select>
@@ -235,9 +235,9 @@ $cfg     = $agent->config ?? [];
                 <label class="block text-sm font-medium text-gray-700 mb-1">Формат</label>
                 <select name="output_format" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="">— без предпочитание —</option>
-                    @foreach($formats as $format)
+                    @foreach($formats as $format => $label)
                         <option value="{{ $format }}" {{ old('output_format', $agent->output_format) === $format ? 'selected' : '' }}>
-                            {{ $format }}
+                            {{ $label }}
                         </option>
                     @endforeach
                 </select>
@@ -245,12 +245,17 @@ $cfg     = $agent->config ?? [];
         </div>
 
         {{-- Preview of what gets injected --}}
+        @php
+            $selectedTone = old('output_tone', $agent->output_tone);
+            $selectedStyle = old('output_style', $agent->output_style);
+            $selectedFormat = old('output_format', $agent->output_format);
+        @endphp
         <div class="bg-gray-50 rounded-lg p-3 text-xs text-gray-500 font-mono space-y-1 border border-gray-200">
             <p class="font-semibold text-gray-400 uppercase tracking-widest text-[10px] mb-2">Ще бъде добавено към system prompt:</p>
             <p>Language: Always respond in <strong>{{ $langs[old('output_language', $agent->output_language ?? 'bg')] ?? 'Bulgarian' }}</strong>.</p>
-            @if($agent->output_tone) <p>Tone: Use a <strong>{{ strtolower($agent->output_tone) }}</strong> tone.</p> @endif
-            @if($agent->output_style) <p>Style: Write in a <strong>{{ strtolower($agent->output_style) }}</strong> style.</p> @endif
-            @if($agent->output_format) <p>Format: Structure your response as a <strong>{{ strtolower($agent->output_format) }}</strong>.</p> @endif
+            @if($selectedTone) <p>Tone: Use a <strong>{{ mb_strtolower($tones[$selectedTone] ?? $selectedTone) }}</strong> tone.</p> @endif
+            @if($selectedStyle) <p>Style: Write in a <strong>{{ mb_strtolower($styles[$selectedStyle] ?? $selectedStyle) }}</strong> style.</p> @endif
+            @if($selectedFormat) <p>Format: Structure your response as a <strong>{{ mb_strtolower($formats[$selectedFormat] ?? $selectedFormat) }}</strong>.</p> @endif
         </div>
     </div>
 

@@ -17,7 +17,7 @@ class AgentGeneratorService
         private ModelSelectorService $modelSelector,
     ) {}
 
-    public function generate(Flow $flow): array
+    public function generate(Flow $flow, ?callable $onProgress = null): array
     {
         $company       = $flow->company;
         $modelsContext = $this->buildModelsContext();
@@ -111,15 +111,24 @@ MSG;
         Log::info('[AgentGenerator] Using model: ' . $generatorModel);
         Log::info('[AgentGenerator] Flow: ' . $flow->description);
 
+        if ($onProgress) {
+            $onProgress('Генериране на агенти');
+        }
+
         $raw = $this->ollama->chat(
             model: $generatorModel,
             systemPrompt: $systemPrompt,
             userMessage: $userMessage,
-            options: ['temperature' => 0.2, 'num_predict' => 6000]
+            options: ['temperature' => 0.2, 'num_predict' => 8000],
+            onProgress: $onProgress
         );
 
         Log::info('[AgentGenerator] Raw response length: ' . strlen($raw));
         Log::info('[AgentGenerator] Raw response: ' . substr($raw, 0, 2000));
+
+        if ($onProgress) {
+            $onProgress('Обработка на резултата');
+        }
 
         $agents = $this->parseAgentJson($raw);
 
@@ -131,8 +140,16 @@ MSG;
             return [];
         }
 
+        if ($onProgress) {
+            $onProgress('Проверка за web research');
+        }
+
         if ($this->needsWebResearch($flow->description ?? '')) {
             $agents = $this->ensureResearcherFirst($agents);
+        }
+
+        if ($onProgress) {
+            $onProgress('Финализиране на pipeline-а');
         }
 
         $agents = $this->ensureQaVerifierLast($agents);
@@ -188,6 +205,9 @@ MSG;
         $cleaned = preg_replace('/```(?:json)?\s*([\s\S]*?)```/i', '$1', $raw);
         $cleaned = trim($cleaned);
 
+        // Remove trailing commas before } or ] (common LLM artifact)
+        $cleaned = preg_replace('/,\s*([\}\]])/m', '$1', $cleaned);
+
         // Find outermost JSON array
         $start = strpos($cleaned, '[');
         $end   = strrpos($cleaned, ']');
@@ -237,12 +257,12 @@ MSG;
             if ($ch === '"') { $inString = !$inString; continue; }
             if ($inString) continue;
 
-            if ($ch === '{') {
-                if ($depth === 1) $objStart = $i;
+            if ($ch === '[' || $ch === '{') {
+                if ($ch === '{' && $depth === 1) $objStart = $i;
                 $depth++;
-            } elseif ($ch === '}') {
+            } elseif ($ch === ']' || $ch === '}') {
                 $depth--;
-                if ($depth === 1 && $objStart !== null) {
+                if ($ch === '}' && $depth === 1 && $objStart !== null) {
                     $objJson = substr($json, $objStart, $i - $objStart + 1);
                     $obj     = json_decode($objJson, true);
                     if (is_array($obj) && isset($obj['name'])) {

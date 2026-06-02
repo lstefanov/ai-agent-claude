@@ -13,8 +13,11 @@ class OllamaService
         $this->baseUrl = config('services.ollama.url', 'http://localhost:11434');
     }
 
-    public function chat(string $model, string $systemPrompt, string $userMessage, array $options = []): string
+    public function chat(string $model, string $systemPrompt, string $userMessage, array $options = [], ?callable $onProgress = null): string
     {
+        $keepAlive = $options['keep_alive'] ?? '10m';
+        unset($options['keep_alive']);
+
         // Use stream:true so Ollama sends tokens immediately (NDJSON).
         // Without streaming, Ollama buffers the entire response before sending ANY bytes,
         // causing "0 bytes received" timeouts on long synthesis responses.
@@ -27,6 +30,7 @@ class OllamaService
                     ['role' => 'user',   'content' => $userMessage],
                 ],
                 'stream'  => true,   // Ollama API: emit NDJSON chunks as tokens are generated
+                'keep_alive' => $keepAlive,
                 'options' => array_merge(['temperature' => 0.7], $options),
             ]);
 
@@ -36,9 +40,27 @@ class OllamaService
         $content = '';
         $buffer  = '';
         $body    = $response->getBody();
+        $lastProgressAt = 0.0;
+        $reportProgress = function () use ($onProgress, &$lastProgressAt): void {
+            if (! $onProgress) {
+                return;
+            }
+
+            $now = microtime(true);
+            if ($lastProgressAt > 0 && ($now - $lastProgressAt) < 2) {
+                return;
+            }
+
+            $lastProgressAt = $now;
+            $onProgress();
+        };
 
         while (!$body->eof()) {
-            $buffer .= $body->read(8192);
+            $chunkData = $body->read(8192);
+            if ($chunkData !== '') {
+                $reportProgress();
+                $buffer .= $chunkData;
+            }
 
             while (($pos = strpos($buffer, "\n")) !== false) {
                 $line   = trim(substr($buffer, 0, $pos));
