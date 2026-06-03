@@ -1,0 +1,285 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\FlowRun;
+use App\Support\ReasoningStripper;
+use Illuminate\Support\Collection;
+use Throwable;
+
+/**
+ * Assembles the final, user-facing result of a flow run from the individual
+ * agent outputs (e.g. FB posts + titles + hashtags).
+ *
+ * Strategy: the content is assembled DETERMINISTICALLY and verbatim — so no
+ * agent output can ever be lost or reworded. A strong LLM is then used ONLY to
+ * reformat that assembly into a nicer, sectioned layout. A verbatim guard
+ * checks the LLM kept every part word-for-word; if it deviated (paraphrased,
+ * dropped or invented), we discard the LLM result and keep the deterministic
+ * assembly. This gives nice formatting when possible and guaranteed-complete
+ * content always.
+ */
+class FinalComposerService
+{
+    public function __construct(private OllamaService $ollama) {}
+
+    /**
+     * @return array{output: string, model: ?string}
+     */
+    public function compose(FlowRun $flowRun): array
+    {
+        [$bodyParts, $appendixParts] = $this->collectParts($flowRun);
+
+        $deliverableCount = count($bodyParts) + count($appendixParts);
+
+        // Nothing to compose.
+        if ($deliverableCount === 0) {
+            return ['output' => '', 'model' => null];
+        }
+
+        // Single deliverable — no assembly needed, return it verbatim.
+        if ($deliverableCount === 1) {
+            $only = $bodyParts[0] ?? $appendixParts[0];
+
+            return ['output' => $only['output'], 'model' => null];
+        }
+
+        // Deterministic, verbatim assembly is the source of truth.
+        $deterministic = $this->deterministicAssembly($bodyParts, $appendixParts);
+        $effectiveParts = $this->effectiveParts($bodyParts, $appendixParts);
+
+        // LLM formatting pass — cosmetic only, guarded by a verbatim check.
+        $model = (string) config('services.ollama.composer_model');
+
+        try {
+            $formatted = $this->formatWithLlm($model, $deterministic);
+            $formatted = ReasoningStripper::strip($formatted);
+
+            if (trim($formatted) !== '' && $this->allPartsPresentVerbatim($formatted, $effectiveParts)) {
+                return ['output' => $formatted, 'model' => $model];
+            }
+        } catch (Throwable) {
+            // fall through to the deterministic assembly
+        }
+
+        // Safety net — guaranteed complete, verbatim content.
+        return ['output' => $deterministic, 'model' => null];
+    }
+
+    // Every part must keep at least this fraction of its sampled verbatim
+    // fragments in the formatted output, otherwise the LLM is rejected.
+    private const VERBATIM_COVERAGE_THRESHOLD = 0.8;
+
+    /**
+     * Verify every part survived the LLM formatting pass word-for-word.
+     *
+     * Because we feed the LLM the already-complete assembly and ask only for
+     * reformatting, any paraphrasing/dropping shows up as missing verbatim
+     * fragments. We check exact (normalized) fragments of each part — this does
+     * not suffer the shared-vocabulary false-positive, because the fragments are
+     * specific multi-word chunks of the actual block, not topic words.
+     *
+     * @param  list<string>  $parts
+     */
+    private function allPartsPresentVerbatim(string $output, array $parts): bool
+    {
+        $haystack = $this->normalize($output);
+
+        foreach ($parts as $part) {
+            $fragments = $this->sampleFragments($this->normalize($part));
+            if (count($fragments) === 0) {
+                continue;
+            }
+
+            $present = 0;
+            foreach ($fragments as $fragment) {
+                if (mb_strpos($haystack, $fragment) !== false) {
+                    $present++;
+                }
+            }
+
+            if ($present / count($fragments) < self::VERBATIM_COVERAGE_THRESHOLD) {
+                return false; // the LLM reworded or dropped this part
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Evenly-spaced ~50-char fragments of a normalized string (up to 5).
+     *
+     * @return list<string>
+     */
+    private function sampleFragments(string $normalized): array
+    {
+        $len = mb_strlen($normalized);
+        if ($len === 0) {
+            return [];
+        }
+
+        $size = 50;
+        if ($len <= $size) {
+            return [$normalized];
+        }
+
+        $count = min(5, intdiv($len, $size));
+        $fragments = [];
+        $step = intdiv($len - $size, max(1, $count - 1));
+
+        for ($i = 0; $i < $count; $i++) {
+            $fragments[] = mb_substr($normalized, $i * $step, $size);
+        }
+
+        return $fragments;
+    }
+
+    /**
+     * Lowercase, strip emojis/punctuation, collapse whitespace — so verbatim
+     * presence checks are robust to light formatting differences.
+     */
+    private function normalize(string $text): string
+    {
+        $text = mb_strtolower($text);
+        // Keep letters/digits/whitespace (any script), drop everything else.
+        $text = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $text) ?? $text;
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+
+        return trim($text);
+    }
+
+    /**
+     * Collect completed body/appendix outputs in agent order.
+     * Hidden (research) and quality (QA) outputs are excluded.
+     *
+     * @return array{0: list<array{name: string, output: string}>, 1: list<array{name: string, output: string}>}
+     */
+    private function collectParts(FlowRun $flowRun): array
+    {
+        /** @var Collection $runs */
+        $runs = $flowRun->agentRuns()
+            ->with('agent')
+            ->where('status', 'completed')
+            ->get()
+            ->filter(fn ($r) => $r->agent && is_string($r->output) && trim($r->output) !== '')
+            ->sortBy(fn ($r) => $r->agent->order);
+
+        $body = [];
+        $appendix = [];
+
+        foreach ($runs as $run) {
+            $role = $run->agent->effectiveOutputRole();
+            $part = ['name' => $run->agent->name, 'output' => trim($run->output)];
+
+            if ($role === 'body') {
+                $body[] = $part;
+            } elseif ($role === 'appendix') {
+                $appendix[] = $part;
+            }
+            // 'hidden' and 'quality' are intentionally skipped.
+        }
+
+        return [array_values($body), array_values($appendix)];
+    }
+
+    /**
+     * Ask the LLM to ONLY reformat the already-complete assembly — never to
+     * rewrite, summarise or add content. The output is guarded afterwards.
+     */
+    private function formatWithLlm(string $model, string $assembly): string
+    {
+        $system = <<<'SYS'
+Ти си редактор по форматиране. Получаваш готов финален текст за социални мрежи и трябва само да подобриш ВИЗУАЛНОТО му оформление.
+
+КРИТИЧНО ВАЖНО:
+- КОПИРАЙ целия текст ДОСЛОВНО — всеки пост, заглавие и хаштаг, дума по дума, без нито една промяна в съдържанието.
+- НЕ пренаписвай, НЕ перифразирай, НЕ съкращавай, НЕ добавяй и НЕ махай текст.
+
+РАЗРЕШЕНО ти е САМО:
+- Да добавиш ясни заглавия на секции (напр. „Публикации", „Заглавия", „Хаштагове").
+- Да подредиш секциите и да добавиш разделители/празни редове за по-добра четимост.
+
+Върни САМО оформения текст на български, без обяснения и без think бележки.
+SYS;
+
+        return $this->ollama->chat(
+            model: $model,
+            systemPrompt: $system,
+            userMessage: "Оформи следния готов текст:\n\n".$assembly,
+            options: ['temperature' => 0.2, 'http_timeout' => 120],
+        );
+    }
+
+    /**
+     * The parts that actually appear in the deterministic assembly (after
+     * near-identical body parts are collapsed), used by the verbatim guard.
+     *
+     * @param  list<array{name: string, output: string}>  $bodyParts
+     * @param  list<array{name: string, output: string}>  $appendixParts
+     * @return list<string>
+     */
+    private function effectiveParts(array $bodyParts, array $appendixParts): array
+    {
+        $effectiveBodies = [];
+
+        foreach ($bodyParts as $part) {
+            $output = $part['output'];
+            $replaced = false;
+
+            foreach ($effectiveBodies as $i => $existing) {
+                if ($this->nearlyIdentical($existing, $output)) {
+                    $effectiveBodies[$i] = $output;
+                    $replaced = true;
+                    break;
+                }
+            }
+
+            if (! $replaced) {
+                $effectiveBodies[] = $output;
+            }
+        }
+
+        return array_merge(
+            array_values($effectiveBodies),
+            array_map(fn ($p) => $p['output'], $appendixParts)
+        );
+    }
+
+    /**
+     * Deterministic, verbatim assembly — the robust safety net. Used when the
+     * LLM is unavailable, returns nothing, or drops a section. Guarantees no
+     * content is ever lost.
+     *
+     * Near-identical body parts (e.g. corrected titles vs raw titles) collapse
+     * into one, keeping the LATER (corrected) version.
+     *
+     * @param  list<array{name: string, output: string}>  $bodyParts
+     * @param  list<array{name: string, output: string}>  $appendixParts
+     */
+    private function deterministicAssembly(array $bodyParts, array $appendixParts): string
+    {
+        return implode("\n\n---\n\n", $this->effectiveParts($bodyParts, $appendixParts));
+    }
+
+    /**
+     * Two strings are "nearly identical" when they're close in length and
+     * share a high character-level similarity (corrected vs raw version).
+     */
+    private function nearlyIdentical(string $a, string $b): bool
+    {
+        $la = mb_strlen($a);
+        $lb = mb_strlen($b);
+        if ($la === 0 || $lb === 0) {
+            return false;
+        }
+
+        // Only compare when lengths are within ~25% of each other.
+        if (min($la, $lb) / max($la, $lb) < 0.75) {
+            return false;
+        }
+
+        similar_text($a, $b, $percent);
+
+        return $percent >= 75.0;
+    }
+}

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FlowRun extends Model
 {
-    protected $fillable = ['flow_id', 'status', 'triggered_by', 'context', 'started_at', 'completed_at'];
+    protected $fillable = ['flow_id', 'status', 'triggered_by', 'context', 'final_output', 'final_output_model', 'started_at', 'completed_at'];
 
     protected $casts = [
         'context'      => 'array',

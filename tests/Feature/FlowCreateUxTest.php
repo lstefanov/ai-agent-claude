@@ -160,6 +160,41 @@ class FlowCreateUxTest extends TestCase
         $this->assertSame(1200, $agent->config['num_predict']);
     }
 
+    public function test_store_persists_agent_icon_from_create_form(): void
+    {
+        $company = $this->createCompany();
+
+        $this->post(route('companies.flows.store', $company), [
+            'name' => 'Weekly Report',
+            'description' => 'Create a weekly market report.',
+            'status' => 'draft',
+            'agents' => [
+                [
+                    '_uid' => 'agent-1',
+                    'name' => 'Email Sender',
+                    'icon' => '📧',
+                    'type' => 'email',
+                    'role' => 'Send the final report by email.',
+                    'system_prompt' => 'You send emails.',
+                    'prompt_template' => 'Send {{input}}.',
+                    'model' => 'qwen2.5:14b',
+                    'order' => 1,
+                    'config' => [
+                        'temperature' => 0.25,
+                        'num_predict' => 1200,
+                        'qa' => [
+                            'enabled' => false,
+                        ],
+                    ],
+                ],
+            ],
+        ])->assertRedirect();
+
+        $agent = $company->flows()->firstOrFail()->agents()->firstOrFail();
+
+        $this->assertSame('📧', $agent->icon);
+    }
+
     private function createCompany(): Company
     {
         return Company::create([

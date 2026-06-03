@@ -17,6 +17,7 @@ class AgentController extends Controller
     {
         $validator = validator($request->all(), [
             'name' => 'required|string|max:255',
+            'icon' => 'nullable|string|max:10',
             'model' => 'required|string',
             'type' => 'nullable|string|max:50',
             'role' => 'nullable|string',
@@ -49,6 +50,7 @@ class AgentController extends Controller
 
         $agent = $flow->agents()->create([
             'name' => $validated['name'],
+            'icon' => $validated['icon'] ?? '🤖',
             'model' => $validated['model'],
             'type' => $type,
             'role' => $validated['role'] ?? '',
@@ -79,6 +81,7 @@ class AgentController extends Controller
     {
         $validator = validator($request->all(), [
             'name' => 'required|string|max:255',
+            'icon' => 'nullable|string|max:10',
             'type' => 'nullable|string|max:50',
             'role' => 'required|string',
             'system_prompt' => 'nullable|string',
@@ -116,6 +119,7 @@ class AgentController extends Controller
         if (array_key_exists('output_role', $validated)) {
             $validated['output_role'] = $validated['output_role'] ?: null;
         }
+        $validated['icon'] = $validated['icon'] ?? $agent->icon ?? '🤖';
 
         $validated['is_verifier'] = ($validated['is_verifier'] ?? false) || ($validated['type'] ?? $agent->type) === 'qa_verifier';
         $validated['qa_threshold'] = $validated['is_verifier']

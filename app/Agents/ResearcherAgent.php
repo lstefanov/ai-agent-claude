@@ -9,7 +9,14 @@ class ResearcherAgent extends BaseAgent
 {
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
-        $query         = !empty($context['flow_topic']) ? $context['flow_topic'] : mb_substr($agentRun->input, 0, 200);
+        // Prefer an explicit target site URL when the flow is about a specific website,
+        // so the researcher actually investigates that site rather than a generic topic.
+        $query = $context['target_url']
+            ?? $context['url']
+            ?? null;
+        if (empty($query)) {
+            $query = !empty($context['flow_topic']) ? $context['flow_topic'] : mb_substr($agentRun->input, 0, 200);
+        }
         $searchResults = $this->useTool('web_search', ['query' => $query]);
 
         $extraContext = '';

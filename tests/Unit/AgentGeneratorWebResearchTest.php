@@ -17,9 +17,12 @@ class AgentGeneratorWebResearchTest extends TestCase
         $ollama = \Mockery::mock(OllamaService::class);
         $ollama->shouldReceive('chat')->andReturn($llmResponse);
 
+        // selectModel is now called for EVERY agent (with a description hint as the
+        // second arg), so use a catch-all that resolves by type.
         $selector = \Mockery::mock(ModelSelectorService::class);
-        $selector->shouldReceive('selectModel')->with('bg_text_corrector')->andReturn('todorov/bggpt')->byDefault();
-        $selector->shouldReceive('selectModel')->with('qa_verifier')->andReturn('phi3.5:mini')->byDefault();
+        $selector->shouldReceive('selectModel')->andReturnUsing(
+            fn (string $type, ?string $hint = null): string => $type === 'qa_verifier' ? 'phi3.5:mini' : 'todorov/bggpt'
+        );
 
         return new AgentGeneratorService($ollama, $selector);
     }
@@ -262,9 +265,12 @@ class AgentGeneratorWebResearchTest extends TestCase
                 ['name' => 'QA', 'type' => 'qa_verifier', 'role' => 'Checks', 'order' => 4],
             ]));
 
+        // selectModel is now called for EVERY agent (with a description hint as the
+        // second arg), so use a catch-all that resolves by type.
         $selector = \Mockery::mock(ModelSelectorService::class);
-        $selector->shouldReceive('selectModel')->with('bg_text_corrector')->andReturn('todorov/bggpt')->byDefault();
-        $selector->shouldReceive('selectModel')->with('qa_verifier')->andReturn('phi3.5:mini')->byDefault();
+        $selector->shouldReceive('selectModel')->andReturnUsing(
+            fn (string $type, ?string $hint = null): string => $type === 'qa_verifier' ? 'phi3.5:mini' : 'todorov/bggpt'
+        );
 
         $company = new \App\Models\Company([
             'name' => 'Test Company',

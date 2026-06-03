@@ -6,44 +6,189 @@ use App\Models\LlmModel;
 
 class ModelSelectorService
 {
-    private array $defaults = [
-        'content_bg' => ['primary' => 'todorov/bggpt',       'fallback' => 'qwen2:7b'],
-        'bg_text_corrector' => ['primary' => 'todorov/bggpt',       'fallback' => 'qwen2:7b'],
-        'content_en' => ['primary' => 'llama3.1:8b',         'fallback' => 'mistral'],
-        'image_prompt' => ['primary' => 'mistral',              'fallback' => 'qwen2.5:7b'],
-        'qa_verifier' => ['primary' => 'phi3.5:mini',          'fallback' => 'gemma2:2b'],
-        'analyzer' => ['primary' => 'deepseek-r1:8b',       'fallback' => 'phi4'],
-        'researcher' => ['primary' => 'qwen2.5:7b',           'fallback' => 'mistral-nemo'],
-        'summarizer' => ['primary' => 'llama3.1:8b',          'fallback' => 'gemma2:9b'],
-        'decision' => ['primary' => 'deepseek-r1:8b',       'fallback' => 'qwq:32b'],
-        'publisher' => ['primary' => 'phi3:mini',            'fallback' => 'llama3.2:1b'],
-        'translator' => ['primary' => 'qwen2:7b',             'fallback' => 'aya:8b'],
-        'code' => ['primary' => 'deepseek-coder-v2',    'fallback' => 'qwen2.5-coder:7b'],
-        'vision' => ['primary' => 'qwen2.5vl:7b',         'fallback' => 'llava:7b'],
-        'orchestrator' => ['primary' => 'mistral',              'fallback' => 'qwen2.5:7b'],
+    /**
+     * Profile → ordered candidate Ollama tags (best first). Every tag must exist
+     * in the LlmModel catalogue so pull progress can be tracked. Candidates may be
+     * not-yet-installed: selectModel() returns the ideal one (pulled on demand),
+     * while resolveRunnable() restricts to what is actually installed.
+     */
+    private array $profiles = [
+        'bg_writer'    => ['todorov/bggpt', 's_emanuilov/BgGPT-v1.0:9b', 'gemma3:12b'],
+        'research'     => ['mistral-nemo', 'qwen2.5:14b', 'qwen2.5:7b', 'mistral'],
+        'analysis'     => ['qwen2.5:14b', 'mistral-nemo', 'gemma3:12b', 'gemma2:9b'],
+        'qa'           => ['s_emanuilov/BgGPT-v1.0:2.6b', 'gemma2:9b', 'mistral'],
+        'en_writer'    => ['gemma3:12b', 'mistral', 'llama3.1:8b'],
+        'image_prompt' => ['mistral', 'mistral-nemo'],
+        'translate'    => ['aya-expanse:8b', 'qwen2:7b', 'qwen2.5:14b'],
+        'code'         => ['qwen2.5-coder:7b', 'qwen2.5-coder:14b'],
+        'vision'       => ['qwen2.5vl:7b', 'llava:7b'],
+        'utility'      => ['mistral', 'mistral-nemo', 'gemma2:9b'],
     ];
 
-    public function selectModel(string $agentType): string
-    {
-        $preferred = $this->defaults[$agentType]['primary']
-            ?? config('services.ollama.fallback_model', 'llama3.1:8b');
+    /**
+     * Explicit agent-type → profile mapping. Types not listed here fall back to a
+     * profile derived from the type's output_role in config/agent_types.php.
+     */
+    private array $typeToProfile = [
+        // researchers / data gatherers
+        'researcher' => 'research',
+        'deep_researcher' => 'research',
+        'multi_researcher' => 'research',
+        'trend_researcher' => 'research',
+        'competitor_profiler' => 'research',
+        'review_analyzer' => 'research',
+        'keyword_extractor' => 'research',
+        'scraper' => 'research',
 
-        $available = LlmModel::where('ollama_tag', $preferred)
-            ->where('is_available', true)
+        // analyzers / processors
+        'analyzer' => 'analysis',
+        'swot_builder' => 'analysis',
+        'data_extractor' => 'analysis',
+        'classifier' => 'analysis',
+        'sentiment_analyzer' => 'analysis',
+        'summarizer' => 'analysis',
+        'decision' => 'analysis',
+        'lead_scorer' => 'analysis',
+        'price_optimizer' => 'analysis',
+        'budget_analyzer' => 'analysis',
+        'persona_builder' => 'analysis',
+        'customer_segmenter' => 'analysis',
+        'brand_voice_checker' => 'analysis',
+        'influencer_finder' => 'analysis',
+
+        // bulgarian body writers
+        'content_bg' => 'bg_writer',
+        'writer' => 'bg_writer',
+        'caption_writer' => 'bg_writer',
+        'hook_writer' => 'bg_writer',
+        'ad_copywriter' => 'bg_writer',
+        'report_writer' => 'bg_writer',
+        'report_composer' => 'bg_writer',
+        'newsletter_writer' => 'bg_writer',
+        'email_composer' => 'bg_writer',
+        'seo_writer' => 'bg_writer',
+        'offer_builder' => 'bg_writer',
+        'bg_text_corrector' => 'bg_writer',
+
+        // english writers
+        'content_en' => 'en_writer',
+
+        // specialised profiles
+        'translator' => 'translate',
+        'image_prompt' => 'image_prompt',
+        'image_describer' => 'vision',
+        'vision' => 'vision',
+        'code' => 'code',
+
+        // quality
+        'qa_verifier' => 'qa',
+        'verifier' => 'qa',
+
+        // hidden utilities
+        'formatter' => 'utility',
+        'publisher' => 'utility',
+        'orchestrator' => 'utility',
+        'webhook_sender' => 'utility',
+        'slack_notifier' => 'utility',
+        'google_sheets_writer' => 'utility',
+        'airtable_writer' => 'utility',
+    ];
+
+    /**
+     * The ideal model for an agent. May be a not-yet-installed tag — the caller is
+     * expected to pull it on demand. Use resolveRunnable() when you need a tag that
+     * is guaranteed to be installed right now.
+     */
+    public function selectModel(string $agentType, ?string $hint = null): string
+    {
+        $candidates = $this->candidatesFor($agentType, $hint);
+
+        return $candidates[0] ?? $this->globalFallback();
+    }
+
+    /**
+     * Like selectModel(), but returns the first candidate that is actually
+     * installed. Falls back to a guaranteed-installed model so a run never points
+     * at a missing tag.
+     */
+    public function resolveRunnable(string $agentType, ?string $hint = null): string
+    {
+        $installed = $this->installedTags();
+
+        foreach ($this->candidatesFor($agentType, $hint) as $tag) {
+            if (in_array($tag, $installed, true)) {
+                return $tag;
+            }
+        }
+
+        return $this->globalFallback();
+    }
+
+    /**
+     * Ordered candidate tags for an agent, honouring description/name heuristics.
+     *
+     * @return array<int, string>
+     */
+    private function candidatesFor(string $agentType, ?string $hint): array
+    {
+        $profile = $this->profileForType($agentType);
+
+        // Description/name heuristics can override the type-based profile.
+        if ($hint !== null && $hint !== '') {
+            if (preg_match('/изображен|снимк|image|vision|визуал/iu', $hint)) {
+                $profile = $agentType === 'image_prompt' ? 'image_prompt' : 'vision';
+            } elseif (preg_match('/превод|translat/iu', $hint)) {
+                $profile = 'translate';
+            } elseif (preg_match('/\bкод\b|програм|\bcode\b|coding/iu', $hint)) {
+                $profile = 'code';
+            }
+        }
+
+        return $this->profiles[$profile] ?? $this->profiles['utility'];
+    }
+
+    private function profileForType(string $agentType): string
+    {
+        if (isset($this->typeToProfile[$agentType])) {
+            return $this->typeToProfile[$agentType];
+        }
+
+        // Derive from the type's output_role when the type is not mapped explicitly.
+        $outputRole = config("agent_types.{$agentType}.output_role");
+
+        return match ($outputRole) {
+            'body' => 'bg_writer',
+            'quality' => 'qa',
+            'appendix' => 'utility',
+            default => 'analysis', // hidden / unknown → general structured work
+        };
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function installedTags(): array
+    {
+        return LlmModel::where('is_available', true)
             ->where('is_enabled', true)
-            ->exists();
-
-        return $available ? $preferred : $this->getFallback($agentType);
+            ->pluck('ollama_tag')
+            ->all();
     }
 
-    public function getFallback(string $agentType): string
+    /**
+     * A model guaranteed to be installed: the configured generator model if it is
+     * installed, otherwise any installed+enabled model, otherwise the configured
+     * fallback tag as a last resort.
+     */
+    private function globalFallback(): string
     {
-        return $this->defaults[$agentType]['fallback']
-            ?? config('services.ollama.fallback_model', 'llama3.1:8b');
-    }
+        $installed = $this->installedTags();
 
-    public function getDefaults(): array
-    {
-        return $this->defaults;
+        $generator = config('services.ollama.generator_model', 'mistral');
+        if (in_array($generator, $installed, true)) {
+            return $generator;
+        }
+
+        return $installed[0] ?? config('services.ollama.fallback_model', 'mistral');
     }
 }

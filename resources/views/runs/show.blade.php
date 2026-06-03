@@ -14,6 +14,7 @@ $initialAgents = $flowRun->flow->agents
     ->map(fn($a) => [
         'id'           => $a->id,
         'name'         => $a->name,
+        'icon'         => $a->icon ?? '🤖',
         'type'         => $a->type,
         'output_role'  => $a->effectiveOutputRole(),
         'is_verifier'  => (bool) $a->is_verifier,
@@ -75,6 +76,7 @@ window.__runData = {
     stepQaPolicies: @json($stepQaPolicies),
     stepQaResults: @json($stepQaResults),
     failureMessage: @json($failureMessage),
+    finalOutput:  @json($flowRun->final_output),
 };
 </script>
 
@@ -127,6 +129,12 @@ window.__runData = {
             <template x-if="flowStatus === 'completed'">
                 <span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">✓ Всички завършиха</span>
             </template>
+            {{-- Composer indicator: all agents done but run still assembling the final result --}}
+            <template x-if="flowStatus === 'running' && completedCount === agents.length && agents.length > 0">
+                <span class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium animate-pulse">
+                    ✦ Сглобяване на финалния резултат…
+                </span>
+            </template>
             <template x-if="flowStatus === 'failed'">
                 <span class="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">✗ Грешка</span>
             </template>
@@ -134,15 +142,22 @@ window.__runData = {
                 <span class="text-xs text-gray-400">подготовка…</span>
             </template>
         </div>
-        <span class="text-sm font-bold tabular-nums"
-              :class="{
-                'text-green-600':  flowStatus === 'completed',
-                'text-red-500':    flowStatus === 'failed',
-                'text-indigo-600': flowStatus === 'running',
-                'text-gray-400':   flowStatus === 'pending',
-              }"
-              x-text="progressPercent + '%'">
-        </span>
+        <div class="flex items-center gap-3">
+            <button @click="openLogModal()"
+                    class="text-xs text-gray-400 hover:text-indigo-600 transition flex items-center gap-1"
+                    title="Лог на изпълнението">
+                📄 <span class="hidden sm:inline">Лог</span>
+            </button>
+            <span class="text-sm font-bold tabular-nums"
+                  :class="{
+                    'text-green-600':  flowStatus === 'completed',
+                    'text-red-500':    flowStatus === 'failed',
+                    'text-indigo-600': flowStatus === 'running',
+                    'text-gray-400':   flowStatus === 'pending',
+                  }"
+                  x-text="progressPercent + '%'">
+            </span>
+        </div>
     </div>
     <template x-if="flowStatus === 'failed' && failureMessage">
         <div class="mt-3 rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-700" x-text="failureMessage"></div>
@@ -329,6 +344,7 @@ window.__runData = {
 
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-lg leading-none" x-text="agent.icon || '🤖'"></span>
                         <span class="font-medium text-gray-900 text-sm" x-text="agent.name"></span>
                         <span class="text-xs text-gray-400 font-mono hidden sm:inline" x-text="agent.type"></span>
                         <template x-if="agent.is_verifier && runStatus(agent.id) === 'pending'">
@@ -385,14 +401,63 @@ window.__runData = {
                 </div>
             </div>
 
-            {{-- Running skeleton --}}
+            {{-- Running: live progress panel --}}
             <template x-if="runStatus(agent.id) === 'running'">
-                <div class="px-5 pb-4">
-                    <div class="rounded-lg bg-indigo-50/60 border border-indigo-100 p-3 space-y-2">
-                        <div class="h-2 bg-indigo-100 rounded animate-pulse w-3/4"></div>
-                        <div class="h-2 bg-indigo-100 rounded animate-pulse w-1/2"></div>
-                        <div class="h-2 bg-indigo-100 rounded animate-pulse w-2/3"></div>
+                <div class="px-5 pb-4 space-y-3">
+
+                    {{-- Process strip: phase · elapsed · current activity --}}
+                    <div class="flex items-center gap-2 flex-wrap text-xs">
+                        <span class="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                            <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                            <span x-text="phaseLabel(progress.phase)"></span>
+                        </span>
+                        <template x-if="agentElapsed(agent.id) !== null">
+                            <span class="text-gray-400 tabular-nums" x-text="'⏱ ' + formatSecs(agentElapsed(agent.id))"></span>
+                        </template>
+                        <template x-if="progress.last_line">
+                            <span class="text-gray-400 font-mono truncate max-w-full" x-text="progress.last_line"></span>
+                        </template>
                     </div>
+
+                    {{-- Page progress bar (map-reduce agents with known totals) --}}
+                    <template x-if="progress.pages_total > 0">
+                        <div>
+                            <div class="flex items-center justify-between mb-1 text-xs">
+                                <span class="text-gray-500 font-medium"
+                                      x-text="progress.pages_done + ' / ' + progress.pages_total + ' страници'"></span>
+                                <span class="text-gray-400 tabular-nums">
+                                    <span x-text="pagesPercent() + '%'"></span>
+                                    <template x-if="progress.pages_failed > 0">
+                                        <span class="text-amber-600" x-text="' · ' + progress.pages_failed + ' неуспешни'"></span>
+                                    </template>
+                                </span>
+                            </div>
+                            <div class="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                                <div class="absolute inset-y-0 left-0 h-full rounded-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-700 ease-out"
+                                     :style="{ width: pagesPercent() + '%' }"></div>
+                            </div>
+                        </div>
+                    </template>
+
+                    {{-- Indeterminate bar when no page counters (non-map-reduce agents) --}}
+                    <template x-if="!(progress.pages_total > 0)">
+                        <div class="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div class="progress-bar-running absolute inset-y-0 left-0 h-full w-1/3 rounded-full"></div>
+                        </div>
+                    </template>
+
+                    {{-- Live log tail --}}
+                    <details open class="rounded-lg border border-gray-200 bg-gray-900">
+                        <summary class="cursor-pointer px-3 py-1.5 text-xs font-semibold text-gray-300 flex items-center justify-between">
+                            <span>⚡ На живо</span>
+                            <button type="button" @click.prevent="openLogModal()"
+                                    class="text-gray-400 hover:text-white transition font-normal">Виж пълния лог →</button>
+                        </summary>
+                        <pre x-ref="tail"
+                             class="text-[11px] leading-relaxed text-gray-300 px-3 pb-2 overflow-auto max-h-48 whitespace-pre-wrap font-mono"
+                             x-text="(progress.tail || []).join('\n')"
+                             x-effect="progress.tail; $nextTick(() => { if ($refs.tail) $refs.tail.scrollTop = $refs.tail.scrollHeight })"></pre>
+                    </details>
                 </div>
             </template>
 
@@ -490,6 +555,33 @@ window.__runData = {
     </div>
 </template>
 
+{{-- ── FULL LOG MODAL ──────────────────────────────────────────── --}}
+<div x-show="logModalOpen" x-cloak
+     class="fixed inset-0 z-50 flex items-center justify-center p-4"
+     @keydown.escape.window="logModalOpen = false">
+    <div class="absolute inset-0 bg-black/50" @click="logModalOpen = false"></div>
+    <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+            <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                📄 Лог на изпълнението
+                <span class="text-xs text-gray-400 font-normal">Run #{{ $flowRun->id }}</span>
+            </h3>
+            <div class="flex items-center gap-3">
+                <button @click="openLogModal()" class="text-xs text-gray-400 hover:text-indigo-600 transition"
+                        :disabled="logModalLoading"
+                        x-text="logModalLoading ? '⏳ Зареждане…' : '↻ Опресни'"></button>
+                <button @click="navigator.clipboard.writeText(logModalText); logCopied=true; setTimeout(()=>logCopied=false,2000)"
+                        class="text-xs text-gray-400 hover:text-gray-600 transition"
+                        x-text="logCopied ? '✓ Копирано' : '📋 Копирай'"></button>
+                <button @click="logModalOpen = false" class="text-gray-400 hover:text-gray-700 transition text-lg leading-none">×</button>
+            </div>
+        </div>
+        <pre x-ref="modalLog"
+             class="text-[11px] leading-relaxed text-gray-200 bg-gray-900 p-4 overflow-auto flex-1 whitespace-pre-wrap font-mono rounded-b-xl"
+             x-text="logModalText || 'Няма лог записи още.'"></pre>
+    </div>
+</div>
+
 </div>{{-- /x-data --}}
 
 @endsection
@@ -538,12 +630,18 @@ function flowRunMonitor() {
         expanded:    {},
         elapsed:     0,
         copied:      false,
+        progress:    {},
+        logModalOpen:    false,
+        logModalText:    '',
+        logModalLoading: false,
+        logCopied:       false,
         logUrl:      d.logUrl,
         pollUrl:     d.pollUrl,
         qaThresholdOptions: d.qaThresholdOptions || [],
         stepQaPolicies: d.stepQaPolicies || {},
         stepQaResults: d.stepQaResults || {},
         failureMessage: d.failureMessage || null,
+        serverFinalOutput: d.finalOutput || null,
         _timer:      null,
         _poller:     null,
         startedAt:   d.startedAt   ? new Date(d.startedAt)   : null,
@@ -604,6 +702,8 @@ function flowRunMonitor() {
                 this.flowStatus = data.status;
                 this.failureMessage = data.failure_message || this.failureMessage;
                 this.stepQaResults = data.step_qa_results || this.stepQaResults;
+                this.progress = data.progress || {};
+                if (data.final_output) this.serverFinalOutput = data.final_output;
 
                 if (data.started_at_iso && !this.startedAt)
                     this.startedAt = new Date(data.started_at_iso);
@@ -642,6 +742,46 @@ function flowRunMonitor() {
 
         getRun(agentId) {
             return this.runs[String(agentId)] || null;
+        },
+
+        // ── Live progress helpers ──────────────────────────────────
+        phaseLabel(phase) {
+            return {
+                discovery: 'Откриване на страници',
+                map:       'Обработка на страници',
+                merge:     'Обединяване на резюмета',
+                running:   'Обработва се',
+            }[phase] || 'Обработва се';
+        },
+
+        pagesPercent() {
+            const t = this.progress.pages_total || 0;
+            const done = this.progress.pages_done || 0;
+            return t > 0 ? Math.min(100, Math.round((done / t) * 100)) : 0;
+        },
+
+        agentElapsed(agentId) {
+            const r = this.getRun(agentId);
+            if (!r || !r.started_at_iso) return null;
+            const start = new Date(r.started_at_iso).getTime();
+            const end = r.completed_at_iso ? new Date(r.completed_at_iso).getTime() : Date.now();
+            return Math.max(0, Math.floor((end - start) / 1000));
+        },
+
+        async openLogModal() {
+            this.logModalOpen = true;
+            this.logModalLoading = true;
+            try {
+                const res = await fetch(this.logUrl, { headers: { Accept: 'text/plain' } });
+                this.logModalText = res.ok ? await res.text() : 'Грешка при зареждане на лога.';
+            } catch (e) {
+                this.logModalText = 'Грешка при зареждане на лога.';
+            } finally {
+                this.logModalLoading = false;
+                this.$nextTick(() => {
+                    if (this.$refs.modalLog) this.$refs.modalLog.scrollTop = this.$refs.modalLog.scrollHeight;
+                });
+            }
         },
 
         runStatus(agentId) {
@@ -702,8 +842,13 @@ function flowRunMonitor() {
             return map[color] || map.grey;
         },
 
-        // ── Final output: body agents + appendix agents combined ─────
+        // ── Final output: server-composed result preferred, else body+appendix ─────
         get finalOutput() {
+            // Backend FinalComposerService produces the canonical assembled result.
+            if (this.serverFinalOutput && this.serverFinalOutput.trim() !== '') {
+                return this.serverFinalOutput;
+            }
+
             const reversed = [...this.agents].reverse();
 
             // Find the last 'body' agent's output (primary content)

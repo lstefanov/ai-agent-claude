@@ -200,6 +200,7 @@ function copyWebhookUrl() {
                     {{-- Info --}}
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap mb-1">
+                            <span class="text-lg leading-none" x-text="agent.icon || '🤖'"></span>
                             <span class="font-semibold text-gray-900 text-sm" x-text="agent.name"></span>
                             <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono" x-text="agent.type"></span>
                             <span x-show="agent.is_verifier" class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">QA verifier</span>
@@ -603,6 +604,7 @@ function flowAgentManager() {
         },
 
         normalizeAgent(agent) {
+            agent.icon = agent.icon || '🤖';
             agent.config = agent.config && typeof agent.config === 'object' ? agent.config : {};
             agent.config.qa = agent.config.qa && typeof agent.config.qa === 'object'
                 ? agent.config.qa
@@ -762,6 +764,7 @@ function flowAgentManager() {
             const firstModel = this.models.find(m => m.is_available) || this.models[0];
             const data = {
                 name:  'Нов агент',
+                icon:  '🤖',
                 model: firstModel ? firstModel.ollama_tag : '',
                 type:  'content_bg',
             };
@@ -825,6 +828,7 @@ function flowAgentManager() {
 
             const data = {
                 name:             tpl ? (tpl.name            || 'Нов агент')   : 'Нов агент',
+                icon:             tpl ? (tpl.icon            || '🤖')           : '🤖',
                 model:            resolvedModel,
                 type:             tpl ? (tpl.type            || 'content_bg')  : 'content_bg',
                 role:             tpl ? (tpl.role            || '')             : '',
@@ -854,6 +858,7 @@ function flowAgentManager() {
             this.saving = true;
             const result = await this.ajax('PUT', `/flows/${FLOW_ID}/agents/${agent.id}`, {
                 name:             agent.name,
+                icon:             agent.icon || '🤖',
                 role:             agent.role || '',
                 type:             agent.type,
                 system_prompt:    agent.system_prompt || '',

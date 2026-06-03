@@ -8,6 +8,7 @@ use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Flow;
 use App\Models\FlowRun;
+use App\Models\LlmModel;
 use App\Support\PricingOutputMetrics;
 use App\Support\ReasoningStripper;
 use Throwable;
@@ -18,7 +19,11 @@ class FlowExecutorService
 
     private string $logFile = '';
 
-    public function __construct(private AgentFactory $factory) {}
+    public function __construct(
+        private AgentFactory $factory,
+        private OllamaService $ollama,
+        private ModelSelectorService $modelSelector,
+    ) {}
 
     public function run(Flow $flow, string $triggeredBy = 'manual', ?FlowRun $flowRun = null): FlowRun
     {
@@ -47,19 +52,33 @@ class FlowExecutorService
 
         // Pre-seed context with company variables so {{company_description}} etc. resolve
         $company = $flow->company;
+        // Resolve the target site URL from the flow description so {{url}} placeholders
+        // in generated agent prompts (and the researchers) point at the real site.
+        $targetUrl = \App\Support\UrlExtractor::first($flow->description ?? '') ?? '';
+        // For a site-analysis flow the company record is unrelated to the scraped
+        // site, so blank the company placeholders — the business identity must come
+        // from the scraped data ({{input}}), never from {{company_description}}.
+        $isSiteFlow = $targetUrl !== '';
         $context = [
-            'company_description' => $company?->description ?? '',
-            'company_name' => $company?->name ?? '',
-            'company_industry' => $company?->industry ?? '',
+            'company_description' => $isSiteFlow ? '' : ($company?->description ?? ''),
+            'company_name' => $isSiteFlow ? '' : ($company?->name ?? ''),
+            'company_industry' => $isSiteFlow ? '' : ($company?->industry ?? ''),
             'input' => $flow->topic ?? '',
             'topic' => $flow->topic ?? '',
             'flow_topic' => $flow->topic ?? '',  // preserved across all agent steps — never overwritten
+            'url' => $targetUrl,
+            'target_url' => $targetUrl,
+            'website' => $targetUrl,
         ];
 
         $agents = $flow->agents()
             ->where('is_active', true)
             ->orderBy('order')
             ->get();
+
+        if (config('services.ollama.auto_pull', true)) {
+            $this->ensureModelsInstalled($agents);
+        }
 
         $this->ensureQaThresholdSnapshot($flowRun, $agents);
         $this->ensureStepQaPolicySnapshot($flowRun, $agents);
@@ -170,8 +189,17 @@ class FlowExecutorService
             }
         }
 
+        $this->log('───────────────────────────────────────────────────────────');
+        $this->log('FINAL COMPOSER: assembling final result');
+        $composed = app(FinalComposerService::class)->compose($flowRun);
+        $this->log('FINAL COMPOSER: '.($composed['model']
+            ? "composed with {$composed['model']} ({$this->charCount($composed['output'])} chars)"
+            : 'used verbatim / deterministic assembly ('.$this->charCount($composed['output']).' chars)'));
+
         $flowRun->update([
             'status' => 'completed',
+            'final_output' => $composed['output'],
+            'final_output_model' => $composed['model'],
             'completed_at' => now(),
         ]);
 
@@ -333,6 +361,68 @@ class FlowExecutorService
             'score' => $score,
             'message' => null,
         ];
+    }
+
+    /**
+     * Make sure every agent's model is installed in Ollama before the run starts.
+     * Missing models are pulled on demand; if a pull fails, the agent is downgraded
+     * to a guaranteed-installed model for its type so the run never blocks.
+     */
+    private function ensureModelsInstalled(iterable $agents): void
+    {
+        try {
+            $installed = collect($this->ollama->listModels())->pluck('name')->all();
+        } catch (Throwable $e) {
+            $this->log('Model pre-flight skipped (Ollama list failed): '.$e->getMessage());
+
+            return;
+        }
+
+        $pulled = [];
+        $failed = [];
+
+        foreach ($agents as $agent) {
+            $tag = $agent->model;
+            if (! $tag || in_array($tag, $installed, true) || isset($pulled[$tag])) {
+                continue;
+            }
+
+            if (isset($failed[$tag])) {
+                $this->downgradeAgentModel($agent, $installed);
+
+                continue;
+            }
+
+            $this->log("Pulling model {$tag} for {$agent->name} (not installed)…");
+
+            try {
+                $ok = $this->ollama->pull($tag);
+            } catch (Throwable $e) {
+                $ok = false;
+                $this->log("Pull error for {$tag}: ".$e->getMessage());
+            }
+
+            if ($ok) {
+                $installed[] = $tag;
+                $pulled[$tag] = true;
+                LlmModel::where('ollama_tag', $tag)->update(['is_available' => true]);
+                $this->log("Pulled {$tag} ✓");
+            } else {
+                $failed[$tag] = true;
+                $this->log("Pull failed for {$tag} — downgrading to an installed model.");
+                $this->downgradeAgentModel($agent, $installed);
+            }
+        }
+    }
+
+    private function downgradeAgentModel(Agent $agent, array $installed): void
+    {
+        $replacement = $this->modelSelector->resolveRunnable($agent->type, $agent->name.' '.$agent->role);
+
+        if ($replacement !== $agent->model) {
+            $this->log("  {$agent->name}: {$agent->model} → {$replacement}");
+            $agent->model = $replacement;
+        }
     }
 
     private function mergeAgentOutputIntoContext(array $context, Agent $agent, string $output): array
@@ -568,7 +658,7 @@ class FlowExecutorService
 
     private function handoffText(string $output): string
     {
-        $maxChars = 20000;
+        $maxChars = 60000;
 
         if (mb_strlen($output) <= $maxChars) {
             return $output;

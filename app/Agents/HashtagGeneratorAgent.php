@@ -11,26 +11,27 @@ class HashtagGeneratorAgent extends BaseAgent
     {
         $raw = $this->chat($agent, $agentRun->input);
 
-        // Keep only lines that start with # or contain #word patterns
-        $lines    = explode("\n", $raw);
-        $hashtags = [];
+        // Extract every #token regardless of line/spacing structure.
+        // \p{L}\p{N} matches any Unicode letter/digit, including Cyrillic.
+        preg_match_all('/#[\p{L}\p{N}_]+/u', $raw, $matches);
+        $tokens = $matches[0];
 
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '') {
-                continue;
-            }
-            // Line starts with # or contains at least one hashtag token
-            if (str_starts_with($line, '#') || preg_match('/#\w+/', $line)) {
-                $hashtags[] = $line;
-            }
-        }
-
-        if (empty($hashtags)) {
-            // Fallback: return raw LLM output if no hashtag lines were found
+        if (empty($tokens)) {
             return trim($raw);
         }
 
-        return implode("\n", $hashtags);
+        // Deduplicate case-insensitively, preserving first occurrence.
+        $seen     = [];
+        $hashtags = [];
+        foreach ($tokens as $tag) {
+            $key = mb_strtolower($tag);
+            if (! isset($seen[$key])) {
+                $seen[$key] = true;
+                $hashtags[] = $tag;
+            }
+        }
+
+        // Hard cap — prevents LLM repetition loops from polluting downstream context.
+        return implode(' ', array_slice($hashtags, 0, 30));
     }
 }

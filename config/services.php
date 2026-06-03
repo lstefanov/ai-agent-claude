@@ -39,6 +39,11 @@ return [
         'url' => env('OLLAMA_URL', 'http://localhost:11434'),
         'generator_model' => env('OLLAMA_GENERATOR_MODEL', 'mistral'),
         'fallback_model' => env('OLLAMA_DEFAULT_FALLBACK', 'llama3.1:8b'),
+        // Auto-pull missing agent models before a flow run. Disabled in tests.
+        'auto_pull' => env('OLLAMA_AUTO_PULL', true),
+        // Strong model used by FinalComposerService to assemble the final result
+        // from the individual agent outputs (posts + titles + hashtags).
+        'composer_model' => env('OLLAMA_COMPOSER_MODEL', 'gemma3:12b'),
     ],
 
     'brave' => [
@@ -57,7 +62,7 @@ return [
         'url' => env('CRAWL_SERVICE_URL', 'http://localhost:8189'),
         'enabled' => env('CRAWL_SERVICE_ENABLED', true),
         'timeout' => env('CRAWL_SERVICE_TIMEOUT', 15),
-        'max_pages' => env('CRAWL_MAX_PAGES', 6),
+        'max_pages' => env('CRAWL_MAX_PAGES', 20),
     ],
 
 ];

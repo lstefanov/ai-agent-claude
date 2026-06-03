@@ -76,4 +76,27 @@ class CrawlServiceTest extends TestCase
         $service = new CrawlService();
         $this->assertFalse($service->isAvailable());
     }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('utilityPageProvider')]
+    public function test_is_utility_page_filters_junk_endpoints(string $url, bool $expected): void
+    {
+        $service = new CrawlService();
+        $m = new \ReflectionMethod($service, 'isUtilityPage');
+        $m->setAccessible(true);
+
+        $this->assertSame($expected, $m->invoke($service, $url), $url);
+    }
+
+    public static function utilityPageProvider(): array
+    {
+        return [
+            'wp-json oembed'  => ['https://example.com/wp-json/oembed/1.0/embed?url=x', true],
+            'author archive'  => ['https://example.com/author/admin', true],
+            'embed endpoint'  => ['https://example.com/post/embed', true],
+            'privacy policy'  => ['https://example.com/privacy-policy', true],
+            'product page'    => ['https://example.com/p/laser-epilation', false],
+            'about page'      => ['https://example.com/za-nas', false],
+            'homepage'        => ['https://example.com/', false],
+        ];
+    }
 }

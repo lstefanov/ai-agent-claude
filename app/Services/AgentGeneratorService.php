@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Flow;
 use App\Models\LlmModel;
+use App\Support\UrlExtractor;
 use Illuminate\Support\Facades\Log;
 
 class AgentGeneratorService
@@ -21,6 +22,33 @@ class AgentGeneratorService
     {
         $company       = $flow->company;
         $modelsContext = $this->buildModelsContext();
+        $targetUrl     = UrlExtractor::first($flow->description ?? '');
+
+        // For a website-analysis flow the subject is the scraped site — NOT the
+        // company record, which is unrelated and would pollute the agents. So we
+        // present the URL as the only subject and forbid company placeholders.
+        if ($targetUrl) {
+            $subjectBlock = <<<SUBJECT
+ОБЕКТ НА АНАЛИЗ: уебсайтът {$targetUrl}
+ВАЖНО: Цялата информация за бизнеса (име, услуги, цени, контакти) идва от scrape-ване на ТОЗИ сайт, НЕ от данни за компания в системата. ИГНОРИРАЙ всякакви данни за компанията.
+SUBJECT;
+
+            $urlDirective = <<<DIRECTIVE
+ИНСТРУКЦИИ ЗА АНАЛИЗ НА САЙТ ({$targetUrl}):
+- ПЪРВИЯТ агент е deep_researcher и обхожда сайта чрез placeholder {{url}} (НЕ trend_researcher, НЕ scraper).
+- ВСЕКИ СЛЕДВАЩ агент работи с изхода на предходния агент чрез placeholder {{input}} — това са реалните данни, събрани от сайта.
+- ЗАБРАНЕНО: НЕ използвай {{company_description}}, НЕ изписвай името на компанията и НЕ реферирай статични данни за фирмата в нито един system_prompt или prompt_template. Идентичността на бизнеса (име, услуги, цени) идва САМО от scrape-натите данни.
+
+
+DIRECTIVE;
+        } else {
+            $subjectBlock = <<<SUBJECT
+Компания: {$company->name}
+Индустрия: {$company->industry}
+Описание на компанията: {$company->description}
+SUBJECT;
+            $urlDirective = '';
+        }
 
         $systemPrompt = <<<PROMPT
 Ти си AI архитект на маркетингови и бизнес автоматизации.
@@ -31,32 +59,36 @@ class AgentGeneratorService
 2. МИНИМУМ 5 агента, идеално 6-8 в зависимост от сложността
 3. Всеки агент има ТОЧНО ЕДНА отговорност
 4. system_prompt трябва да е детайлен (минимум 3 изречения) — на български
-5. prompt_template трябва да е детайлен (минимум 5 изречения) — на български, с конкретни placeholder-и като {{company_description}}, {{input}}, {{topic}}
+5. prompt_template трябва да е детайлен (минимум 5 изречения) — на български, с конкретни placeholder-и: {{input}} (изход на предходния агент), {{topic}}; {{url}} и {{input}} когато задачата е за конкретен уебсайт; {{company_description}} САМО когато flow-ът НЕ анализира конкретен сайт
 6. ВИНАГИ включвай: поне един researcher/analyzer, поне един content агент, точно един bg_text_corrector предпоследен и точно един qa_verifier агент (може на всяка позиция)
 7. Избирай модели според задачата — виж списъка с модели
+8. Агентите ТРЯБВА да отговарят на описанието на flow-а — не измисляй задачи, които не са поискани. НЕ включвай competitor_profiler освен ако описанието директно споменава конкуренти.
 
 Генерирането на по-малко от 5 агента е ЗАБРАНЕНО.
 PROMPT;
 
         $userMessage = <<<MSG
-Компания: {$company->name}
-Индустрия: {$company->industry}
-Описание на компанията: {$company->description}
+{$subjectBlock}
 
 Flow за изграждане: "{$flow->description}"
 
-НАЛИЧНИ МОДЕЛИ (избери внимателно за всеки агент):
+{$urlDirective}НАЛИЧНИ МОДЕЛИ (избери внимателно за всеки агент):
 {$modelsContext}
 
 {$this->buildTypesContext()}
 
 ПРАВИЛА ЗА ПРОЕКТИРАНЕ НА PIPELINE:
+⚠️ КРИТИЧНО: Избери шаблона САМО ако описанието на flow-а директно съвпада. НЕ добавяй агенти за конкуренти, освен ако думата "конкурент/и" или "competitor" изрично се появява в описанието на flow-а.
+
+- За анализ на единична фирма/бизнес (одит, профил, доклад за конкретна компания, анализ на уебсайт):
+  researcher → deep_researcher → review_analyzer → analyzer → report_writer → bg_text_corrector → qa_verifier
 - За social media flows: trend_researcher → hook_writer → content_bg → hashtag_generator → caption_writer → bg_text_corrector → qa_verifier
-- За competitive intelligence: competitor_profiler → swot_builder → report_writer → bg_text_corrector → qa_verifier
+- За competitive intelligence (САМО когато описанието споменава "конкуренти" или "competitor"): competitor_profiler → swot_builder → report_writer → bg_text_corrector → qa_verifier
 - За SEO flows: keyword_extractor → seo_writer → meta_generator → bg_text_corrector → qa_verifier
 - За review monitoring: review_analyzer → sentiment_analyzer → report_writer → bg_text_corrector → qa_verifier
 - За outreach/email flows: analyzer → email_composer → bg_text_corrector → qa_verifier
-- АКО flow-ът изисква актуални новини/web данни: researcher или trend_researcher ЗАДЪЛЖИТЕЛНО е на позиция 1 (order: 1)
+- АКО flow-ът изисква актуални новини/web данни: изследовател ЗАДЪЛЖИТЕЛНО е на позиция 1 (order: 1)
+- За обхождане/анализ на КОНКРЕТЕН посочен URL използвай deep_researcher на позиция 1 (той реално scrape-ва страниците). trend_researcher търси вирусни теми за идеи за контент — НЕ го използвай за анализ на конкретен сайт или бизнес доклад.
 - За български текст: винаги използвай todorov/bggpt за генериране и bg_text_corrector за финална езикова корекция
 - За QA/верификация: използвай phi3.5 или phi3:mini (бързи, ефективни)
 - За JSON/структуриран изход, image промпти, анализ: използвай mistral-nemo
@@ -64,7 +96,7 @@ Flow за изграждане: "{$flow->description}"
 
 Върни JSON масив, където всеки обект има ТОЧНО тези полета:
 {
-  "name": "Описателно българско име (напр. 'Изследовател на тенденции', 'Автор на Facebook постове')",
+  "name": "Описателно българско име, СЪОТВЕТСТВАЩО на задачата (напр. 'Изследовател на сайта', 'Автор на доклад')",
   "type": "един от типовете изброени по-горе",
   "role": "2-3 изречения на БЪЛГАРСКИ описващи: какво прави агентът, какъв вход получава и какъв изход произвежда",
   "capabilities": ["масив", "от", "способности"],
@@ -73,7 +105,7 @@ Flow за изграждане: "{$flow->description}"
   "input_description": "описание на входа — на български",
   "output_description": "описание на изхода — на български",
   "system_prompt": "System prompt на БЪЛГАРСКИ. Минимум 3 изречения. Описва ролята, стила, езика и ограниченията на агента.",
-  "prompt_template": "Промпт шаблон на БЪЛГАРСКИ. Минимум 5 изречения. Включи конкретни инструкции за формат, тон, дължина, какво да се включи/изключи. Използвай placeholder-и {{company_description}}, {{input}}, {{topic}} където е подходящо.",
+  "prompt_template": "Промпт шаблон на БЪЛГАРСКИ. Минимум 5 изречения. Включи конкретни инструкции за формат, тон, дължина, какво да се включи/изключи. Използвай placeholder-и {{company_description}}, {{input}}, {{topic}} и {{url}} (за конкретен сайт) където е подходящо.",
   "model": "точен ollama tag от списъка по-горе",
   "model_reason": "защо е избран този модел — на български",
   "order": 1,
@@ -82,7 +114,7 @@ Flow за изграждане: "{$flow->description}"
   "uid": null,
   "config": {
     "temperature": 0.7,
-    "num_predict": 1000,
+    "num_predict": null,
     "qa": {
       "enabled": false,
       "verifier_agent_uid": "qa_main",
@@ -97,12 +129,13 @@ Flow за изграждане: "{$flow->description}"
 За qa_verifier: is_verifier=true, qa_threshold=60, temperature=0.1, uid="qa_main", config НЕ включва qa поле
 За всеки НЕ-verifier агент: config ТРЯБВА да включва qa обект с enabled=false, verifier_agent_uid="qa_main", threshold=60, max_retries=3
 За custom_prompt в config.qa — пиши конкретна проверка подходяща за изхода на агента:
-  - competitor_profiler/researcher: "Провери дали са намерени поне 3 конкурента/резултата с имена и уебсайтове. Ако липсват цени — допустимо е, но трябва да е отбелязано. Структурата трябва да е ясна."
-  - deep_researcher/analyzer: "Провери дали изходът съдържа структурирани данни, цитирани източници и ключови открития. Данните трябва да са организирани и лесно четими."
+  - researcher/deep_researcher: "Провери дали са събрани конкретни данни за исканата тема с поне 3 отделни факта/резултата. Данните трябва да са релевантни на flow описанието и добре структурирани."
+  - competitor_profiler (САМО ако е включен): "Провери дали са намерени поне 3 конкурента с имена и уебсайтове. Ако липсват цени — допустимо е, но трябва да е отбелязано. Структурата трябва да е ясна."
+  - analyzer: "Провери дали изходът съдържа структурирани данни, цитирани източници и ключови открития. Данните трябва да са организирани и лесно четими."
   - content_bg/hook_writer/caption_writer/bg_text_corrector: "Провери дали съдържанието е на БЪЛГАРСКИ, има ясен призив за действие (CTA), подходящ тон и структура за платформата. Проверка за правопис и стил."
   - report_composer/report_writer: "Провери дали докладът съдържа всички необходими секции, изводи и препоръки. Езикът трябва да е БЪЛГАРСКИ, professional тон."
   - За всички останали: напиши проверка базирана на output_description на агента — какво конкретно трябва да присъства в изхода
-За image_prompt агенти: temperature=0.8, num_predict=500
+За image_prompt агенти: temperature=0.8, num_predict се задава автоматично от системата
 За researcher/analyzer: temperature=0.3
 MSG;
 
@@ -119,7 +152,7 @@ MSG;
             model: $generatorModel,
             systemPrompt: $systemPrompt,
             userMessage: $userMessage,
-            options: ['temperature' => 0.2, 'num_predict' => 8000],
+            options: ['temperature' => 0.2, 'num_predict' => 4000],
             onProgress: $onProgress
         );
 
@@ -283,9 +316,18 @@ MSG;
             return null;
         }
 
+        $type = $agent['type'] ?? 'content';
+
+        // The model is chosen by code (by agent type + description), NOT by the
+        // generating LLM — which previously slapped the Bulgarian text model on
+        // every agent. The selector returns the ideal model; the executor pulls it
+        // on demand if it is not installed yet.
+        $modelHint = trim(($agent['name'] ?? '').' '.($agent['role'] ?? '').' '.($agent['output_description'] ?? ''));
+        $model = $this->modelSelector->selectModel($type, $modelHint);
+
         return [
             'name'               => $agent['name'],
-            'type'               => $agent['type'] ?? 'content',
+            'type'               => $type,
             'role'               => $agent['role'] ?? $agent['name'],
             'capabilities'       => (array) ($agent['capabilities'] ?? []),
             'strengths'          => $agent['strengths'] ?? null,
@@ -294,8 +336,8 @@ MSG;
             'output_description' => $agent['output_description'] ?? null,
             'prompt_template'    => $agent['prompt_template'] ?? $agent['role'] ?? '',
             'system_prompt'      => $agent['system_prompt'] ?? null,
-            'model'              => $agent['model'] ?? 'mistral-nemo',
-            'model_reason'       => $agent['model_reason'] ?? null,
+            'model'              => $model,
+            'model_reason'       => 'Автоматично избран според типа на агента ('.$type.') и наличните модели.',
             'order'              => (int) ($agent['order'] ?? $fallbackOrder),
             // Force qa_verifier type to always be a verifier even if AI forgot the flag
             'is_verifier'        => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
@@ -304,11 +346,74 @@ MSG;
             'qa_threshold'       => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
                 ? $this->generatedQaThresholdOrDefault($agent['qa_threshold'] ?? null)
                 : (isset($agent['qa_threshold']) ? (int) $agent['qa_threshold'] : null),
-            'config'             => is_array($agent['config'] ?? null)
-                ? $agent['config']
-                : ['temperature' => 0.7, 'num_predict' => 1000],
+            'config'             => $this->normalizeAgentConfig($agent['config'] ?? null, $type),
             'uid'                => $agent['uid'] ?? null,
         ];
+    }
+
+    /**
+     * Merge the LLM-generated config with code-owned overrides.
+     * num_predict is always set by code (typeToNumPredict) so the LLM cannot
+     * accidentally truncate outputs.
+     */
+    private function normalizeAgentConfig(mixed $raw, string $type): array
+    {
+        $config = is_array($raw) ? $raw : ['temperature' => 0.7];
+        // Code is the source of truth for num_predict — ignore whatever the LLM wrote.
+        $config['num_predict'] = $this->numPredictForType($type);
+        return $config;
+    }
+
+    /**
+     * Returns the appropriate num_predict (max output tokens) for an agent type.
+     * -1 means unlimited — the model stops on its own (correct for research/correction agents).
+     * The LLM's suggested value is ignored; this is the code's source of truth.
+     */
+    private function numPredictForType(string $type): int
+    {
+        // Unlimited: research agents must output the full gathered data; correctors reproduce full text.
+        $unlimited = [
+            'deep_researcher', 'researcher', 'multi_researcher',
+            'competitor_profiler', 'review_analyzer', 'keyword_extractor',
+            'bg_text_corrector',
+        ];
+
+        // Long: reports, analyses, summaries that regularly exceed 2 000 tokens.
+        $long = [
+            'report_writer', 'report_composer', 'analyzer', 'swot_builder',
+            'summarizer', 'data_extractor', 'email_sequence_writer',
+            'press_release_writer', 'calendar_planner', 'ab_test_generator',
+            'survey_builder', 'persona_builder', 'chatbot_responder',
+            'podcast_outline', 'video_script_writer', 'story_writer',
+            'crm_note_writer', 'offer_builder', 'product_describer',
+        ];
+
+        // Medium: posts, emails, captions — substantial but bounded.
+        $medium = [
+            'content_bg', 'content_en', 'writer', 'caption_writer', 'hook_writer',
+            'ad_copywriter', 'seo_writer', 'email_composer', 'newsletter_writer',
+            'review_responder', 'whatsapp_message_writer', 'translator',
+            'telegram_bot_responder', 'publisher',
+        ];
+
+        // Tiny: QA only needs a score + short justification.
+        $tiny = ['qa_verifier', 'verifier'];
+
+        if (in_array($type, $unlimited, true)) {
+            return -1;
+        }
+        if (in_array($type, $long, true)) {
+            return 6000;
+        }
+        if (in_array($type, $medium, true)) {
+            return 3000;
+        }
+        if (in_array($type, $tiny, true)) {
+            return 500;
+        }
+
+        // Default for hashtag generators, image_prompt, utility types, etc.
+        return 1000;
     }
 
     private function generatedQaThresholdOrDefault(mixed $threshold): int
@@ -342,13 +447,19 @@ MSG;
 
     private function ensureResearcherFirst(array $agents): array
     {
-        $researcherTypes = ['researcher', 'multi_researcher', 'deep_researcher', 'trend_researcher', 'competitor_profiler', 'review_analyzer', 'keyword_extractor'];
+        // Priority order: real site crawlers come first. deep_researcher actually
+        // scrapes pages; 'scraper' is intentionally excluded because it maps to
+        // ContentAgent (no scrape tool). trend_researcher only hunts viral topics
+        // and must never lead a site-audit pipeline, so it is last.
+        $researcherTypes = ['deep_researcher', 'researcher', 'multi_researcher', 'competitor_profiler', 'review_analyzer', 'keyword_extractor', 'trend_researcher'];
 
         $researcherIndex = null;
-        foreach ($agents as $i => $agent) {
-            if (in_array($agent['type'] ?? '', $researcherTypes, true)) {
-                $researcherIndex = $i;
-                break;
+        foreach ($researcherTypes as $type) {
+            foreach ($agents as $i => $agent) {
+                if (($agent['type'] ?? '') === $type) {
+                    $researcherIndex = $i;
+                    break 2;
+                }
             }
         }
 
@@ -433,7 +544,7 @@ MSG;
             'order' => 1,
             'is_verifier' => false,
             'qa_threshold' => null,
-            'config' => ['temperature' => 0.2, 'num_predict' => 1500],
+            'config' => ['temperature' => 0.2, 'num_predict' => -1],
         ];
     }
 

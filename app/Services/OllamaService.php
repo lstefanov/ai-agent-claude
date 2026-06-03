@@ -16,13 +16,14 @@ class OllamaService
     public function chat(string $model, string $systemPrompt, string $userMessage, array $options = [], ?callable $onProgress = null): string
     {
         $keepAlive = $options['keep_alive'] ?? '10m';
-        unset($options['keep_alive']);
+        $httpTimeout = $options['http_timeout'] ?? 600; // caller can set a shorter timeout
+        unset($options['keep_alive'], $options['http_timeout']);
 
         // Use stream:true so Ollama sends tokens immediately (NDJSON).
         // Without streaming, Ollama buffers the entire response before sending ANY bytes,
         // causing "0 bytes received" timeouts on long synthesis responses.
         $response = Http::withOptions(['stream' => true])  // Guzzle: don't buffer the body
-            ->timeout(600)                                  // safety net — matches job timeout
+            ->timeout($httpTimeout)                         // safety net — matches job timeout
             ->post($this->baseUrl . '/api/chat', [
                 'model'    => $model,
                 'messages' => [
@@ -55,7 +56,15 @@ class OllamaService
             $onProgress();
         };
 
+        // Enforce a total-stream deadline. Guzzle's ->timeout() only covers the
+        // initial connection/first-byte in streaming mode; the read loop itself
+        // can hang forever. We break out once the deadline is reached.
+        $streamDeadline = microtime(true) + $httpTimeout;
+
         while (!$body->eof()) {
+            if (microtime(true) > $streamDeadline) {
+                break; // deadline exceeded — return whatever was accumulated
+            }
             $chunkData = $body->read(8192);
             if ($chunkData !== '') {
                 $reportProgress();
@@ -86,6 +95,60 @@ class OllamaService
         }
 
         return $content;
+    }
+
+    /**
+     * Run many short chat completions CONCURRENTLY (non-streaming).
+     *
+     * Used by the map-reduce researcher to summarize many pages at once. Each
+     * request is independent; failures yield '' for that key without aborting the
+     * batch. Requests are sent in waves of $concurrency via Guzzle's HTTP pool.
+     *
+     * @param  array<int|string, array{model:string,system:string,user:string,options?:array}>  $requests
+     * @return array<int|string, string>  same keys → message content ('' on failure)
+     */
+    public function chatBatch(array $requests, int $concurrency = 4, int $httpTimeout = 90): array
+    {
+        $concurrency = max(1, $concurrency);
+        $results = [];
+
+        foreach (array_chunk($requests, $concurrency, true) as $wave) {
+            $responses = Http::pool(function ($pool) use ($wave, $httpTimeout) {
+                $calls = [];
+                foreach ($wave as $key => $req) {
+                    $options = array_merge(['temperature' => 0.7], $req['options'] ?? []);
+                    $calls[] = $pool->as((string) $key)
+                        ->timeout($httpTimeout)
+                        ->post($this->baseUrl.'/api/chat', [
+                            'model'    => $req['model'],
+                            'messages' => [
+                                ['role' => 'system', 'content' => $req['system'] ?? ''],
+                                ['role' => 'user',   'content' => $req['user'] ?? ''],
+                            ],
+                            'stream'     => false,
+                            'keep_alive' => '10m',
+                            'options'    => $options,
+                        ]);
+                }
+
+                return $calls;
+            });
+
+            foreach ($wave as $key => $req) {
+                $resp = $responses[(string) $key] ?? null;
+                $content = '';
+                try {
+                    if ($resp instanceof \Illuminate\Http\Client\Response && $resp->successful()) {
+                        $content = (string) ($resp->json('message.content') ?? '');
+                    }
+                } catch (\Throwable) {
+                    $content = '';
+                }
+                $results[$key] = $content;
+            }
+        }
+
+        return $results;
     }
 
     public function listModels(): array

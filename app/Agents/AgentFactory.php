@@ -3,6 +3,8 @@
 namespace App\Agents;
 
 use App\Agents\Tools\BraveSearchTool;
+use App\Agents\Tools\SiteCrawlerTool;
+use App\Agents\Tools\SiteDiscoveryTool;
 use App\Agents\Tools\WebScraperTool;
 use App\Models\Agent;
 use App\Services\BraveSearchService;
@@ -29,7 +31,9 @@ class AgentFactory
             'deep_researcher' => new DeepResearcherAgent($this->ollama, [
                 new BraveSearchTool($this->braveSearch),
                 new WebScraperTool(new CrawlService),
-            ]),
+                new SiteCrawlerTool(new CrawlService),
+                new SiteDiscoveryTool(new CrawlService),
+            ], new CrawlService),
             'summarizer' => new SummarizerAgent($this->ollama),
             'report_composer' => new ReportComposerAgent($this->ollama),
             'decision' => new DecisionAgent($this->ollama),
@@ -42,7 +46,10 @@ class AgentFactory
                 new BraveSearchTool($this->braveSearch),
                 new WebScraperTool(new CrawlService),
             ]),
-            'review_analyzer' => new ReviewAnalyzerAgent($this->ollama, [new WebScraperTool(new CrawlService)]),
+            'review_analyzer' => new ReviewAnalyzerAgent($this->ollama, [
+                new BraveSearchTool($this->braveSearch),
+                new WebScraperTool(new CrawlService),
+            ]),
             'keyword_extractor' => new KeywordExtractorAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
             'webhook_sender' => new WebhookSenderAgent($this->ollama),
             'slack_notifier' => new SlackNotifierAgent($this->ollama),

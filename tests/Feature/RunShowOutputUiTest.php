@@ -109,4 +109,44 @@ class RunShowOutputUiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('agent_runs.0.raw_output', '<think>internal</think>\n| Конкурент | Цена |');
     }
+
+    public function test_run_show_exposes_and_renders_agent_icon(): void
+    {
+        $company = Company::create([
+            'name' => 'Game Sport Center',
+            'description' => 'Sports center',
+            'industry' => 'Fitness',
+            'language' => 'bg',
+        ]);
+
+        $flow = $company->flows()->create([
+            'name' => 'Competition',
+            'description' => 'Research report',
+            'status' => 'active',
+        ]);
+
+        $flow->agents()->create([
+            'name' => 'Email Sender',
+            'icon' => '📧',
+            'type' => 'email',
+            'role' => 'Send',
+            'prompt_template' => 'Send report',
+            'model' => 'qwen2.5:14b',
+            'order' => 1,
+            'output_role' => 'body',
+            'is_active' => true,
+        ]);
+
+        $flowRun = FlowRun::create([
+            'flow_id' => $flow->id,
+            'status' => 'running',
+            'triggered_by' => 'manual',
+        ]);
+
+        $response = $this->get(route('flow-runs.show', $flowRun));
+
+        $response->assertOk();
+        $this->assertStringContainsString('"icon":'.json_encode('📧'), $response->getContent());
+        $response->assertSee('x-text="agent.icon || \'🤖\'"', false);
+    }
 }

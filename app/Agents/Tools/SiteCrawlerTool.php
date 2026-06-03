@@ -1,0 +1,56 @@
+<?php
+
+namespace App\Agents\Tools;
+
+use App\Services\CrawlService;
+use App\Support\PageContent;
+
+class SiteCrawlerTool implements AgentTool
+{
+    /**
+     * Max chars of USEFUL content per page, measured AFTER boilerplate stripping.
+     * WordPress/Elementor pages have ~10 KB of cookie popup + nav before the real
+     * content starts. After stripping, 4 000 chars captures: product title + price
+     * range + first description paragraph — everything an LLM needs for analysis.
+     */
+    private const MAX_CHARS_PER_PAGE = 4000;
+
+    public function __construct(private CrawlService $service) {}
+
+    public function name(): string
+    {
+        return 'crawl_site';
+    }
+
+    /**
+     * @param array{url?: string, max?: int} $params
+     */
+    public function execute(array $params): string
+    {
+        $url = trim((string) ($params['url'] ?? ''));
+        if ($url === '') {
+            return '';
+        }
+
+        $max = isset($params['max']) ? (int) $params['max'] : null;
+        $pages = $this->service->crawlSite($url, $max);
+
+        if (empty($pages)) {
+            return '';
+        }
+
+        $sections = [];
+        foreach ($pages as $pageUrl => $markdown) {
+            $content = PageContent::stripBoilerplate($markdown);
+            if ($content === '') {
+                continue;
+            }
+            if (mb_strlen($content) > self::MAX_CHARS_PER_PAGE) {
+                $content = mb_substr($content, 0, self::MAX_CHARS_PER_PAGE).' [...]';
+            }
+            $sections[] = "=== СТРАНИЦА: {$pageUrl} ===\n".$content;
+        }
+
+        return implode("\n\n", $sections);
+    }
+}

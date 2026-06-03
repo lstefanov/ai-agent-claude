@@ -45,6 +45,7 @@ class FlowController extends Controller
             'agents'        => 'required|array|min:1',
             'agents.*._uid'             => 'nullable|string|max:100',
             'agents.*.name'             => 'required|string',
+            'agents.*.icon'             => 'nullable|string|max:10',
             'agents.*.type'             => 'required|string',
             'agents.*.role'             => 'required|string',
             'agents.*.model'            => 'required|string',
@@ -88,6 +89,7 @@ class FlowController extends Controller
 
             $agent = $flow->agents()->create([
                 'name'              => $agentData['name'],
+                'icon'              => $agentData['icon'] ?? '🤖',
                 'type'              => $agentData['type'],
                 'role'              => $agentData['role'],
                 'capabilities'      => isset($agentData['capabilities']) ? (array) $agentData['capabilities'] : [],

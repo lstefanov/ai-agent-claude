@@ -86,4 +86,37 @@ class FlowShowTest extends TestCase
             $response->getContent()
         );
     }
+
+    public function test_flow_show_exposes_and_renders_agent_icon(): void
+    {
+        $company = Company::create([
+            'name' => 'Спортен Център',
+            'description' => 'Описание',
+            'industry' => 'Sports',
+            'language' => 'bg',
+        ]);
+
+        $flow = $company->flows()->create([
+            'name' => 'Web Game Search',
+            'description' => 'Search for web games.',
+            'status' => 'active',
+        ]);
+
+        $flow->agents()->create([
+            'name' => 'Researcher',
+            'icon' => '🔎',
+            'type' => 'researcher',
+            'role' => 'Research web games.',
+            'prompt_template' => 'Research {{topic}}.',
+            'model' => 'qwen2.5:14b',
+            'order' => 1,
+            'is_active' => true,
+        ]);
+
+        $response = $this->get(route('flows.show', $flow));
+
+        $response->assertOk();
+        $this->assertStringContainsString('"icon":'.json_encode('🔎'), $response->getContent());
+        $response->assertSee('x-text="agent.icon || \'🤖\'"', false);
+    }
 }

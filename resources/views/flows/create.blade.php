@@ -240,6 +240,7 @@ $langs   = config('output_preferences.langs');
                         {{-- Hidden inputs for form submission --}}
                         <input type="hidden" :name="'agents['+index+'][_uid]'"              :value="agent._uid">
                         <input type="hidden" :name="'agents['+index+'][name]'"              :value="agent.name">
+                        <input type="hidden" :name="'agents['+index+'][icon]'"              :value="agent.icon || '🤖'">
                         <input type="hidden" :name="'agents['+index+'][type]'"              :value="agent.type">
                         <input type="hidden" :name="'agents['+index+'][role]'"              :value="agent.role">
                         <input type="hidden" :name="'agents['+index+'][system_prompt]'"     :value="agent.system_prompt">
@@ -1162,6 +1163,7 @@ function flowCreator() {
 
         normalizeAgent(agent) {
             agent._uid = agent.uid || agent._uid || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random());
+            agent.icon = agent.icon || '🤖';
             agent.is_verifier = Boolean(agent.is_verifier || agent.type === 'qa_verifier');
             agent.output_language = agent.output_language || 'bg';
             agent.output_tone = agent.output_tone || '';
@@ -1343,6 +1345,7 @@ function flowCreator() {
             const defaults = {
                 _uid: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random(),
                 name: 'Нов агент',
+                icon: '🤖',
                 type: 'content_bg',
                 role: '',
                 system_prompt: '',
@@ -1374,6 +1377,7 @@ function flowCreator() {
             if (tpl) {
                 Object.assign(defaults, {
                     name:               tpl.name              || defaults.name,
+                    icon:               tpl.icon              || defaults.icon,
                     type:               tpl.type              || defaults.type,
                     role:               tpl.role              || '',
                     system_prompt:      tpl.system_prompt     || '',
