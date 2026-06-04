@@ -63,7 +63,7 @@ class GenerateAgentsCommand extends Command
 
             $onProgress('Подготовка на заявката');
 
-            $agents = $generator->generate($flow, $onProgress);
+            $agents = $generator->generate($flow, $onProgress, $token);
 
             if (empty($agents)) {
                 Cache::put($cacheKey, [

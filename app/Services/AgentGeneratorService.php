@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\AgentGenerationLog;
 use App\Models\Flow;
 use App\Models\LlmModel;
 use App\Support\UrlExtractor;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class AgentGeneratorService
 {
@@ -14,11 +16,11 @@ class AgentGeneratorService
     private const DEFAULT_QA_THRESHOLD = 60;
 
     public function __construct(
-        private OllamaService $ollama,
+        private GeneratorService $generator,
         private ModelSelectorService $modelSelector,
     ) {}
 
-    public function generate(Flow $flow, ?callable $onProgress = null): array
+    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null): array
     {
         $company       = $flow->company;
         $modelsContext = $this->buildModelsContext();
@@ -63,6 +65,7 @@ SUBJECT;
 6. ВИНАГИ включвай: поне един researcher/analyzer, поне един content агент, точно един bg_text_corrector предпоследен и точно един qa_verifier агент (може на всяка позиция)
 7. Избирай модели според задачата — виж списъка с модели
 8. Агентите ТРЯБВА да отговарят на описанието на flow-а — не измисляй задачи, които не са поискани. НЕ включвай competitor_profiler освен ако описанието директно споменава конкуренти.
+9. ГРАФ НА ЗАВИСИМОСТИТЕ: всеки агент има уникален "uid" и "depends_on" (масив от uid на агентите, чийто изход му е вход). Първите събиращи агенти имат depends_on=[]. Където е логично, използвай РАЗКЛОНЕНИЯ: няколко независими агента могат да събират различни данни паралелно (всеки с depends_on=[]), а следващ анализатор зависи от ВСИЧКИТЕ тях (depends_on с няколко uid → fan-in). НЕ прави цикли. depends_on реферира САМО съществуващи uid от този масив.
 
 Генерирането на по-малко от 5 агента е ЗАБРАНЕНО.
 PROMPT;
@@ -111,7 +114,8 @@ Flow за изграждане: "{$flow->description}"
   "order": 1,
   "is_verifier": false,
   "qa_threshold": null,
-  "uid": null,
+  "uid": "kratak_stabilen_id (напр. 'researcher_site', 'analyzer_main') — уникален за всеки агент",
+  "depends_on": ["масив от uid на агентите, чийто ИЗХОД този агент ползва като вход — празен масив за първите агенти"],
   "config": {
     "temperature": 0.7,
     "num_predict": null,
@@ -139,25 +143,48 @@ Flow за изграждане: "{$flow->description}"
 За researcher/analyzer: temperature=0.3
 MSG;
 
-        $generatorModel = config('services.ollama.generator_model', 'mistral-nemo');
+        $options = ['temperature' => 0.2, 'num_predict' => 4000];
+        $providerModel = $this->generator->providerModel();
 
-        Log::info('[AgentGenerator] Using model: ' . $generatorModel);
+        Log::info('[AgentGenerator] Using provider: ' . $providerModel['provider'] . ' (' . $providerModel['model'] . ')');
         Log::info('[AgentGenerator] Flow: ' . $flow->description);
+
+        // Persist a full, untruncated record of the generation request so it can be
+        // reviewed later in the builder's "Лог на генерирането" panel.
+        $genLog = AgentGenerationLog::create([
+            'flow_id'       => $flow->id,
+            'company_id'    => $flow->company_id ?? $flow->company?->id,
+            'token'         => $logToken,
+            'provider'      => $providerModel['provider'],
+            'model'         => $providerModel['model'],
+            'system_prompt' => $systemPrompt,
+            'user_message'  => $userMessage,
+            'options'       => $options,
+            'status'        => 'running',
+        ]);
+        $startMs = (int) (microtime(true) * 1000);
 
         if ($onProgress) {
             $onProgress('Генериране на агенти');
         }
 
-        $raw = $this->ollama->chat(
-            model: $generatorModel,
-            systemPrompt: $systemPrompt,
-            userMessage: $userMessage,
-            options: ['temperature' => 0.2, 'num_predict' => 4000],
-            onProgress: $onProgress
-        );
+        try {
+            $raw = $this->generator->chat(
+                systemPrompt: $systemPrompt,
+                userMessage: $userMessage,
+                options: $options,
+                onProgress: $onProgress
+            );
+        } catch (Throwable $e) {
+            $genLog->update([
+                'status'      => 'failed',
+                'error'       => $e->getMessage(),
+                'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
+            ]);
+            throw $e;
+        }
 
         Log::info('[AgentGenerator] Raw response length: ' . strlen($raw));
-        Log::info('[AgentGenerator] Raw response: ' . substr($raw, 0, 2000));
 
         if ($onProgress) {
             $onProgress('Обработка на резултата');
@@ -166,6 +193,14 @@ MSG;
         $agents = $this->parseAgentJson($raw);
 
         Log::info('[AgentGenerator] Parsed ' . count($agents) . ' agents');
+
+        $genLog->update([
+            'raw_response' => $raw,
+            'parsed_count' => count($agents),
+            'duration_ms'  => (int) (microtime(true) * 1000) - $startMs,
+            'status'       => count($agents) < 3 ? 'failed' : 'completed',
+            'error'        => count($agents) < 3 ? 'AI върна по-малко от 3 агента.' : null,
+        ]);
 
         // Safety net: if AI returned fewer than 3, something went wrong
         if (count($agents) < 3) {
@@ -187,8 +222,98 @@ MSG;
 
         $agents = $this->ensureQaVerifierLast($agents);
         $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
+        $agents = $this->finalizeDependencyGraph($agents);
 
         return $agents;
+    }
+
+    /**
+     * Guarantee a clean, acyclic dependency graph the builder can lay out:
+     *  - every agent gets a unique, stable uid;
+     *  - depends_on references are validated against existing uids (self-refs dropped);
+     *  - auto-added agents without deps are chained to the previous non-verifier agent;
+     *  - any cycle collapses the whole graph to a sequential chain by order.
+     */
+    private function finalizeDependencyGraph(array $agents): array
+    {
+        $usedUids = [];
+        foreach ($agents as $i => &$agent) {
+            $uid = trim((string) ($agent['uid'] ?? ''));
+            if ($uid === '' || isset($usedUids[$uid])) {
+                $base = preg_replace('/[^a-z0-9]+/', '_', mb_strtolower($agent['type'] ?? 'agent'));
+                $uid = trim($base, '_').'_'.($i + 1);
+            }
+            $usedUids[$uid] = true;
+            $agent['uid'] = $uid;
+            $agent['depends_on'] = $this->normalizeDependsOn($agent['depends_on'] ?? null);
+        }
+        unset($agent);
+
+        $validUids = array_fill_keys(array_column($agents, 'uid'), true);
+        $prevNonVerifierUid = null;
+
+        foreach ($agents as &$agent) {
+            // Keep only references to existing agents; never depend on self.
+            $agent['depends_on'] = array_values(array_filter(
+                $agent['depends_on'],
+                fn ($u) => isset($validUids[$u]) && $u !== $agent['uid'],
+            ));
+
+            // Auto-added agents (no deps, not first) chain to the previous step.
+            if (empty($agent['depends_on']) && $prevNonVerifierUid && ! ($agent['is_verifier'] ?? false)) {
+                $isFirstResearcher = (int) ($agent['order'] ?? 0) <= 1;
+                if (! $isFirstResearcher) {
+                    $agent['depends_on'] = [$prevNonVerifierUid];
+                }
+            }
+
+            if (! ($agent['is_verifier'] ?? false)) {
+                $prevNonVerifierUid = $agent['uid'];
+            }
+        }
+        unset($agent);
+
+        if ($this->hasDependencyCycle($agents)) {
+            Log::warning('[AgentGenerator] depends_on cycle detected — falling back to sequential chain');
+            $prev = null;
+            foreach ($agents as &$agent) {
+                $agent['depends_on'] = ($prev && ! ($agent['is_verifier'] ?? false)) ? [$prev] : [];
+                if (! ($agent['is_verifier'] ?? false)) {
+                    $prev = $agent['uid'];
+                }
+            }
+            unset($agent);
+        }
+
+        return $agents;
+    }
+
+    /** Kahn-style cycle detection over the uid dependency graph. */
+    private function hasDependencyCycle(array $agents): bool
+    {
+        $inDegree = [];
+        $adj = [];
+        foreach ($agents as $a) {
+            $inDegree[$a['uid']] = $inDegree[$a['uid']] ?? 0;
+            foreach ($a['depends_on'] as $dep) {
+                $adj[$dep][] = $a['uid'];
+                $inDegree[$a['uid']]++;
+            }
+        }
+
+        $queue = array_keys(array_filter($inDegree, fn ($d) => $d === 0));
+        $resolved = 0;
+        while ($queue) {
+            $u = array_shift($queue);
+            $resolved++;
+            foreach ($adj[$u] ?? [] as $v) {
+                if (--$inDegree[$v] === 0) {
+                    $queue[] = $v;
+                }
+            }
+        }
+
+        return $resolved < count($inDegree);
     }
 
     private function buildModelsContext(): string
@@ -325,17 +450,34 @@ MSG;
         $modelHint = trim(($agent['name'] ?? '').' '.($agent['role'] ?? '').' '.($agent['output_description'] ?? ''));
         $model = $this->modelSelector->selectModel($type, $modelHint);
 
+        // Defensive fallbacks: a partial LLM response must never produce a
+        // FlowNode with empty prompts — the executor would then send empty
+        // user/system messages to Ollama.
+        $role = trim((string) ($agent['role'] ?? $agent['name']));
+        $promptTemplate = trim((string) ($agent['prompt_template'] ?? ''));
+        if ($promptTemplate === '') {
+            $promptTemplate = $role !== ''
+                ? $role
+                : ('Извърши задачата на агент "'.$agent['name'].'" и върни резултата.');
+        }
+        $systemPrompt = trim((string) ($agent['system_prompt'] ?? ''));
+        if ($systemPrompt === '') {
+            $systemPrompt = 'Ти си агент "'.$agent['name'].'". '
+                . ($role !== '' ? $role.' ' : '')
+                . 'Отговаряй на български език.';
+        }
+
         return [
             'name'               => $agent['name'],
             'type'               => $type,
-            'role'               => $agent['role'] ?? $agent['name'],
+            'role'               => $role !== '' ? $role : $agent['name'],
             'capabilities'       => (array) ($agent['capabilities'] ?? []),
             'strengths'          => $agent['strengths'] ?? null,
             'limitations'        => $agent['limitations'] ?? null,
             'input_description'  => $agent['input_description'] ?? null,
             'output_description' => $agent['output_description'] ?? null,
-            'prompt_template'    => $agent['prompt_template'] ?? $agent['role'] ?? '',
-            'system_prompt'      => $agent['system_prompt'] ?? null,
+            'prompt_template'    => $promptTemplate,
+            'system_prompt'      => $systemPrompt,
             'model'              => $model,
             'model_reason'       => 'Автоматично избран според типа на агента ('.$type.') и наличните модели.',
             'order'              => (int) ($agent['order'] ?? $fallbackOrder),
@@ -348,7 +490,26 @@ MSG;
                 : (isset($agent['qa_threshold']) ? (int) $agent['qa_threshold'] : null),
             'config'             => $this->normalizeAgentConfig($agent['config'] ?? null, $type),
             'uid'                => $agent['uid'] ?? null,
+            // Branching DAG: uids of agents whose output this agent consumes.
+            // Empty => the builder falls back to a sequential chain by order.
+            'depends_on'         => $this->normalizeDependsOn($agent['depends_on'] ?? null),
         ];
+    }
+
+    /**
+     * Normalize the LLM-provided dependency list into a clean array of uid strings.
+     * The builder resolves these into graph edges (with a cycle guard).
+     */
+    private function normalizeDependsOn(mixed $raw): array
+    {
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            fn ($v) => is_string($v) ? trim($v) : (is_scalar($v) ? (string) $v : null),
+            $raw,
+        ), fn ($v) => $v !== null && $v !== ''));
     }
 
     /**
@@ -435,8 +596,7 @@ MSG;
             }
         }
 
-        $response = $this->ollama->chat(
-            model: config('services.ollama.generator_model', 'mistral-nemo'),
+        $response = $this->generator->chat(
             systemPrompt: 'Answer only YES or NO. No other text.',
             userMessage: "Does this flow description require fetching real-time web data or current news?\n\n{$description}",
             options: ['temperature' => 0.0, 'num_predict' => 5]

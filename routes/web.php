@@ -5,7 +5,9 @@ use App\Http\Controllers\Admin\AgentTemplateController as AdminAgentTemplateCont
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentTemplateController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
+use App\Http\Controllers\FlowGraphController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\LlmModelController;
 use Illuminate\Support\Facades\Route;
@@ -30,6 +32,13 @@ Route::post('flows/generate-agents', [FlowController::class, 'generateAgents'])-
 Route::post('flows/improve-description', [FlowController::class, 'improveDescription'])->name('flows.improve-description');
 // AJAX: poll generation status by token
 Route::get('flows/generation-status/{token}', [FlowController::class, 'generationStatus'])->name('flows.generation-status');
+// AJAX: full agent-generation logs for a flow's company
+Route::get('flows/{flow}/generation-logs', [FlowController::class, 'generationLogs'])->name('flows.generation-logs');
+
+// Graph builder (Drawflow)
+Route::get('flows/{flow}/builder', [FlowBuilderController::class, 'show'])->name('flows.builder');
+Route::post('flows/{flow}/graph', [FlowGraphController::class, 'store'])->name('flows.graph.store');
+Route::post('flows/{flow}/graph/validate', [FlowGraphController::class, 'validateGraph'])->name('flows.graph.validate');
 
 // Flow runs
 Route::post('flows/{flow}/run', [FlowRunController::class, 'store'])->name('flow-runs.store');

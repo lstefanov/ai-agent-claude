@@ -73,9 +73,11 @@ class AiButtonUiTest extends TestCase
             'type' => 'content_bg',
         ]);
 
+        // Agent field-generation lives in the Graph Editor (builder) properties
+        // modal and the agent/template edit pages. The create + show pages no
+        // longer carry per-agent AI buttons (agents are managed in the builder).
         $pages = [
-            route('companies.flows.create', $company),
-            route('flows.show', $flow),
+            route('flows.builder', $flow),
             route('agents.edit', [$flow, $agent]),
             route('companies.agent-templates.create', $company),
             route('companies.agent-templates.edit', [$company, $companyTemplate]),

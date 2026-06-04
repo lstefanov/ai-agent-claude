@@ -17,7 +17,7 @@ class FlowController extends Controller
 
     public function __construct(
         private AgentGeneratorService $generator,
-        private \App\Services\OllamaService $ollama,
+        private \App\Services\GeneratorService $llm,
     ) {}
 
     public function index()
@@ -42,35 +42,6 @@ class FlowController extends Controller
             'description'   => 'required|string',
             'status'        => 'required|in:draft,active,paused',
             'schedule_cron' => 'nullable|string|max:100',
-            'agents'        => 'required|array|min:1',
-            'agents.*._uid'             => 'nullable|string|max:100',
-            'agents.*.name'             => 'required|string',
-            'agents.*.icon'             => 'nullable|string|max:10',
-            'agents.*.type'             => 'required|string',
-            'agents.*.role'             => 'required|string',
-            'agents.*.model'            => 'required|string',
-            'agents.*.prompt_template'  => 'required|string',
-            'agents.*.order'            => 'required|integer|min:1',
-            'agents.*.system_prompt'    => 'nullable|string',
-            'agents.*.output_language'   => 'nullable|string|max:10',
-            'agents.*.output_tone'       => 'nullable|string|max:30',
-            'agents.*.output_style'      => 'nullable|string|max:30',
-            'agents.*.output_format'     => 'nullable|string|max:30',
-            'agents.*.is_verifier'      => 'nullable|boolean',
-            'agents.*.qa_threshold'     => 'nullable|integer|min:0|max:100',
-            'agents.*.config'           => 'nullable|array',
-            'agents.*.config.temperature' => 'nullable|numeric|min:0|max:2',
-            'agents.*.config.top_p' => 'nullable|numeric|min:0|max:1',
-            'agents.*.config.top_k' => 'nullable|integer|min:1|max:200',
-            'agents.*.config.repeat_penalty' => 'nullable|numeric|min:0|max:2',
-            'agents.*.config.num_predict' => 'nullable|integer|min:-1',
-            'agents.*.config.qa' => 'nullable|array',
-            'agents.*.config.qa.enabled' => 'nullable|boolean',
-            'agents.*.config.qa.verifier_agent_uid' => 'nullable|string|max:100',
-            'agents.*.config.qa.verifier_agent_order' => 'nullable|integer|min:1',
-            'agents.*.config.qa.threshold' => 'nullable|integer|min:0|max:100',
-            'agents.*.config.qa.max_retries' => 'nullable|integer|min:0|max:10',
-            'agents.*.config.qa.custom_prompt' => 'nullable|string|max:2000',
         ]);
 
         $flow = $company->flows()->create([
@@ -80,45 +51,11 @@ class FlowController extends Controller
             'schedule_cron' => $validated['schedule_cron'] ?? null,
         ]);
 
-        $createdAgents = [];
-
-        foreach ($validated['agents'] as $agentData) {
-            $isVerifier = (bool) ($agentData['is_verifier'] ?? false) || $agentData['type'] === 'qa_verifier';
-            $config = isset($agentData['config']) ? (array) $agentData['config'] : ['temperature' => 0.7, 'num_predict' => 1000];
-            unset($config['qa']);
-
-            $agent = $flow->agents()->create([
-                'name'              => $agentData['name'],
-                'icon'              => $agentData['icon'] ?? '🤖',
-                'type'              => $agentData['type'],
-                'role'              => $agentData['role'],
-                'capabilities'      => isset($agentData['capabilities']) ? (array) $agentData['capabilities'] : [],
-                'strengths'         => $agentData['strengths'] ?? null,
-                'limitations'       => $agentData['limitations'] ?? null,
-                'input_description' => $agentData['input_description'] ?? null,
-                'output_description'=> $agentData['output_description'] ?? null,
-                'prompt_template'   => $agentData['prompt_template'],
-                'system_prompt'     => $agentData['system_prompt'] ?? null,
-                'model'             => $agentData['model'],
-                'model_reason'      => $agentData['model_reason'] ?? null,
-                'output_language'   => $agentData['output_language'] ?? 'bg',
-                'output_tone'       => $agentData['output_tone'] ?? null,
-                'output_style'      => $agentData['output_style'] ?? null,
-                'output_format'     => $agentData['output_format'] ?? null,
-                'order'             => (int) $agentData['order'],
-                'is_verifier'       => $isVerifier,
-                'qa_threshold'      => $isVerifier ? $this->qaThresholdOrDefault($agentData['qa_threshold'] ?? null) : null,
-                'config'            => $config,
-                'is_active'         => true,
-            ]);
-
-            $createdAgents[] = ['agent' => $agent, 'source' => $agentData];
-        }
-
-        $this->applyInitialStepQaPolicies($createdAgents);
-
-        return redirect()->route('flows.show', $flow)
-            ->with('success', 'Flow е създаден успешно с ' . count($validated['agents']) . ' агента.');
+        // Agents are now built in the Graph Editor. Redirect there and kick off
+        // AI generation automatically (the builder shows a progress popup and
+        // auto-saves the resulting graph once).
+        return redirect()->route('flows.builder', ['flow' => $flow, 'generate' => 1])
+            ->with('success', 'Flow е създаден. Генерираме агентите…');
     }
 
     public function show(Flow $flow)
@@ -130,7 +67,29 @@ class FlowController extends Controller
             ->orderBy('category')
             ->orderBy('display_name')
             ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for', 'is_available']);
-        return view('flows.show', compact('flow', 'runs', 'models'));
+
+        $agentTypes = collect(config('agent_types', []))
+            ->map(fn ($meta, $type) => [
+                'type' => $type,
+                'label' => $meta['label'] ?? $type,
+                'output_role' => $meta['output_role'] ?? 'body',
+            ])
+            ->values()
+            ->all();
+
+        $graphPreviewConfig = [
+            // Nodes sorted by horizontal position for a left-to-right preview.
+            // We load them from the DB (not graph_layout JSON) for reliability.
+            'nodes' => $flow->nodes()
+                ->orderBy('pos_x')
+                ->get(['node_key', 'name', 'type', 'icon', 'output_role', 'pos_x'])
+                ->toArray(),
+            'hasGraph' => $flow->nodes()->exists(),
+            'builderUrl' => route('flows.builder', $flow),
+            'agentTypes' => $agentTypes,
+        ];
+
+        return view('flows.show', compact('flow', 'runs', 'models', 'graphPreviewConfig'));
     }
 
     public function edit(Flow $flow)
@@ -226,8 +185,7 @@ class FlowController extends Controller
 MSG;
 
         try {
-            $improved = $this->ollama->chat(
-                model: config('services.ollama.generator_model', 'mistral-nemo'),
+            $improved = $this->llm->chat(
                 systemPrompt: $systemPrompt,
                 userMessage: $userMessage,
                 options: ['temperature' => 0.4, 'num_predict' => 600]
@@ -251,9 +209,9 @@ MSG;
             'description' => 'required|string|min:10',
         ]);
 
-        if (! $this->ollama->isAvailable()) {
+        if (! $this->llm->isAvailable()) {
             return response()->json([
-                'error' => 'Ollama не е достъпна. Стартирай Ollama и опитай отново.',
+                'error' => 'AI услугата не е достъпна. Провери конфигурацията на LLM провайдъра.',
             ], 503);
         }
 
@@ -296,6 +254,44 @@ MSG;
         }
 
         return response()->json($result);
+    }
+
+    /**
+     * Recent agent-generation logs for this flow's company, with full detail
+     * (system/user prompt, options, raw response). Powers the builder's
+     * "Лог на генерирането" panel.
+     */
+    public function generationLogs(Flow $flow)
+    {
+        $logs = \App\Models\AgentGenerationLog::query()
+            ->where(fn ($q) => $q
+                ->where('flow_id', $flow->id)
+                ->orWhere('company_id', $flow->company_id)
+            )
+            ->latest()
+            ->limit(20)
+            ->get([
+                'id', 'provider', 'model', 'system_prompt', 'user_message',
+                'options', 'raw_response', 'parsed_count', 'status', 'error',
+                'duration_ms', 'created_at',
+            ]);
+
+        return response()->json([
+            'logs' => $logs->map(fn ($l) => [
+                'id'            => $l->id,
+                'provider'      => $l->provider,
+                'model'         => $l->model,
+                'system_prompt' => $l->system_prompt,
+                'user_message'  => $l->user_message,
+                'options'       => $l->options,
+                'raw_response'  => $l->raw_response,
+                'parsed_count'  => $l->parsed_count,
+                'status'        => $l->status,
+                'error'         => $l->error,
+                'duration_ms'   => $l->duration_ms,
+                'created_at'    => $l->created_at?->format('Y-m-d H:i:s'),
+            ])->values(),
+        ]);
     }
 
     private function applyInitialStepQaPolicies(array $createdAgents): void

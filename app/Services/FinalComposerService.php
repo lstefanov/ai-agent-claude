@@ -149,7 +149,7 @@ class FinalComposerService
     }
 
     /**
-     * Collect completed body/appendix outputs in agent order.
+     * Collect completed body/appendix node outputs in execution order.
      * Hidden (research) and quality (QA) outputs are excluded.
      *
      * @return array{0: list<array{name: string, output: string}>, 1: list<array{name: string, output: string}>}
@@ -157,19 +157,19 @@ class FinalComposerService
     private function collectParts(FlowRun $flowRun): array
     {
         /** @var Collection $runs */
-        $runs = $flowRun->agentRuns()
-            ->with('agent')
+        $runs = $flowRun->nodeRuns()
+            ->with('flowNode')
             ->where('status', 'completed')
             ->get()
-            ->filter(fn ($r) => $r->agent && is_string($r->output) && trim($r->output) !== '')
-            ->sortBy(fn ($r) => $r->agent->order);
+            ->filter(fn ($r) => $r->flowNode && is_string($r->output) && trim($r->output) !== '')
+            ->sortBy(fn ($r) => $r->id); // execution order (waves create runs in order)
 
         $body = [];
         $appendix = [];
 
         foreach ($runs as $run) {
-            $role = $run->agent->effectiveOutputRole();
-            $part = ['name' => $run->agent->name, 'output' => trim($run->output)];
+            $role = $run->flowNode->effectiveOutputRole();
+            $part = ['name' => $run->flowNode->name, 'output' => trim($run->output)];
 
             if ($role === 'body') {
                 $body[] = $part;

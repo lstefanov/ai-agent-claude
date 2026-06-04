@@ -15,7 +15,7 @@ class RobustAgentGenerationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_generate_agents_fast_fails_when_ollama_is_unavailable(): void
+    public function test_generate_agents_fast_fails_when_llm_is_unavailable(): void
     {
         $company = $this->createCompany();
         $this->fakeBackgroundExecBinary();
@@ -31,7 +31,7 @@ class RobustAgentGenerationTest extends TestCase
         ])
             ->assertStatus(503)
             ->assertJson([
-                'error' => 'Ollama не е достъпна. Стартирай Ollama и опитай отново.',
+                'error' => 'AI услугата не е достъпна. Провери конфигурацията на LLM провайдъра.',
             ]);
     }
 
@@ -104,17 +104,40 @@ class RobustAgentGenerationTest extends TestCase
         $this->assertSame('completed', Cache::get("agent_gen_{$token}")['status']);
     }
 
-    public function test_create_page_uses_stall_detection_instead_of_old_hard_timeout(): void
+    public function test_normalized_agent_always_has_prompt_template_and_system_prompt(): void
     {
-        $view = file_get_contents(resource_path('views/flows/create.blade.php'));
+        // A partial LLM response (missing prompts entirely) must still produce
+        // a usable agent with defensive default prompts — the executor would
+        // otherwise send empty messages to Ollama.
+        $service = app(\App\Services\AgentGeneratorService::class);
+        $ref = new \ReflectionMethod($service, 'normalizeAgent');
+        $ref->setAccessible(true);
 
-        $this->assertStringContainsString('STALL_LIMIT', $view);
-        $this->assertStringContainsString('HARD_LIMIT', $view);
-        $this->assertStringContainsString('generationStage', $view);
-        $this->assertStringContainsString('genStalled', $view);
-        $this->assertStringContainsString('resumePolling', $view);
-        $this->assertStringNotContainsString('const maxWait = 300', $view);
-        $this->assertStringNotContainsString('Генерацията отне прекалено дълго', $view);
+        $agent = $ref->invoke($service, [
+            'name' => 'Test Agent',
+            'type' => 'content_bg',
+            'role' => '',
+            'prompt_template' => '',
+            'system_prompt' => '',
+        ], 1);
+
+        $this->assertIsArray($agent);
+        $this->assertNotSame('', trim((string) $agent['prompt_template']));
+        $this->assertNotSame('', trim((string) $agent['system_prompt']));
+        $this->assertStringContainsString('Test Agent', $agent['system_prompt']);
+    }
+
+    public function test_graph_builder_drives_agent_generation_with_progress_polling(): void
+    {
+        // Agent generation moved from the create wizard into the Graph Editor:
+        // a non-dismissable progress modal that polls the generation-status endpoint.
+        $view = file_get_contents(resource_path('views/flows/builder.blade.php'));
+
+        $this->assertStringContainsString('startGeneration', $view);
+        $this->assertStringContainsString('pollGeneration', $view);
+        $this->assertStringContainsString('generationStatusUrlBase', $view);
+        $this->assertStringContainsString('applyGeneratedGraph', $view);
+        $this->assertStringContainsString('gen.active', $view);
     }
 
     private function createCompany(): Company

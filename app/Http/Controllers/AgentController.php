@@ -11,7 +11,7 @@ class AgentController extends Controller
 {
     private const DEFAULT_QA_THRESHOLD = 60;
 
-    public function __construct(private \App\Services\OllamaService $ollama) {}
+    public function __construct(private \App\Services\GeneratorService $llm) {}
 
     public function store(Request $request, Flow $flow)
     {
@@ -190,8 +190,7 @@ class AgentController extends Controller
         };
 
         try {
-            $generated = $this->ollama->chat(
-                model: config('services.ollama.generator_model', 'mistral-nemo'),
+            $generated = $this->llm->chat(
                 systemPrompt: $systemPrompt,
                 userMessage: $userMessage,
                 options: ['temperature' => 0.3, 'num_predict' => 800]

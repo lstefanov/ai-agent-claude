@@ -3,16 +3,16 @@
 namespace App\Console\Commands;
 
 use App\Models\FlowRun;
-use App\Services\FlowExecutorService;
+use App\Services\GraphFlowExecutor;
 use Illuminate\Console\Command;
 use Throwable;
 
 class ExecuteFlowCommand extends Command
 {
     protected $signature = 'flows:execute {flowRunId}';
-    protected $description = 'Execute a flow run in the background';
+    protected $description = 'Execute a flow run via the graph DAG executor';
 
-    public function handle(FlowExecutorService $executor): int
+    public function handle(GraphFlowExecutor $executor): int
     {
         $flowRunId = $this->argument('flowRunId');
 

@@ -8,41 +8,82 @@ $runQaThresholds = $flowRun->context['qa_thresholds'] ?? [];
 $stepQaPolicies = $flowRun->context['step_qa_policies'] ?? [];
 $stepQaResults = $flowRun->context['step_qa_results'] ?? [];
 $failureMessage = $flowRun->context['failure_message'] ?? null;
-$initialAgents = $flowRun->flow->agents
-    ->where('is_active', true)
-    ->sortBy('order')
-    ->map(fn($a) => [
-        'id'           => $a->id,
-        'name'         => $a->name,
-        'icon'         => $a->icon ?? '🤖',
-        'type'         => $a->type,
-        'output_role'  => $a->effectiveOutputRole(),
-        'is_verifier'  => (bool) $a->is_verifier,
-        'qa_threshold' => $runQaThresholds[(string) $a->id] ?? $a->qa_threshold,
-        'step_qa_policy' => $stepQaPolicies[(string) $a->id] ?? null,
-        'step_qa_result' => $stepQaResults[(string) $a->id] ?? null,
-        'model'        => $a->model,
-        'order'        => $a->order,
-    ])->values();
 
-$initialAgentRuns = $flowRun->agentRuns->sortBy('id');
-$initialAttemptCounts = $initialAgentRuns->groupBy('agent_id')->map->count();
-$initialRuns = (object) $initialAgentRuns->mapWithKeys(fn($r) => [
-    (string) $r->agent_id => [
-        'agent_id'     => $r->agent_id,
-        'status'       => $r->status,
-        'model_used'   => $r->model_used,
-        'input'        => $r->input,
-        'output'       => $r->output,
-        'raw_output'   => $r->raw_output,
-        'error'        => $r->error,
-        'duration_ms'  => $r->duration_ms,
-        'tokens_used'  => $r->tokens_used,
-        'attempt_count'=> $initialAttemptCounts[$r->agent_id] ?? 1,
-        'started_at'   => $r->started_at?->format('H:i:s'),
-        'completed_at' => $r->completed_at?->format('H:i:s'),
-    ]
-])->toArray();
+// Detect graph mode: flow has nodes → use node_runs, otherwise fall back to legacy agent_runs.
+$isGraphRun = $flowRun->flow->nodes->isNotEmpty();
+
+if ($isGraphRun) {
+    // Graph mode: map FlowNodes → unified "agents" shape and NodeRuns → "runs" shape.
+    $initialAgents = $flowRun->flow->nodes
+        ->map(fn($n) => [
+            'id'             => $n->id,
+            'name'           => $n->name,
+            'icon'           => '🤖',
+            'type'           => $n->type,
+            'output_role'    => $n->effectiveOutputRole(),
+            'is_verifier'    => $n->type === 'qa_verifier',
+            'qa_threshold'   => $n->config['qa']['threshold'] ?? null,
+            'step_qa_policy' => null,
+            'step_qa_result' => $stepQaResults[$n->node_key] ?? null,
+            'model'          => $n->model,
+            'order'          => 0,
+        ])->values();
+
+    $initialRuns = (object) $flowRun->nodeRuns->sortBy('id')
+        ->mapWithKeys(fn($r) => [
+            (string) $r->flow_node_id => [
+                'agent_id'     => $r->flow_node_id,
+                'status'       => $r->status,
+                'model_used'   => $r->model_used,
+                'input'        => $r->input,
+                'output'       => $r->output,
+                'raw_output'   => $r->raw_output,
+                'error'        => $r->error,
+                'duration_ms'  => $r->duration_ms,
+                'tokens_used'  => $r->tokens_used,
+                'attempt_count'=> 1,
+                'started_at'   => $r->started_at?->format('H:i:s'),
+                'completed_at' => $r->completed_at?->format('H:i:s'),
+            ]
+        ])->toArray();
+} else {
+    // Legacy agent mode.
+    $initialAgents = $flowRun->flow->agents
+        ->where('is_active', true)
+        ->sortBy('order')
+        ->map(fn($a) => [
+            'id'           => $a->id,
+            'name'         => $a->name,
+            'icon'         => $a->icon ?? '🤖',
+            'type'         => $a->type,
+            'output_role'  => $a->effectiveOutputRole(),
+            'is_verifier'  => (bool) $a->is_verifier,
+            'qa_threshold' => $runQaThresholds[(string) $a->id] ?? $a->qa_threshold,
+            'step_qa_policy' => $stepQaPolicies[(string) $a->id] ?? null,
+            'step_qa_result' => $stepQaResults[(string) $a->id] ?? null,
+            'model'        => $a->model,
+            'order'        => $a->order,
+        ])->values();
+
+    $initialAgentRuns = $flowRun->agentRuns->sortBy('id');
+    $initialAttemptCounts = $initialAgentRuns->groupBy('agent_id')->map->count();
+    $initialRuns = (object) $initialAgentRuns->mapWithKeys(fn($r) => [
+        (string) $r->agent_id => [
+            'agent_id'     => $r->agent_id,
+            'status'       => $r->status,
+            'model_used'   => $r->model_used,
+            'input'        => $r->input,
+            'output'       => $r->output,
+            'raw_output'   => $r->raw_output,
+            'error'        => $r->error,
+            'duration_ms'  => $r->duration_ms,
+            'tokens_used'  => $r->tokens_used,
+            'attempt_count'=> $initialAttemptCounts[$r->agent_id] ?? 1,
+            'started_at'   => $r->started_at?->format('H:i:s'),
+            'completed_at' => $r->completed_at?->format('H:i:s'),
+        ]
+    ])->toArray();
+}
 
 // Detect platform from flow description / name
 $flowDesc     = strtolower($flowRun->flow->description ?? '');

@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\AgentGeneratorService;
+use App\Services\GeneratorService;
 use App\Services\ModelSelectorService;
 use App\Services\OllamaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,7 +25,7 @@ class AgentGeneratorWebResearchTest extends TestCase
             fn (string $type, ?string $hint = null): string => $type === 'qa_verifier' ? 'phi3.5:mini' : 'todorov/bggpt'
         );
 
-        return new AgentGeneratorService($ollama, $selector);
+        return new AgentGeneratorService(new GeneratorService($ollama), $selector);
     }
 
     public function test_keyword_новини_triggers_web_research(): void
@@ -50,7 +51,7 @@ class AgentGeneratorWebResearchTest extends TestCase
         $ollama = \Mockery::mock(OllamaService::class);
         $ollama->shouldReceive('chat')->once()->andReturn('YES');
         $selector = \Mockery::mock(ModelSelectorService::class);
-        $service  = new AgentGeneratorService($ollama, $selector);
+        $service  = new AgentGeneratorService(new GeneratorService($ollama), $selector);
 
         $result = $this->invokeNeedsWebResearch($service, 'Анализирай продажбените данни от миналия месец.');
 
@@ -62,7 +63,7 @@ class AgentGeneratorWebResearchTest extends TestCase
         $ollama = \Mockery::mock(OllamaService::class);
         $ollama->shouldReceive('chat')->once()->andReturn('NO');
         $selector = \Mockery::mock(ModelSelectorService::class);
-        $service  = new AgentGeneratorService($ollama, $selector);
+        $service  = new AgentGeneratorService(new GeneratorService($ollama), $selector);
 
         $result = $this->invokeNeedsWebResearch($service, 'Анализирай продажбените данни от миналия месец.');
 
@@ -283,7 +284,7 @@ class AgentGeneratorWebResearchTest extends TestCase
         ]);
         $flow->setRelation('company', $company);
 
-        $agents = (new AgentGeneratorService($ollama, $selector))->generate($flow, $onProgress);
+        $agents = (new AgentGeneratorService(new GeneratorService($ollama), $selector))->generate($flow, $onProgress);
 
         $this->assertNotEmpty($agents);
         $this->assertContains('Генериране на агенти', $stages);

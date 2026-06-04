@@ -43,6 +43,22 @@ else
     fi
 fi
 
+# Start Laravel queue worker (flows queue)
+ARTISAN="$(dirname "$0")/../artisan"
+if pgrep -f "queue:work.*flows" > /dev/null; then
+    echo "✓ Queue worker already running"
+else
+    echo "Starting queue worker..."
+    php "$ARTISAN" queue:work --queue=flows &> /tmp/queue-worker.log &
+    QUEUE_PID=$!
+    sleep 1
+    if pgrep -f "queue:work.*flows" > /dev/null; then
+        echo "✓ Queue worker started (PID: $QUEUE_PID)"
+    else
+        echo "✗ Queue worker failed to start — check /tmp/queue-worker.log"
+    fi
+fi
+
 # Start Crawl4AI scraping service
 CRAWL_VENV="$(dirname "$0")/.venv"
 if curl -s http://localhost:8189/health > /dev/null 2>&1; then
@@ -68,9 +84,10 @@ fi
 
 echo ""
 echo "Services:"
-echo "  Ollama:   http://localhost:11434"
-echo "  ComfyUI:  http://localhost:8188"
-echo "  Crawl4AI: http://localhost:8189"
-echo "  FlowAI:   http://flowai.local"
+echo "  Ollama:       http://localhost:11434"
+echo "  ComfyUI:      http://localhost:8188"
+echo "  Crawl4AI:     http://localhost:8189"
+echo "  Queue worker: /tmp/queue-worker.log"
+echo "  FlowAI:       http://flowai.local"
 echo ""
 echo "Press Ctrl+C to stop background processes (if started by this script)."

@@ -4,78 +4,40 @@ namespace App\Http\Controllers;
 
 use App\Models\Flow;
 use App\Models\FlowRun;
+use App\Services\GraphFlowExecutor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class FlowRunController extends Controller
 {
-    private const DEFAULT_QA_THRESHOLD = 60;
-
-    public function store(Request $request, Flow $flow)
+    public function store(Request $request, Flow $flow, GraphFlowExecutor $executor)
     {
-        $activeAgents = $flow->agents()->where('is_active', true)->count();
+        $activeNodes = $flow->nodes()->where('is_active', true)->count();
 
-        if ($activeAgents === 0) {
-            return redirect()->route('flows.show', $flow)
-                ->with('error', 'Флоуът няма активни агенти.');
+        if ($activeNodes === 0) {
+            return redirect()->route('flows.builder', $flow)
+                ->with('error', 'Графът няма активни възли.');
         }
 
-        $verifiers = $flow->agents()
-            ->where('is_active', true)
-            ->where('is_verifier', true)
-            ->get(['id', 'qa_threshold']);
-
-        $validator = validator($request->all(), [
-            'qa_thresholds' => 'nullable|array',
-            'qa_thresholds.*' => 'nullable|integer|min:0|max:100',
-        ]);
-
-        $allowedVerifierIds = $verifiers->pluck('id')->map(fn ($id) => (string) $id)->all();
-        $validator->after(function ($validator) use ($request, $allowedVerifierIds) {
-            foreach (array_keys((array) $request->input('qa_thresholds', [])) as $agentId) {
-                if (! in_array((string) $agentId, $allowedVerifierIds, true)) {
-                    $validator->errors()->add("qa_thresholds.{$agentId}", 'QA праг може да се задава само за активен QA verifier агент.');
-                }
-            }
-        });
-
-        $validated = $validator->validate();
-
-        $postedThresholds = $validated['qa_thresholds'] ?? [];
-        $qaThresholds = $verifiers->mapWithKeys(function ($agent) use ($postedThresholds) {
-            return [
-                (string) $agent->id => isset($postedThresholds[$agent->id])
-                    ? (int) $postedThresholds[$agent->id]
-                    : ($agent->qa_threshold ?? self::DEFAULT_QA_THRESHOLD),
-            ];
-        })->all();
-        $stepQaPolicies = $this->buildStepQaPolicySnapshot($flow);
-
-        // Create a pending run immediately so we can redirect to its page
+        // Create a pending run immediately, then hand off to the DAG executor,
+        // which dispatches the first wave as a Bus::batch onto the `flows` queue.
+        // Queue workers process the waves in parallel — the request returns at once.
         $flowRun = FlowRun::create([
             'flow_id' => $flow->id,
             'status' => 'pending',
             'triggered_by' => 'manual',
-            'context' => [
-                'qa_thresholds' => $qaThresholds,
-                'step_qa_policies' => $stepQaPolicies,
-            ],
-            'started_at' => null,
         ]);
 
-        // Launch execution as a background process (avoids MAMP 30s timeout)
-        $php = env('PHP_CLI_BINARY', '/opt/homebrew/bin/php');
-        $artisan = base_path('artisan');
-        $logFile = storage_path("logs/run-{$flowRun->id}.log");
+        $executor->run($flow, 'manual', $flowRun);
 
-        exec("{$php} {$artisan} flows:execute {$flowRun->id} >> {$logFile} 2>&1 &");
-
-        return redirect()->route('flow-runs.show', $flowRun);
+        // Land back in the Graph Editor, which detects the active run and switches
+        // into locked "run" mode with live per-node progress/result/log.
+        return redirect()->route('flows.builder', $flow);
     }
 
     public function show(FlowRun $flowRun)
     {
-        $flowRun->load(['flow.company', 'flow.agents', 'agentRuns.agent']);
+        $flowRun->load(['flow.company', 'flow.agents', 'flow.nodes', 'agentRuns.agent', 'nodeRuns.flowNode']);
 
         return view('runs.show', compact('flowRun'));
     }
@@ -90,20 +52,46 @@ class FlowRunController extends Controller
 
     public function poll(FlowRun $flowRun): JsonResponse
     {
-        $flowRun->load(['agentRuns.agent']);
+        $flowRun->load(['agentRuns.agent', 'nodeRuns']);
         $agentRuns = $flowRun->agentRuns->sortBy('id');
         $attemptCounts = $agentRuns->groupBy('agent_id')->map->count();
         $context = $flowRun->context ?? [];
 
-        return response()->json([
-            'status' => $flowRun->status,
-            'started_at_iso' => $flowRun->started_at?->toISOString(),
-            'completed_at_iso' => $flowRun->completed_at?->toISOString(),
-            'failure_message' => $context['failure_message'] ?? null,
-            'final_output' => $flowRun->final_output,
-            'step_qa_results' => $context['step_qa_results'] ?? [],
-            'progress' => $this->parseRunProgress($flowRun->id),
-            'agent_runs' => $agentRuns->map(fn ($r) => [
+        // Per-node runs for the graph builder's live node coloring.
+        // sortBy('id') guarantees the same order as $agentRunsData below — the
+        // builder merges these two arrays by index.
+        $nodeRunsData = $flowRun->nodeRuns->sortBy('id')->map(fn ($r) => [
+            'node_key' => $r->node_key,
+            'status' => $r->status,
+            'duration_ms' => $r->duration_ms,
+            'started_at_iso' => $r->started_at?->toISOString(),
+            'completed_at_iso' => $r->completed_at?->toISOString(),
+            'error' => $r->error,
+        ])->values();
+
+        // agent_runs: in graph mode, emit node_runs adapted to the same shape
+        // so the runs/show Alpine polling works without JS changes.
+        $isGraphRun = $flowRun->nodeRuns->isNotEmpty();
+        if ($isGraphRun) {
+            $agentRunsData = $flowRun->nodeRuns->sortBy('id')->map(fn ($r) => [
+                'agent_id' => $r->flow_node_id,
+                'status' => $r->status,
+                'model_used' => $r->model_used,
+                'params' => $r->params_snapshot,
+                'input' => $r->input,
+                'output' => $r->output,
+                'raw_output' => $r->raw_output,
+                'error' => $r->error,
+                'duration_ms' => $r->duration_ms,
+                'tokens_used' => $r->tokens_used,
+                'attempt_count' => 1,
+                'started_at' => $r->started_at?->format('H:i:s'),
+                'completed_at' => $r->completed_at?->format('H:i:s'),
+                'started_at_iso' => $r->started_at?->toISOString(),
+                'completed_at_iso' => $r->completed_at?->toISOString(),
+            ])->values();
+        } else {
+            $agentRunsData = $agentRuns->map(fn ($r) => [
                 'agent_id' => $r->agent_id,
                 'status' => $r->status,
                 'model_used' => $r->model_used,
@@ -118,7 +106,19 @@ class FlowRunController extends Controller
                 'completed_at' => $r->completed_at?->format('H:i:s'),
                 'started_at_iso' => $r->started_at?->toISOString(),
                 'completed_at_iso' => $r->completed_at?->toISOString(),
-            ])->values(),
+            ])->values();
+        }
+
+        return response()->json([
+            'status' => $flowRun->status,
+            'started_at_iso' => $flowRun->started_at?->toISOString(),
+            'completed_at_iso' => $flowRun->completed_at?->toISOString(),
+            'failure_message' => $context['failure_message'] ?? null,
+            'final_output' => $flowRun->final_output,
+            'step_qa_results' => $context['step_qa_results'] ?? [],
+            'progress' => $this->parseRunProgress($flowRun->id),
+            'node_runs' => $nodeRunsData,
+            'agent_runs' => $agentRunsData,
         ]);
     }
 
@@ -218,48 +218,5 @@ class FlowRunController extends Controller
             'last_line' => $lastLine,
             'tail' => array_values($tail),
         ];
-    }
-
-    private function buildStepQaPolicySnapshot(Flow $flow): array
-    {
-        $agents = $flow->agents()
-            ->where('is_active', true)
-            ->orderBy('order')
-            ->get();
-
-        $verifierIds = $agents
-            ->where('is_verifier', true)
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-
-        $policies = [];
-
-        foreach ($agents as $agent) {
-            if ($agent->is_verifier) {
-                continue;
-            }
-
-            $qa = ($agent->config ?? [])['qa'] ?? [];
-            if (! filter_var($qa['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
-                continue;
-            }
-
-            $verifierId = (int) ($qa['verifier_agent_id'] ?? 0);
-            if (! in_array($verifierId, $verifierIds, true)) {
-                continue;
-            }
-
-            $verifier = $agents->firstWhere('id', $verifierId);
-
-            $policies[(string) $agent->id] = [
-                'verifier_agent_id' => $verifierId,
-                'threshold' => (int) ($qa['threshold'] ?? $verifier?->qa_threshold ?? self::DEFAULT_QA_THRESHOLD),
-                'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
-                'custom_prompt' => trim($qa['custom_prompt'] ?? ''),
-            ];
-        }
-
-        return $policies;
     }
 }

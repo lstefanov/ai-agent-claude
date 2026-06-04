@@ -39,8 +39,10 @@ class FlowShowTest extends TestCase
         );
     }
 
-    public function test_newly_added_agents_initialize_inline_type_and_model_selects(): void
+    public function test_flow_show_renders_readonly_graph_preview(): void
     {
+        // The editable agent list was replaced by a read-only graph preview that
+        // links to the Graph Editor.
         $company = Company::create([
             'name' => 'Спортен Център',
             'description' => 'Описание',
@@ -59,8 +61,10 @@ class FlowShowTest extends TestCase
         $response->assertOk();
         $content = $response->getContent();
 
-        $this->assertStringContainsString('this.openEdit(newIndex);', $content);
-        $this->assertSame(2, substr_count($content, 'this.openEdit(newIndex);'));
+        $this->assertStringContainsString('Граф на агентите', $content);
+        // The dashboard preview is now a pure Blade partial — no JS graphPreview() function.
+        $this->assertStringContainsString('Отвори Граф Редактора', $content);
+        $this->assertStringContainsString(route('flows.builder', $flow), $content);
     }
 
     public function test_flow_description_preserves_line_breaks_and_escapes_html(): void
@@ -87,36 +91,4 @@ class FlowShowTest extends TestCase
         );
     }
 
-    public function test_flow_show_exposes_and_renders_agent_icon(): void
-    {
-        $company = Company::create([
-            'name' => 'Спортен Център',
-            'description' => 'Описание',
-            'industry' => 'Sports',
-            'language' => 'bg',
-        ]);
-
-        $flow = $company->flows()->create([
-            'name' => 'Web Game Search',
-            'description' => 'Search for web games.',
-            'status' => 'active',
-        ]);
-
-        $flow->agents()->create([
-            'name' => 'Researcher',
-            'icon' => '🔎',
-            'type' => 'researcher',
-            'role' => 'Research web games.',
-            'prompt_template' => 'Research {{topic}}.',
-            'model' => 'qwen2.5:14b',
-            'order' => 1,
-            'is_active' => true,
-        ]);
-
-        $response = $this->get(route('flows.show', $flow));
-
-        $response->assertOk();
-        $this->assertStringContainsString('"icon":'.json_encode('🔎'), $response->getContent());
-        $response->assertSee('x-text="agent.icon || \'🤖\'"', false);
-    }
 }

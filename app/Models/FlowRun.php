@@ -8,12 +8,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FlowRun extends Model
 {
-    protected $fillable = ['flow_id', 'status', 'triggered_by', 'context', 'final_output', 'final_output_model', 'started_at', 'completed_at'];
+    protected $fillable = ['flow_id', 'status', 'triggered_by', 'context', 'final_output', 'final_output_model', 'graph_snapshot', 'started_at', 'completed_at'];
 
     protected $casts = [
-        'context'      => 'array',
-        'started_at'   => 'datetime',
-        'completed_at' => 'datetime',
+        'context'        => 'array',
+        'graph_snapshot' => 'array',
+        'started_at'     => 'datetime',
+        'completed_at'   => 'datetime',
     ];
 
     public function flow(): BelongsTo
@@ -24,5 +25,10 @@ class FlowRun extends Model
     public function agentRuns(): HasMany
     {
         return $this->hasMany(AgentRun::class);
+    }
+
+    public function nodeRuns(): HasMany
+    {
+        return $this->hasMany(NodeRun::class);
     }
 }

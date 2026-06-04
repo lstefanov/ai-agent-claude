@@ -46,6 +46,25 @@ return [
         'composer_model' => env('OLLAMA_COMPOSER_MODEL', 'gemma3:12b'),
     ],
 
+    // Which LLM provider auto-generates agents for a Flow: ollama | anthropic | openai.
+    // Ollama stays the default; external providers need the matching api_key below.
+    'generator' => [
+        'provider' => env('GENERATOR_PROVIDER', 'ollama'),
+    ],
+
+    'anthropic' => [
+        'api_key'  => env('ANTHROPIC_API_KEY'),
+        'model'    => env('ANTHROPIC_GENERATOR_MODEL', 'claude-sonnet-4-6'),
+        'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
+        'version'  => env('ANTHROPIC_VERSION', '2023-06-01'),
+    ],
+
+    'openai' => [
+        'api_key'  => env('OPENAI_API_KEY'),
+        'model'    => env('OPENAI_GENERATOR_MODEL', 'gpt-4o'),
+        'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com'),
+    ],
+
     'brave' => [
         'api_key' => env('BRAVE_SEARCH_API_KEY'),
         'results_count' => env('BRAVE_RESULTS_COUNT', 10),

@@ -2,16 +2,44 @@
 
 namespace Tests\Feature;
 
-use App\Models\AgentRun;
 use App\Models\Company;
-use App\Services\FlowExecutorService;
+use App\Models\NodeRun;
+use App\Services\GraphFlowExecutor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
+/**
+ * Regression tests for node handoff behaviour in the graph executor:
+ *  - reasoning stripping
+ *  - no duplicate context when an explicit {{Name}} placeholder is used
+ *  - bg_text_corrector isolation
+ *  - quality_metrics persistence
+ *
+ * Uses Http::fake to control exactly what each node's Ollama call returns.
+ */
 class FlowExecutorHandoffTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** Build a company + flow with a simple linear graph (A → B). */
+    private function makeLinearFlow(array $nodeA, array $nodeB): array
+    {
+        $company = Company::create([
+            'name' => 'Game Sport Center', 'description' => 'Sports center',
+            'industry' => 'Fitness', 'language' => 'bg',
+        ]);
+
+        $flow = $company->flows()->create([
+            'name' => 'Test Flow', 'description' => 'Handoff tests', 'status' => 'active',
+        ]);
+
+        $nA = $flow->nodes()->create(array_merge(['node_key' => 'A', 'is_active' => true], $nodeA));
+        $nB = $flow->nodes()->create(array_merge(['node_key' => 'B', 'is_active' => true], $nodeB));
+        $flow->edges()->create(['from_node_key' => 'A', 'to_node_key' => 'B']);
+
+        return [$flow, $nA, $nB];
+    }
 
     public function test_executor_keeps_raw_reasoning_but_passes_clean_output_downstream(): void
     {
@@ -21,50 +49,26 @@ class FlowExecutorHandoffTest extends TestCase
                 ->push("{\"message\":{\"content\":\"Clean synthesis\"}}\n"),
         ]);
 
-        $company = Company::create([
-            'name' => 'Game Sport Center',
-            'description' => 'Sports center',
-            'industry' => 'Fitness',
-            'language' => 'bg',
-        ]);
+        [$flow, $nA] = $this->makeLinearFlow(
+            ['name' => 'Researcher', 'type' => 'content_bg', 'model' => 'research-model', 'prompt_template' => 'Research {{topic}}'],
+            ['name' => 'Writer', 'type' => 'content_bg', 'model' => 'writer-model', 'prompt_template' => 'Write from context.'],
+        );
 
-        $flow = $company->flows()->create([
-            'name' => 'Research Flow',
-            'description' => 'Tests handoff',
-            'status' => 'active',
-        ]);
+        $flowRun = app(GraphFlowExecutor::class)->run($flow);
 
-        $researcher = $flow->agents()->create([
-            'name' => 'Researcher',
-            'type' => 'content_bg',
-            'role' => 'Research',
-            'prompt_template' => 'Research {{topic}}',
-            'model' => 'research-model',
-            'order' => 1,
-            'is_active' => true,
-        ]);
+        $researcherRun = NodeRun::where('flow_run_id', $flowRun->id)
+            ->where('node_key', 'A')->firstOrFail();
 
-        $flow->agents()->create([
-            'name' => 'Writer',
-            'type' => 'content_bg',
-            'role' => 'Write',
-            'prompt_template' => 'Write from context.',
-            'model' => 'writer-model',
-            'order' => 2,
-            'is_active' => true,
-        ]);
-
-        app(FlowExecutorService::class)->run($flow);
-
-        $firstRun = AgentRun::where('agent_id', $researcher->id)->firstOrFail();
-        $this->assertSame('Final competitor facts', $firstRun->output);
-        $this->assertSame("<think>internal chain of thought</think>\n\nFinal competitor facts", $firstRun->raw_output);
+        $this->assertSame('Final competitor facts', $researcherRun->output);
+        $this->assertSame(
+            "<think>internal chain of thought</think>\n\nFinal competitor facts",
+            $researcherRun->raw_output
+        );
 
         Http::assertSent(function ($request) {
             if ($request['model'] !== 'writer-model') {
                 return false;
             }
-
             $message = $request['messages'][1]['content'];
 
             return str_contains($message, 'Final competitor facts')
@@ -83,46 +87,18 @@ class FlowExecutorHandoffTest extends TestCase
                 ->push("{\"message\":{\"content\":\"Done\"}}\n"),
         ]);
 
-        $company = Company::create([
-            'name' => 'Game Sport Center',
-            'description' => 'Sports center',
-            'industry' => 'Fitness',
-            'language' => 'bg',
-        ]);
+        [$flow] = $this->makeLinearFlow(
+            ['name' => 'Researcher', 'type' => 'content_bg', 'model' => 'research-model', 'prompt_template' => 'Research {{topic}}'],
+            // Uses {{node:Researcher}} — explicit ref, should NOT be auto-appended again
+            ['name' => 'Writer', 'type' => 'content_bg', 'model' => 'writer-model', 'prompt_template' => 'Use exactly this research: {{node:Researcher}}'],
+        );
 
-        $flow = $company->flows()->create([
-            'name' => 'Research Flow',
-            'description' => 'Tests handoff',
-            'status' => 'active',
-        ]);
-
-        $flow->agents()->create([
-            'name' => 'Researcher',
-            'type' => 'content_bg',
-            'role' => 'Research',
-            'prompt_template' => 'Research {{topic}}',
-            'model' => 'research-model',
-            'order' => 1,
-            'is_active' => true,
-        ]);
-
-        $flow->agents()->create([
-            'name' => 'Writer',
-            'type' => 'content_bg',
-            'role' => 'Write',
-            'prompt_template' => 'Use exactly this research: {{Researcher}}',
-            'model' => 'writer-model',
-            'order' => 2,
-            'is_active' => true,
-        ]);
-
-        app(FlowExecutorService::class)->run($flow);
+        app(GraphFlowExecutor::class)->run($flow);
 
         Http::assertSent(function ($request) {
             if ($request['model'] !== 'writer-model') {
                 return false;
             }
-
             $message = $request['messages'][1]['content'];
 
             return str_contains($message, 'UNIQUE-END-MARKER')
@@ -131,78 +107,56 @@ class FlowExecutorHandoffTest extends TestCase
         });
     }
 
-    public function test_bg_text_corrector_receives_only_previous_final_body_text(): void
+    public function test_bg_text_corrector_receives_only_its_prompt_no_upstream_context(): void
     {
-        Http::fake([
-            'localhost:11434/api/chat' => Http::sequence()
-                ->push(json_encode(['message' => ['content' => 'Research context that should not be corrected']])."\n")
-                ->push(json_encode(['message' => ['content' => 'цвоят текст за Плавалка в басейн']])."\n")
-                ->push(json_encode(['message' => ['content' => 'цвят текст за Плуване в басейн']])."\n"),
-        ]);
+        // Use OllamaService mock so we control exactly what each node receives.
+        // Http::fake with sequences is tricky for 3+ node flows due to batch transaction ordering.
+        $calls = [];
+        $this->mock(\App\Services\OllamaService::class, function ($mock) use (&$calls) {
+            $mock->shouldReceive('chat')->andReturnUsing(function ($model, $sys, $user) use (&$calls) {
+                $calls[] = ['model' => $model, 'user' => $user];
+
+                return match ($model) {
+                    'research-model' => 'Research context that should not be corrected',
+                    'writer-model'   => 'цвоят текст за Плавалка в басейн',
+                    default          => 'цвят текст за Плуване в басейн',
+                };
+            });
+        });
 
         $company = Company::create([
-            'name' => 'Game Sport Center',
-            'description' => 'Sports center',
-            'industry' => 'Fitness',
-            'language' => 'bg',
+            'name' => 'Game Sport Center', 'description' => 'Sports center',
+            'industry' => 'Fitness', 'language' => 'bg',
         ]);
-
         $flow = $company->flows()->create([
-            'name' => 'BG Corrector Flow',
-            'description' => 'Tests final Bulgarian correction',
-            'status' => 'active',
+            'name' => 'BG Corrector Flow', 'description' => 'desc', 'status' => 'active',
         ]);
+        $flow->nodes()->create(['node_key' => 'R', 'name' => 'Researcher', 'type' => 'content_bg', 'model' => 'research-model', 'prompt_template' => 'Research {{topic}}', 'is_active' => true]);
+        $flow->nodes()->create(['node_key' => 'W', 'name' => 'Writer', 'type' => 'content_bg', 'model' => 'writer-model', 'prompt_template' => 'Write final text from context.', 'is_active' => true, 'output_role' => 'body']);
+        $flow->nodes()->create(['node_key' => 'C', 'name' => 'Коректор', 'type' => 'bg_text_corrector', 'model' => 'corrector-model', 'prompt_template' => 'Коригирай само: {{node:Writer}}', 'is_active' => true]);
+        $flow->edges()->create(['from_node_key' => 'R', 'to_node_key' => 'W']);
+        $flow->edges()->create(['from_node_key' => 'W', 'to_node_key' => 'C']);
 
-        $flow->agents()->create([
-            'name' => 'Researcher',
-            'type' => 'content_bg',
-            'role' => 'Research',
-            'prompt_template' => 'Research {{topic}}',
-            'model' => 'research-model',
-            'order' => 1,
-            'is_active' => true,
-        ]);
+        $flowRun = app(GraphFlowExecutor::class)->run($flow);
+        $flowRun->refresh();
 
-        $flow->agents()->create([
-            'name' => 'Writer',
-            'type' => 'content_bg',
-            'role' => 'Write',
-            'prompt_template' => 'Write final text from context.',
-            'model' => 'writer-model',
-            'order' => 2,
-            'is_active' => true,
-        ]);
+        $this->assertSame('completed', $flowRun->status,
+            'Status: '.$flowRun->status.' | Calls: '.json_encode(array_column($calls, 'model')).
+            ' | NodeRuns: '.json_encode($flowRun->nodeRuns()->get(['node_key','status'])->toArray()).
+            ' | Failure: '.($flowRun->context['failure_message'] ?? 'none')
+        );
+        $this->assertSame(3, $flowRun->nodeRuns()->count(), 'Expected 3 node_runs (R, W, C)');
 
-        $flow->agents()->create([
-            'name' => 'Български коректор',
-            'type' => 'bg_text_corrector',
-            'role' => 'Correct',
-            'prompt_template' => 'Коригирай само този финален текст: {{input}}',
-            'model' => 'corrector-model',
-            'order' => 3,
-            'is_active' => true,
-        ]);
+        $correctorCall = collect($calls)->firstWhere('model', 'corrector-model');
+        $this->assertNotNull($correctorCall, 'corrector-model was not called');
 
-        app(FlowExecutorService::class)->run($flow);
-
-        Http::assertSent(function ($request) {
-            if (! isset($request['model'])) {
-                return false;
-            }
-
-            if ($request['model'] !== 'corrector-model') {
-                return false;
-            }
-
-            $message = $request['messages'][1]['content'];
-
-            return str_contains($message, 'цвоят текст за Плавалка в басейн')
-                && ! str_contains($message, 'Research context that should not be corrected')
-                && ! str_contains($message, '--- Context from previous agents ---');
-        });
+        $message = $correctorCall['user'];
+        $this->assertStringContainsString('цвоят текст за Плавалка в басейн', $message);
+        $this->assertStringNotContainsString('Research context that should not be corrected', $message);
+        $this->assertStringNotContainsString('--- Context from previous agents ---', $message);
     }
 
-    public function test_executor_persists_quality_metrics_for_completed_agent_output(): void
+    public function test_executor_persists_quality_metrics_for_completed_node_output(): void
     {
         Http::fake([
             'localhost:11434/api/chat' => Http::response([
@@ -216,34 +170,18 @@ class FlowExecutorHandoffTest extends TestCase
         ]);
 
         $company = Company::create([
-            'name' => 'Game Sport Center',
-            'description' => 'Sports center',
-            'industry' => 'Fitness',
-            'language' => 'bg',
+            'name' => 'Game Sport Center', 'description' => 'Sports center',
+            'industry' => 'Fitness', 'language' => 'bg',
         ]);
+        $flow = $company->flows()->create(['name' => 'Pricing Metrics Flow', 'description' => 'desc', 'status' => 'active']);
+        $flow->nodes()->create(['node_key' => 'E', 'name' => 'Extractor', 'type' => 'content_bg', 'model' => 'extractor-model', 'prompt_template' => 'Extract {{topic}}', 'is_active' => true]);
 
-        $flow = $company->flows()->create([
-            'name' => 'Pricing Metrics Flow',
-            'description' => 'Tests quality metrics',
-            'status' => 'active',
-        ]);
+        $flowRun = app(GraphFlowExecutor::class)->run($flow);
 
-        $agent = $flow->agents()->create([
-            'name' => 'Extractor',
-            'type' => 'content_bg',
-            'role' => 'Extract prices',
-            'prompt_template' => 'Extract {{topic}}',
-            'model' => 'extractor-model',
-            'order' => 1,
-            'is_active' => true,
-        ]);
+        $nodeRun = NodeRun::where('flow_run_id', $flowRun->id)->where('node_key', 'E')->firstOrFail();
 
-        app(FlowExecutorService::class)->run($flow);
-
-        $agentRun = AgentRun::where('agent_id', $agent->id)->firstOrFail();
-
-        $this->assertSame(2, $agentRun->quality_metrics['markdown_table_rows']);
-        $this->assertSame(1, $agentRun->quality_metrics['priced_rows']);
-        $this->assertSame(['grabo.bg', 'vgym.bg'], $agentRun->quality_metrics['source_domains']);
+        $this->assertSame(2, $nodeRun->quality_metrics['markdown_table_rows']);
+        $this->assertSame(1, $nodeRun->quality_metrics['priced_rows']);
+        $this->assertSame(['grabo.bg', 'vgym.bg'], $nodeRun->quality_metrics['source_domains']);
     }
 }

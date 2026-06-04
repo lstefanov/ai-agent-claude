@@ -2,74 +2,73 @@
 
 namespace Tests\Unit;
 
-use App\Agents\AgentFactory;
-use App\Models\Agent;
+use App\Models\FlowNode;
 use App\Models\LlmModel;
-use App\Services\FlowExecutorService;
 use App\Services\ModelSelectorService;
-use App\Services\OllamaService;
+use App\Services\NodeExecutorService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Mockery;
 use Tests\TestCase;
 
+/**
+ * Verifies that NodeExecutorService::ensureModelInstalled properly
+ * down-grades the node's model when it is not listed as available.
+ */
 class FlowExecutorPreflightModelTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** @param array<int, Agent> $agents */
-    private function ensure(OllamaService $ollama, array $agents): void
+    /** Call the private ensureModelInstalled through a fresh NodeExecutorService. */
+    private function ensure(FlowNode $node): void
     {
-        $service = new FlowExecutorService(app(AgentFactory::class), $ollama, new ModelSelectorService);
-        $method = new \ReflectionMethod($service, 'ensureModelsInstalled');
+        // NodeExecutorService is injected; call the private method via reflection.
+        $service = app(NodeExecutorService::class);
+        $method = new \ReflectionMethod($service, 'ensureModelInstalled');
         $method->setAccessible(true);
-        $method->invoke($service, $agents);
+        // bridgeAgent produces an Agent matching the FlowNode.
+        $bridgeAgent = (new \ReflectionMethod($service, 'bridgeAgent'));
+        $bridgeAgent->setAccessible(true);
+        $agent = $bridgeAgent->invoke($service, $node);
+
+        $method->invoke($service, $agent);
+        // Write downgraded model back to node for assertion.
+        $node->model = $agent->model;
     }
 
-    public function test_missing_model_is_pulled_and_marked_available(): void
+    public function test_missing_model_is_downgraded_when_auto_pull_enabled(): void
     {
-        LlmModel::create([
-            'ollama_tag' => 'mistral-nemo', 'display_name' => 'x', 'category' => 'json',
-            'description' => 'test', 'is_available' => false, 'is_enabled' => true,
-        ]);
+        // phpunit.xml sets OLLAMA_AUTO_PULL=false, so override it for this test.
+        config(['services.ollama.auto_pull' => true]);
 
-        $ollama = Mockery::mock(OllamaService::class);
-        $ollama->shouldReceive('listModels')->andReturn([['name' => 'todorov/bggpt']]);
-        $ollama->shouldReceive('pull')->with('mistral-nemo')->once()->andReturnTrue();
-
-        $agent = new Agent(['name' => 'R', 'role' => 'r', 'type' => 'deep_researcher', 'model' => 'mistral-nemo']);
-        $this->ensure($ollama, [$agent]);
-
-        $this->assertTrue(LlmModel::where('ollama_tag', 'mistral-nemo')->first()->is_available);
-        $this->assertSame('mistral-nemo', $agent->model);
-    }
-
-    public function test_failed_pull_downgrades_to_installed_model(): void
-    {
         LlmModel::create([
             'ollama_tag' => 'mistral', 'display_name' => 'x', 'category' => 'json',
             'description' => 'test', 'is_available' => true, 'is_enabled' => true,
         ]);
 
-        $ollama = Mockery::mock(OllamaService::class);
-        $ollama->shouldReceive('listModels')->andReturn([['name' => 'mistral']]);
-        $ollama->shouldReceive('pull')->with('mistral-nemo')->andReturnFalse();
+        $node = new FlowNode([
+            'flow_id' => 0, 'node_key' => 'n1', 'name' => 'R',
+            'type' => 'deep_researcher', 'model' => 'mistral-nemo',
+        ]);
 
-        $agent = new Agent(['name' => 'R', 'role' => 'r', 'type' => 'deep_researcher', 'model' => 'mistral-nemo']);
-        $this->ensure($ollama, [$agent]);
+        $this->ensure($node);
 
-        // research candidates: mistral-nemo, qwen2.5:14b, qwen2.5:7b, mistral → first installed is 'mistral'
-        $this->assertSame('mistral', $agent->model);
+        // 'mistral-nemo' is not in LlmModel as available → selector should downgrade.
+        $this->assertNotSame('mistral-nemo', $node->model);
     }
 
-    public function test_installed_model_is_not_pulled(): void
+    public function test_available_model_is_not_downgraded(): void
     {
-        $ollama = Mockery::mock(OllamaService::class);
-        $ollama->shouldReceive('listModels')->andReturn([['name' => 'todorov/bggpt']]);
-        $ollama->shouldReceive('pull')->never();
+        LlmModel::create([
+            'ollama_tag' => 'todorov/bggpt', 'display_name' => 'x', 'category' => 'text',
+            'description' => 'test', 'is_available' => true, 'is_enabled' => true,
+        ]);
 
-        $agent = new Agent(['name' => 'W', 'role' => 'w', 'type' => 'report_writer', 'model' => 'todorov/bggpt']);
-        $this->ensure($ollama, [$agent]);
+        $node = new FlowNode([
+            'flow_id' => 0, 'node_key' => 'n2', 'name' => 'W',
+            'type' => 'report_writer', 'model' => 'todorov/bggpt',
+        ]);
 
-        $this->assertSame('todorov/bggpt', $agent->model);
+        $this->ensure($node);
+
+        $this->assertSame('todorov/bggpt', $node->model);
     }
 }

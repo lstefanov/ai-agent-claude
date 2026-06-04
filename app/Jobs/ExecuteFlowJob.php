@@ -3,7 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Flow;
-use App\Services\FlowExecutorService;
+use App\Services\GraphFlowExecutor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -21,7 +21,7 @@ class ExecuteFlowJob implements ShouldQueue
         public string $triggeredBy = 'manual'
     ) {}
 
-    public function handle(FlowExecutorService $executor): void
+    public function handle(GraphFlowExecutor $executor): void
     {
         $executor->run($this->flow, $this->triggeredBy);
     }

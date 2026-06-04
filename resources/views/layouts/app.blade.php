@@ -50,6 +50,7 @@
         .ts-wrapper .ts-dropdown .option.active { background: #eef2ff; color: #3730a3; }
         .ts-wrapper .ts-dropdown .option:hover { background: #f5f3ff; }
     </style>
+    @stack('head')
 </head>
 <body class="bg-gray-50 min-h-screen">
 

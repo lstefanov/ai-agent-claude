@@ -15,6 +15,9 @@ abstract class BaseAgent
 
     protected ?string $lastRawOutput = null;
 
+    /** @var array<string, mixed>|null Snapshot of the params sent on the last chat() call. */
+    protected ?array $lastChatParams = null;
+
     public function __construct(
         protected OllamaService $ollama,
         array $tools = []
@@ -50,6 +53,18 @@ abstract class BaseAgent
         return $this->lastRawOutput;
     }
 
+    /**
+     * Snapshot of exactly what was sent to the model on the last chat() call —
+     * model, final system/user prompt, options and output preferences. Recorded
+     * per node_run for full run auditability.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function chatParams(): ?array
+    {
+        return $this->lastChatParams;
+    }
+
     protected function buildPrompt(Agent $agent, array $context): string
     {
         $prompt = $agent->prompt_template ?? '';
@@ -68,12 +83,24 @@ abstract class BaseAgent
         // system_prompt (editable in UI) takes precedence; fall back to role for older agents
         $base = ! empty($agent->system_prompt) ? $agent->system_prompt : ($agent->role ?? '');
         $systemPrompt = $base.$this->buildOutputInstructions($agent).$extraSystemContext;
+        $options = $this->buildOptions($agent);
+
+        $this->lastChatParams = [
+            'model'           => $agent->model,
+            'system_prompt'   => $systemPrompt,
+            'user_message'    => $userMessage,
+            'options'         => $options,
+            'output_language' => $agent->output_language,
+            'output_tone'     => $agent->output_tone,
+            'output_style'    => $agent->output_style,
+            'output_format'   => $agent->output_format,
+        ];
 
         $output = $this->ollama->chat(
             model: $agent->model,
             systemPrompt: $systemPrompt,
             userMessage: $userMessage,
-            options: $this->buildOptions($agent)
+            options: $options
         );
         $this->lastRawOutput = $output;
 

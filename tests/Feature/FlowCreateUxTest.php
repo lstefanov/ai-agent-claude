@@ -12,24 +12,20 @@ class FlowCreateUxTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_create_page_exposes_manual_agent_creation_and_advanced_inline_controls(): void
+    public function test_create_page_shows_only_basic_info_and_generate_button(): void
     {
+        // Agents are now built in the Graph Editor. The create page is basic-info only.
         $company = $this->createCompany();
 
         $content = $this->get(route('companies.flows.create', $company))
             ->assertOk()
             ->getContent();
 
-        $this->assertStringContainsString('@click="openAgentPicker"', $content);
-        $this->assertStringContainsString('Добави агент ръчно', $content);
-        $this->assertStringContainsString('Разширени настройки', $content);
-        $this->assertStringContainsString('Език на изхода', $content);
-        $this->assertStringContainsString('agent.output_language', $content);
-        $this->assertStringContainsString('Как да мислим за тези параметри', $content);
-        $this->assertStringContainsString('Top P избира най-вероятните токени', $content);
-        $this->assertStringContainsString('Repeat Penalty наказва вече използвани думи', $content);
-        $this->assertStringContainsString('text-gray-500 text-xs leading-5', $content);
-        $this->assertStringNotContainsString('text-gray-500 text-[10px] leading-4', $content);
+        $this->assertStringContainsString('Запази и генерирай агенти', $content);
+        $this->assertStringContainsString('Откажи', $content);
+        // The old wizard's inline agent editor / picker are gone from create.
+        $this->assertStringNotContainsString('openAgentPicker', $content);
+        $this->assertStringNotContainsString('Добави агент ръчно', $content);
     }
 
     public function test_create_page_flow_form_buttons_all_declare_explicit_type(): void
@@ -56,21 +52,6 @@ class FlowCreateUxTest extends TestCase
                 "Button inside flow-form is missing an explicit type: {$buttonMatch[0]}"
             );
         }
-    }
-
-    public function test_create_page_shows_bulgarian_output_preference_labels_with_stable_values(): void
-    {
-        $company = $this->createCompany();
-
-        $content = $this->get(route('companies.flows.create', $company))
-            ->assertOk()
-            ->getContent();
-
-        $this->assertStringContainsString('<option value="Analytical">Аналитичен</option>', $content);
-        $this->assertStringContainsString('<option value="Technical">Технически</option>', $content);
-        $this->assertStringContainsString('<option value="Report">Доклад</option>', $content);
-        $this->assertMatchesRegularExpression('/<option value="Warm"\\s*>\\s*Топъл\\s*<\\/option>/', $content);
-        $this->assertMatchesRegularExpression('/<option value="How-to guide"\\s*>\\s*Практическо ръководство\\s*<\\/option>/', $content);
     }
 
     public function test_agent_edit_page_shows_bulgarian_output_preference_labels_with_stable_values(): void
@@ -111,88 +92,25 @@ class FlowCreateUxTest extends TestCase
         $this->assertStringContainsString('Tone: Use a <strong>аналитичен</strong> tone.', $content);
     }
 
-    public function test_store_persists_output_preferences_and_advanced_config_from_create_form(): void
+    public function test_store_creates_flow_and_redirects_to_builder_with_generate_flag(): void
     {
+        // New flow: store saves basic info only, then redirects to the Graph Editor
+        // with ?generate=1 so the builder kicks off AI agent generation.
         $company = $this->createCompany();
 
-        $this->post(route('companies.flows.store', $company), [
+        $response = $this->post(route('companies.flows.store', $company), [
             'name' => 'Weekly Report',
             'description' => 'Create a weekly market report.',
             'status' => 'draft',
-            'agents' => [
-                [
-                    '_uid' => 'agent-1',
-                    'name' => 'Researcher',
-                    'type' => 'content_bg',
-                    'role' => 'Research market signals.',
-                    'system_prompt' => 'You research market signals.',
-                    'prompt_template' => 'Research {{topic}}.',
-                    'model' => 'qwen2.5:14b',
-                    'order' => 1,
-                    'output_language' => 'en',
-                    'output_tone' => 'Analytical',
-                    'output_style' => 'Technical',
-                    'output_format' => 'Report',
-                    'config' => [
-                        'temperature' => 0.25,
-                        'top_p' => 0.8,
-                        'top_k' => 50,
-                        'repeat_penalty' => 1.15,
-                        'num_predict' => 1200,
-                        'qa' => [
-                            'enabled' => false,
-                        ],
-                    ],
-                ],
-            ],
-        ])->assertRedirect();
+            'schedule_cron' => null,
+        ]);
 
-        $agent = $company->flows()->firstOrFail()->agents()->firstOrFail();
+        $flow = $company->flows()->firstOrFail();
 
-        $this->assertSame('en', $agent->output_language);
-        $this->assertSame('Analytical', $agent->output_tone);
-        $this->assertSame('Technical', $agent->output_style);
-        $this->assertSame('Report', $agent->output_format);
-        $this->assertSame(0.25, $agent->config['temperature']);
-        $this->assertSame(0.8, $agent->config['top_p']);
-        $this->assertSame(50, $agent->config['top_k']);
-        $this->assertSame(1.15, $agent->config['repeat_penalty']);
-        $this->assertSame(1200, $agent->config['num_predict']);
-    }
-
-    public function test_store_persists_agent_icon_from_create_form(): void
-    {
-        $company = $this->createCompany();
-
-        $this->post(route('companies.flows.store', $company), [
-            'name' => 'Weekly Report',
-            'description' => 'Create a weekly market report.',
-            'status' => 'draft',
-            'agents' => [
-                [
-                    '_uid' => 'agent-1',
-                    'name' => 'Email Sender',
-                    'icon' => '📧',
-                    'type' => 'email',
-                    'role' => 'Send the final report by email.',
-                    'system_prompt' => 'You send emails.',
-                    'prompt_template' => 'Send {{input}}.',
-                    'model' => 'qwen2.5:14b',
-                    'order' => 1,
-                    'config' => [
-                        'temperature' => 0.25,
-                        'num_predict' => 1200,
-                        'qa' => [
-                            'enabled' => false,
-                        ],
-                    ],
-                ],
-            ],
-        ])->assertRedirect();
-
-        $agent = $company->flows()->firstOrFail()->agents()->firstOrFail();
-
-        $this->assertSame('📧', $agent->icon);
+        $response->assertRedirect(route('flows.builder', ['flow' => $flow, 'generate' => 1]));
+        $this->assertSame('Weekly Report', $flow->name);
+        // No agents are created at this stage — they are built in the graph.
+        $this->assertSame(0, $flow->agents()->count());
     }
 
     private function createCompany(): Company
