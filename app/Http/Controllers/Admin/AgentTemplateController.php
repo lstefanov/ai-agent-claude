@@ -12,10 +12,22 @@ class AgentTemplateController extends Controller
 {
     public function index()
     {
-        $templates = AgentTemplate::whereNull('company_id')
-            ->orderBy('sort_order')->orderBy('name')->get();
+        $base = AgentTemplate::whereNull('company_id')
+            ->orderBy('sort_order')->orderBy('name');
 
-        return view('admin.agent-templates.index', compact('templates'));
+        $active   = (clone $base)->where('is_active', true)->get();
+        $inactive = (clone $base)->where('is_active', false)->get();
+
+        return view('admin.agent-templates.index', compact('active', 'inactive'));
+    }
+
+    public function toggleActive(AgentTemplate $agentTemplate)
+    {
+        abort_if($agentTemplate->company_id !== null, 403);
+
+        $agentTemplate->update(['is_active' => ! $agentTemplate->is_active]);
+
+        return response()->json(['is_active' => $agentTemplate->is_active]);
     }
 
     public function create()

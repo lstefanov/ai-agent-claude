@@ -206,7 +206,10 @@ SYS;
             model: $model,
             systemPrompt: $system,
             userMessage: "Оформи следния готов текст:\n\n".$assembly,
-            options: ['temperature' => 0.2, 'http_timeout' => 120],
+            // num_predict -1: the final result must NEVER be cut off by a token cap.
+            // num_ctx large enough to SEE the whole assembly (otherwise the model
+            // only formats the part it sees and silently drops the rest).
+            options: ['temperature' => 0.2, 'num_predict' => -1, 'num_ctx' => 16384, 'http_timeout' => 180],
         );
     }
 

@@ -542,6 +542,10 @@
                     <p class="text-xs font-semibold text-gray-500 mb-1">Потребителски промпт (вход)</p>
                     <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-48 overflow-y-auto" x-text="logModal.input || '—'"></pre>
                 </div>
+                <div x-show="logModal.output" x-cloak>
+                    <p class="text-xs font-semibold text-gray-500 mb-1">Изход (резултат)</p>
+                    <pre class="whitespace-pre-wrap break-words text-xs text-gray-800 bg-gray-900/5 rounded-lg p-3 max-h-80 overflow-y-auto" x-text="logModal.output"></pre>
+                </div>
             </div>
         </div>
     </div>
@@ -1112,7 +1116,7 @@ function flowBuilder(config) {
         generating: {},
 
         // ── Agent generation (DAG) ──
-        gen: { active: false, progress: 0, message: '', error: null, token: null, autoSave: false, _timer: null, _rot: null },
+        gen: { active: false, progress: 0, message: '', stage: '', error: null, token: null, autoSave: false, _timer: null, _rot: null, _stageChangedAt: 0, _narratorStage: '', _narratorIndex: 0, _steadyLineShown: false, _lastNarratorDelay: 0 },
 
         // ── Run/view per-node data + modals ──
         runData: {},          // node_key → { status, output, raw_output, error, model, duration_ms, tokens_used, steps }
@@ -1121,7 +1125,7 @@ function flowBuilder(config) {
         _pageLoadedAt: Date.now(),
         finalOutput: null,
         resultModal: { open: false, title: '', body: '' },
-        logModal: { open: false, title: '', meta: {}, error: '', steps: '', input: '', params: null, systemPrompt: '' },
+        logModal: { open: false, title: '', meta: {}, error: '', steps: '', input: '', params: null, systemPrompt: '', output: '' },
         finalModal: { open: false, body: '' },
         genLogModal: { open: false, loading: false, logs: [], error: '' },
         modalReadOnly: false, // true in run/view modes — makes the properties modal display-only
@@ -1978,7 +1982,7 @@ function flowBuilder(config) {
                 this.logModal = {
                     open: true, title,
                     meta: { status: statusLabel, model: '—', duration: '—', tokens: '—' },
-                    error: '', steps: '', params: null, systemPrompt: '',
+                    error: '', steps: '', params: null, systemPrompt: '', output: '',
                     input: 'Този агент още не е стартирал. Лог ще се появи, след като предходните агенти приключат.',
                 };
                 return;
@@ -2022,6 +2026,7 @@ function flowBuilder(config) {
                 params,
                 systemPrompt: p.system_prompt || '',
                 input: (p.user_message || d.input) || (status === 'running' ? '(агентът все още работи)' : '—'),
+                output: d.output || '',
             };
         },
 
@@ -2053,7 +2058,22 @@ function flowBuilder(config) {
                 if (!confirm('Това ще ИЗТРИЕ всички текущи агенти в графа и ще създаде нови. Продължаваме?')) return;
             }
 
-            this.gen = { active: true, progress: 4, message: 'Стартиране…', error: null, token: null, autoSave: !!autoSave, _timer: null, _rot: null };
+            this.gen = {
+                active: true,
+                progress: 4,
+                message: 'Стартиране…',
+                stage: 'Стартиране…',
+                error: null,
+                token: null,
+                autoSave: !!autoSave,
+                _timer: null,
+                _rot: null,
+                _stageChangedAt: Date.now(),
+                _narratorStage: 'Стартиране…',
+                _narratorIndex: 0,
+                _steadyLineShown: false,
+                _lastNarratorDelay: 0,
+            };
             this.startRotatingMessages();
 
             fetch(config.generateUrl, {
@@ -2077,7 +2097,7 @@ function flowBuilder(config) {
                 try {
                     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                     const data = await res.json();
-                    if (data.stage) this.gen.message = data.stage;
+                    if (data.stage) this.setGenerationStage(data.stage);
                     if (data.status === 'completed') {
                         this.gen.progress = 100;
                         await this.finishGeneration(data.agents || []);
@@ -2095,22 +2115,98 @@ function flowBuilder(config) {
             tick();
         },
 
+        setGenerationStage(stage) {
+            if (!stage || this.gen.stage === stage) return;
+
+            this.gen.stage = stage;
+            this.gen.message = stage;
+            this.gen._stageChangedAt = Date.now();
+            this.gen._narratorStage = stage;
+            this.gen._narratorIndex = 0;
+            this.gen._steadyLineShown = false;
+        },
+
         startRotatingMessages() {
-            const phrases = [
-                'Анализирам описанието…', 'Проектирам агентите…', 'Подбирам модели…',
-                'Изграждам зависимостите…', 'Подреждам графа…', 'Обмислям следваща стъпка…',
+            const stageLines = {
+                'Стартиране...': [
+                    'Подготвям заявката за AI генератора…',
+                    'Събирам контекста за този flow…',
+                ],
+                'Стартиране…': [
+                    'Подготвям заявката за AI генератора…',
+                    'Събирам контекста за този flow…',
+                ],
+                'Подготовка на заявката': [
+                    'Чета описанието и целта на flow-а…',
+                    'Изваждам основните задачи от описанието…',
+                    'Подготвям контекста за проектиране на pipeline-а…',
+                ],
+                'Генериране на агенти': [
+                    'Проектирам ролите на отделните агенти…',
+                    'Разписвам инструкциите за всяка стъпка…',
+                    'Подбирам подходящите типове агенти и модели…',
+                    'Проверявам дали pipeline-ът покрива целта на flow-а…',
+                ],
+                'Обработка на резултата': [
+                    'Подреждам агентите в смислена последователност…',
+                    'Свързвам входовете и изходите между стъпките…',
+                    'Почиствам резултата, преди да го превърна в граф…',
+                ],
+                'Проверка за web research': [
+                    'Преценявам дали е нужен агент за търсене в мрежата…',
+                    'Проверявам дали pipeline-ът има достатъчно контекст…',
+                ],
+                'Финализиране на pipeline-а': [
+                    'Изграждам зависимостите между агентите…',
+                    'Подреждам финалните връзки в графа…',
+                    'Правя последна проверка на структурата…',
+                ],
+            };
+            const fallbackLines = [
+                'Анализирам описанието на flow-а…',
+                'Обмислям най-подходящата структура на pipeline-а…',
+                'Подготвям агентите така, че да работят като екип…',
             ];
-            let i = 0;
-            this.gen._rot = setInterval(() => {
-                if (!this.gen.active) return;
-                // Only rotate if the server hasn't given a fresh concrete stage recently.
-                this.gen.message = phrases[i % phrases.length];
-                i++;
-            }, 2600);
+            const nextDelay = () => 3800 + Math.floor(Math.random() * 1600);
+
+            const scheduleNext = () => {
+                const delay = nextDelay();
+                this.gen._lastNarratorDelay = delay;
+                this.gen._rot = setTimeout(() => {
+                    if (!this.gen.active) return;
+
+                    const stage = this.gen.stage || '';
+                    const lines = stageLines[stage] || fallbackLines;
+                    const stageAge = Date.now() - (this.gen._stageChangedAt || 0);
+
+                    if (this.gen._stageChangedAt && stageAge < (this.gen._lastNarratorDelay || 4200)) {
+                        scheduleNext();
+                        return;
+                    }
+
+                    if (this.gen._narratorStage !== stage) {
+                        this.gen._narratorStage = stage;
+                        this.gen._narratorIndex = 0;
+                        this.gen._steadyLineShown = false;
+                    }
+
+                    if (this.gen._narratorIndex < lines.length) {
+                        this.gen.message = lines[this.gen._narratorIndex];
+                        this.gen._narratorIndex++;
+                    } else if (!this.gen._steadyLineShown) {
+                        this.gen.message = 'Още малко — довършвам pipeline-а…';
+                        this.gen._steadyLineShown = true;
+                    }
+
+                    scheduleNext();
+                }, delay);
+            };
+
+            scheduleNext();
         },
 
         stopGenerationTimers() {
-            if (this.gen._rot) { clearInterval(this.gen._rot); this.gen._rot = null; }
+            if (this.gen._rot) { clearTimeout(this.gen._rot); this.gen._rot = null; }
         },
 
         failGeneration(msg) {

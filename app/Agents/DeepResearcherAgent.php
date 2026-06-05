@@ -144,13 +144,42 @@ class DeepResearcherAgent extends BaseAgent
             $scrapedContent = $this->scrapeTopPricingPages($allResults, $maxPages);
         }
 
-        // ── Phase 3: Synthesize ──────────────────────────────────────────────
+        // ── Anti-hallucination guard ─────────────────────────────────────────
+        // A site flow that scraped ZERO content must NOT be synthesized into a
+        // report — the LLM would invent prices/contacts (exactly what happened in
+        // run 65 when Crawl4AI was down). Return an explicit notice instead so the
+        // downstream report reflects reality rather than fabricated data.
+        if (! empty($targetUrl) && $siteContent === '') {
+            $this->runLog($agentRun, '[CRAWL] ⚠️ 0 страници свалени — скрейп услугата (Crawl4AI :8189) е недостъпна или сайтът блокира заявките');
+
+            return "⚠️ Сайтът {$targetUrl} НЕ можа да бъде обходен — скрейп услугата (Crawl4AI) е недостъпна или сайтът блокира заявките.\n"
+                ."НЯМА реални данни за услуги, цени, контакти или ревюта. НЕ предлагай никакви конкретни цени или телефони — те не са налични.\n"
+                .'Препоръка: увери се, че скрейп услугата работи (./scripts/start-services.sh status) и пусни flow-а отново.'
+                .($allResults !== '' ? "\n\n[Само непотвърдени резултати от уеб търсене, БЕЗ официални цени/контакти]:\n{$allResults}" : '');
+        }
+
+        // ── Phase 3: Output ──────────────────────────────────────────────────
+        // When map-reduce produced a structured knowledge base, RETURN IT DIRECTLY.
+        // Re-synthesizing it through another LLM call truncated the input (the chat
+        // ran with Ollama's small default num_ctx) and HALLUCINATED prices/contacts
+        // (run 67: fake phone, "no location" although /контакти was scraped). The
+        // per-page summaries are already real, structured data; the downstream
+        // analyzer consolidates them with an adequate context window.
+        if ($mapReduceUsed && $siteContent !== '') {
+            $out = "БАЗА ЗНАНИЯ ОТ САЙТА {$targetUrl}"
+                ." (реални данни, извлечени страница по страница — използвай ги ДОСЛОВНО"
+                ." за услуги, цени, контакти и адрес; не обобщавай и не измисляй):\n\n{$siteContent}";
+            if ($allResults !== '') {
+                $out .= "\n\n--- ДОПЪЛНИТЕЛНО: уеб търсене (вторичен източник, без официални цени) ---\n{$allResults}";
+            }
+
+            return $out;
+        }
+
+        // Legacy / non-map-reduce path: content is small enough to synthesize safely.
         $extraContext = '';
         if ($siteContent) {
-            $sourceLabel = $mapReduceUsed
-                ? "РЕЗЮМЕТА ПО СТРАНИЦИ ОТ САЙТА {$targetUrl}"
-                : "ПЪЛНО СЪДЪРЖАНИЕ НА САЙТА {$targetUrl}";
-            $extraContext .= "\n\n--- {$sourceLabel}"
+            $extraContext .= "\n\n--- ПЪЛНО СЪДЪРЖАНИЕ НА САЙТА {$targetUrl}"
                 ." (ОСНОВЕН и ЕДИНСТВЕН източник за услуги, цени и контакти."
                 ." Използвай САМО тези реални данни — не измисляй нищо) ---\n{$siteContent}";
         }
@@ -183,10 +212,16 @@ class DeepResearcherAgent extends BaseAgent
         $this->runLog($agentRun, '[DISCOVERY] открити '.count($urls)." страници (cap {$maxPages})");
 
         $config        = $agent->config ?? [];
-        $summaryTokens = max(64, (int) ($config['page_summary_tokens'] ?? 300));
-        $maxPageChars  = max(1000, (int) ($config['max_page_chars'] ?? 15000));
+        // Defaults raised so a price-DENSE page (e.g. a WooCommerce category with
+        // 39 services) is neither truncated on input nor cut off on output:
+        //  - max_page_chars 30000: a 28K-char pricing page fits whole;
+        //  - page_summary_tokens 1500: a CEILING, not a target — short pages stay
+        //    short, only data-rich pages use it, so all 39 services+prices fit;
+        //  - num_ctx 16384: ~32K-char context so the 30K input is not clipped.
+        $summaryTokens = max(64, (int) ($config['page_summary_tokens'] ?? 1500));
+        $maxPageChars  = max(1000, (int) ($config['max_page_chars'] ?? 30000));
         $concurrency   = max(1, (int) ($config['map_concurrency'] ?? 4));
-        $numCtx        = max(2048, (int) ($config['num_ctx'] ?? 8192));
+        $numCtx        = max(2048, (int) ($config['num_ctx'] ?? 16384));
 
         // Per-page extraction can use a SMALLER/faster model than the agent's main
         // model (the heavy synthesis stays on $agent->model). A small model both
@@ -341,12 +376,13 @@ class DeepResearcherAgent extends BaseAgent
             'Ти анализираш съдържанието на ЕДНА уеб страница и разбираш какво представлява.',
             'Първо определи типа ѝ (начална, услуга, ценоразпис, контакти, за нас, блог, друго).',
             'После извлечи САМО реално присъстващите данни:',
-            '• УСЛУГИ И ЦЕНИ: за всяка услуга/продукт с цена изведи ред във формат "Услуга — Цена (валута)".',
+            '• УСЛУГИ И ЦЕНИ: изведи ВСЯКА услуга/продукт с цена на ОТДЕЛЕН ред във формат "Услуга — Цена (валута)".',
+            'ВАЖНО: ако страницата е ценоразпис/каталог с много услуги (10, 20, 39…), изброй ги ВСИЧКИТЕ — не съкращавай, не пиши "и други", не давай само първите няколко.',
             'Ако страницата описва конкретна услуга и цената ѝ е в текста (а не в таблица), пак я улови.',
-            '• КОНТАКТИ: телефон, имейл, адрес, локация, работно време.',
+            '• КОНТАКТИ: телефон, имейл, адрес, локация, работно време — дословно както са на страницата.',
             '• РЕВЮТА/МНЕНИЯ: ако има клиентски отзиви на страницата, отбележи ги с автор и оценка.',
             '• КЛЮЧОВИ ФАКТИ: уникални предимства, технологии, гаранции.',
-            'Пиши кратко и структурирано на български. БЕЗ измислици — ако нещо липсва, не го споменавай.',
+            'Пиши структурирано на български. БЕЗ измислици — ако нещо липсва, не го споменавай. Не измисляй цени или телефони, които ги няма в текста.',
             'Без увод и заключение — само извлечените данни.',
         ]);
     }

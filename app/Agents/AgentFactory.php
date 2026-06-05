@@ -3,6 +3,7 @@
 namespace App\Agents;
 
 use App\Agents\Tools\BraveSearchTool;
+use App\Agents\Tools\GoogleReviewsTool;
 use App\Agents\Tools\SiteCrawlerTool;
 use App\Agents\Tools\SiteDiscoveryTool;
 use App\Agents\Tools\WebScraperTool;
@@ -10,6 +11,7 @@ use App\Models\Agent;
 use App\Services\BraveSearchService;
 use App\Services\ComfyUIService;
 use App\Services\CrawlService;
+use App\Services\GooglePlacesService;
 use App\Services\OllamaService;
 
 class AgentFactory
@@ -51,6 +53,7 @@ class AgentFactory
                 new WebScraperTool(new CrawlService),
             ]),
             'review_analyzer' => new ReviewAnalyzerAgent($this->ollama, [
+                new GoogleReviewsTool(new GooglePlacesService),
                 new BraveSearchTool($this->braveSearch),
                 new WebScraperTool(new CrawlService),
             ]),

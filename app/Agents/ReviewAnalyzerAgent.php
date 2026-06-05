@@ -29,8 +29,24 @@ class ReviewAnalyzerAgent extends BaseAgent
             : '';
 
         $sources = [];
+        $haveGooglePlaces = false;
 
-        // ── 1. On-page reviews / testimonials ───────────────────────────────
+        // Business-name + region hints derived from the domain.
+        $businessHint = $domain !== '' ? ucfirst(preg_replace('/\..*$/', '', $domain)) : '';
+        $region = ($domain !== '' && preg_match('/\.([a-z]{2})$/i', $domain, $m)) ? strtoupper($m[1]) : null;
+
+        // ── 1. Google Places API — the reliable source for Google reviews ───
+        // (rating + count + sample reviews). Plain scraping can't reach the JS
+        // reviews block, so this official API is tried FIRST.
+        if ($businessHint !== '' && $this->hasTool('google_reviews')) {
+            $places = $this->useTool('google_reviews', ['query' => $businessHint, 'region' => $region]);
+            if ($places !== null && trim($places) !== '') {
+                $sources[]        = "--- Google ревюта (Places API) ---\n{$places}";
+                $haveGooglePlaces = true;
+            }
+        }
+
+        // ── 2. On-page reviews / testimonials ───────────────────────────────
         // Pre-configured review URLs win if an operator set them; otherwise read
         // the target site itself and let the LLM spot any embedded reviews.
         $pagesToCheck = ! empty($config['review_urls'])
@@ -46,7 +62,7 @@ class ReviewAnalyzerAgent extends BaseAgent
             }
         }
 
-        // ── 2. External review profiles (Google / Facebook) ─────────────────
+        // ── 3. External review profiles (Google / Facebook) ─────────────────
         if ($domain !== '' && $this->hasTool('web_search')) {
             $query   = "\"{$domain}\" отзиви OR ревюта OR reviews site:google.com OR site:facebook.com OR site:trustpilot.com";
             $results = $this->useTool('web_search', ['query' => $query]);
@@ -55,11 +71,12 @@ class ReviewAnalyzerAgent extends BaseAgent
             }
         }
 
-        // ── 3. Specialised Google Maps / Google Business reviews ────────────
-        if ($domain !== '') {
-            $maps = $this->fetchGoogleMapsReviews($domain);
-            if ($maps) {
-                $sources[] = $maps;
+        // ── 4. Google scrape via Crawl4AI — fallback ONLY if Places gave nothing
+        // (e.g. no API key). Best-effort; Google often blocks the headless render.
+        if (! $haveGooglePlaces && $domain !== '') {
+            $google = $this->fetchGoogleReviews($domain, $businessHint);
+            if ($google) {
+                $sources[] = $google;
             }
         }
 
@@ -81,32 +98,33 @@ class ReviewAnalyzerAgent extends BaseAgent
     }
 
     /**
-     * Locate the business's Google Maps / Google Business profile via search and
-     * scrape it. Falls back to the raw search snippets when no scrapeable Google
-     * URL is found (or the page can't be rendered server-side).
+     * Fetch Google reviews by scraping a constructed Google search URL THROUGH
+     * the scrape_page tool (Crawl4AI). Crawl4AI opens the URL in a real headless
+     * browser, so Google's JS-rendered reviews block comes back as text — no
+     * separate browser integration needed. Falls back to plain web-search snippets
+     * when scraping yields nothing (Google consent page / bot block).
      */
-    private function fetchGoogleMapsReviews(string $domain): ?string
+    private function fetchGoogleReviews(string $domain, string $businessHint): ?string
     {
-        if (! $this->hasTool('web_search')) {
-            return null;
-        }
+        $query = trim($businessHint) !== '' ? $businessHint : $domain;
 
-        $results = $this->useTool('web_search', ['query' => "{$domain} Google Maps отзиви ревюта"]);
-        if (! $results) {
-            return null;
-        }
-
-        // Prefer an actual Google Maps / Google review URL from the results.
-        if (preg_match('~https?://[^\s)\]]*google\.[^\s)\]]*(?:maps|search|reviews)[^\s)\]]*~i', $results, $m)
-            && $this->hasTool('scrape_page')) {
-            $scraped = $this->useTool('scrape_page', ['url' => $m[0]]);
-            if ($scraped && $scraped !== 'Scraping not available for this page.') {
-                return "--- Google Maps/Business ревюта ({$m[0]}) ---\n{$scraped}";
+        // 1) Render a Google search for the business' reviews via Crawl4AI.
+        if ($this->hasTool('scrape_page')) {
+            $googleUrl = 'https://www.google.com/search?hl=bg&gl=bg&q='.rawurlencode($query.' reviews отзиви');
+            $scraped   = $this->useTool('scrape_page', ['url' => $googleUrl]);
+            if ($scraped && $scraped !== 'Scraping not available for this page.' && trim($scraped) !== '') {
+                return "--- Google ревюта за \"{$query}\" (рендирано през Crawl4AI) ---\n{$scraped}";
             }
         }
 
-        // No scrapeable profile — hand the search snippets to the LLM; they often
-        // contain the star rating and a few review excerpts.
-        return "--- Google резултати за ревюта на {$domain} ---\n{$results}";
+        // 2) Fallback: plain web-search snippets (often carry the rating + excerpts).
+        if ($this->hasTool('web_search')) {
+            $results = $this->useTool('web_search', ['query' => "{$query} Google reviews отзиви ревюта"]);
+            if ($results) {
+                return "--- Google резултати за ревюта на \"{$query}\" ---\n{$results}";
+            }
+        }
+
+        return null;
     }
 }

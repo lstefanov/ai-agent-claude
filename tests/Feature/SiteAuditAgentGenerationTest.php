@@ -51,9 +51,10 @@ class SiteAuditAgentGenerationTest extends TestCase
         $this->assertSame(['site_context'], $byUid['site_explorer']['depends_on']);
         $this->assertSame(['site_context'], $byUid['review_finder']['depends_on']);
 
-        // Fan-in: the report author consumes BOTH analyzers.
+        // Fan-in: the report author consumes BOTH analyzers AND the raw research +
+        // review outputs directly, so early content is not lost to double-condensing.
         $this->assertEqualsCanonicalizing(
-            ['content_analyzer', 'review_sentiment'],
+            ['content_analyzer', 'review_sentiment', 'site_explorer', 'review_finder', 'site_context'],
             $byUid['report_author']['depends_on'],
         );
 
@@ -70,6 +71,33 @@ class SiteAuditAgentGenerationTest extends TestCase
         // Crawler/report prompts carry the right placeholders.
         $this->assertStringContainsString('{{url}}', $byUid['site_explorer']['prompt_template']);
         $this->assertStringContainsString('{{input}}', $byUid['report_author']['prompt_template']);
+    }
+
+    public function test_bare_domain_without_scheme_still_triggers_the_branched_pipeline(): void
+    {
+        // The user described flow 25 with a bare domain ("primelaser.bg") — no
+        // https:// — and got a linear flow because the URL wasn't detected. A bare
+        // domain must now trigger the deterministic branched skeleton too.
+        $company = Company::create([
+            'name' => 'Prime Laser', 'description' => 'Лазерна епилация',
+            'industry' => 'Beauty', 'language' => 'bg',
+        ]);
+        $flow = Flow::create([
+            'company_id' => $company->id,
+            'name' => 'Site Audit (bare domain)',
+            'description' => 'Един агент проверява съдържанието на сайта primelaser.bg, '
+                .'втори паралелно проверява онлайн ревютата, трети анализатор обединява и прави доклад.',
+        ]);
+
+        $ollama = Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')->never();
+        $this->app->instance(OllamaService::class, $ollama);
+
+        $agents = $this->app->make(AgentGeneratorService::class)->generate($flow);
+
+        $this->assertSame('site_context', $agents[0]['type']);
+        $this->assertContains('deep_researcher', collect($agents)->pluck('type')->all());
+        $this->assertCount(8, $agents);
     }
 
     public function test_non_site_flow_keeps_the_company_block(): void

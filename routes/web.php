@@ -87,6 +87,7 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     Route::get('agent-templates', [AdminAgentTemplateController::class, 'index'])->name('agent-templates.index');
     Route::get('agent-templates/create', [AdminAgentTemplateController::class, 'create'])->name('agent-templates.create');
     Route::post('agent-templates', [AdminAgentTemplateController::class, 'store'])->name('agent-templates.store');
+    Route::patch('agent-templates/{agentTemplate}/toggle-active', [AdminAgentTemplateController::class, 'toggleActive'])->name('agent-templates.toggle-active');
     Route::get('agent-templates/{agentTemplate}/edit', [AdminAgentTemplateController::class, 'edit'])->name('agent-templates.edit');
     Route::put('agent-templates/{agentTemplate}', [AdminAgentTemplateController::class, 'update'])->name('agent-templates.update');
     Route::delete('agent-templates/{agentTemplate}', [AdminAgentTemplateController::class, 'destroy'])->name('agent-templates.destroy');

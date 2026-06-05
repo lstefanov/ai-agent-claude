@@ -32,7 +32,7 @@ class FlowBuilderController extends Controller
 
         $templateIcons = AgentTemplate::query()
             ->where(fn ($query) => $query
-                ->whereNull('company_id')
+                ->where(fn ($q) => $q->whereNull('company_id')->where('is_active', true))
                 ->orWhere('company_id', $flow->company_id)
             )
             ->whereNotNull('icon')

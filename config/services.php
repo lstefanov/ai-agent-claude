@@ -70,6 +70,12 @@ return [
         'results_count' => env('BRAVE_RESULTS_COUNT', 10),
     ],
 
+    'google_places' => [
+        // Google Places API (New) key — used for business reviews/rating.
+        // Enable "Places API (New)" in Google Cloud Console for the key.
+        'api_key' => env('GOOGLE_PLACES_API_KEY'),
+    ],
+
     'comfyui' => [
         'url' => env('COMFYUI_URL', 'http://localhost:8188'),
         'enabled' => env('COMFYUI_ENABLED', true),

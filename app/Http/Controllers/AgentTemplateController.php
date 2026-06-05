@@ -14,6 +14,7 @@ class AgentTemplateController extends Controller
         $companyId = $request->integer('company_id');
 
         $system = AgentTemplate::whereNull('company_id')
+            ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get(['id','name','description','icon','type','role','system_prompt',
