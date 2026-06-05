@@ -25,43 +25,51 @@ class SiteAuditAgentGenerationTest extends TestCase
         $this->assertSame([], UrlExtractor::all('Няма URL тук, само текст.'));
     }
 
-    public function test_site_audit_flow_leads_with_a_crawler_not_trend_researcher(): void
+    public function test_site_audit_flow_builds_deterministic_branched_pipeline(): void
     {
         $flow = $this->makeSiteFlow();
 
-        // AI deliberately returns trend_researcher first — the service must reorder
-        // so the site crawler (deep_researcher) leads the pipeline instead.
-        $aiAgents = json_encode([
-            ['name' => 'Изследовател на тенденции', 'type' => 'trend_researcher', 'order' => 1],
-            ['name' => 'Дълбок изследовател', 'type' => 'deep_researcher', 'order' => 2,
-                'prompt_template' => 'Обходи {{url}} и извлечи услуги и цени.'],
-            ['name' => 'Автор на доклад', 'type' => 'report_writer', 'order' => 3],
-            ['name' => 'QA Верификатор', 'type' => 'qa_verifier', 'order' => 4],
-        ]);
-
-        $this->mockOllamaReturning($aiAgents, $capturedUserMessage);
+        // For a URL-analysis flow the structure is built deterministically in code —
+        // the LLM is NOT consulted for the graph (small models got it wrong). The
+        // Ollama mock should therefore never be hit.
+        $ollama = Mockery::mock(OllamaService::class);
+        $ollama->shouldReceive('chat')->never();
+        $this->app->instance(OllamaService::class, $ollama);
 
         $agents = $this->app->make(AgentGeneratorService::class)->generate($flow);
 
-        $this->assertSame('deep_researcher', $agents[0]['type'], 'A site crawler must lead the pipeline');
-        $this->assertNotSame('trend_researcher', $agents[0]['type']);
+        $byUid  = collect($agents)->keyBy('uid');
+        $types  = collect($agents)->pluck('type')->all();
 
-        // The model is chosen by code (by type), NOT taken from the LLM — a research
-        // agent must get a research model, never the Bulgarian text model.
-        $this->assertSame('mistral-nemo', $agents[0]['model']);
-        $this->assertNotSame('todorov/bggpt', $agents[0]['model']);
+        // Lead is the shared base-context agent; the real crawler is node 2.
+        $this->assertSame('site_context', $agents[0]['type'], 'The base-context agent must lead');
+        $this->assertSame([], $agents[0]['depends_on']);
+        $this->assertContains('deep_researcher', $types, 'A real site crawler must be present');
+        $this->assertNotContains('trend_researcher', $types);
 
-        // The generation prompt must surface the real URL and a {{url}} directive.
-        $this->assertStringContainsString('https://primelaser.bg', $capturedUserMessage);
-        $this->assertStringContainsString('{{url}}', $capturedUserMessage);
+        // Fan-out: explorer and review analyzer both depend on the base context.
+        $this->assertSame(['site_context'], $byUid['site_explorer']['depends_on']);
+        $this->assertSame(['site_context'], $byUid['review_finder']['depends_on']);
 
-        // For a site flow the company record is the subject of NOTHING: the prompt
-        // must present the site as the analysis target and forbid company placeholders.
-        $this->assertStringContainsString('ОБЕКТ НА АНАЛИЗ', $capturedUserMessage);
-        $this->assertStringNotContainsString('Компания: Prime Laser', $capturedUserMessage);
-        $this->assertStringContainsString('{{input}}', $capturedUserMessage);
-        // The directive forbids referencing the static company description.
-        $this->assertMatchesRegularExpression('/ЗАБРАНЕНО.*company_description/s', $capturedUserMessage);
+        // Fan-in: the report author consumes BOTH analyzers.
+        $this->assertEqualsCanonicalizing(
+            ['content_analyzer', 'review_sentiment'],
+            $byUid['report_author']['depends_on'],
+        );
+
+        // Exactly one corrector + one verifier, and the verifier is last.
+        $this->assertSame(1, collect($types)->filter(fn ($t) => $t === 'bg_text_corrector')->count());
+        $this->assertSame(1, collect($types)->filter(fn ($t) => $t === 'qa_verifier')->count());
+        $this->assertSame('qa_verifier', end($agents)['type']);
+        $this->assertTrue(end($agents)['is_verifier']);
+
+        // The crawler is the code-selected research model, never the Bulgarian text model.
+        $this->assertSame('mistral-nemo', $byUid['site_explorer']['model']);
+        $this->assertNotSame('todorov/bggpt', $byUid['site_explorer']['model']);
+
+        // Crawler/report prompts carry the right placeholders.
+        $this->assertStringContainsString('{{url}}', $byUid['site_explorer']['prompt_template']);
+        $this->assertStringContainsString('{{input}}', $byUid['report_author']['prompt_template']);
     }
 
     public function test_non_site_flow_keeps_the_company_block(): void

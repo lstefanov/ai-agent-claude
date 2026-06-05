@@ -31,6 +31,7 @@ class ModelSelectorService
      */
     private array $typeToProfile = [
         // researchers / data gatherers
+        'site_context' => 'research',
         'researcher' => 'research',
         'deep_researcher' => 'research',
         'multi_researcher' => 'research',

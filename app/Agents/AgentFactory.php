@@ -26,6 +26,10 @@ class AgentFactory
             'image_prompt' => new ImagePromptAgent($this->ollama, $this->comfyui),
             'qa_verifier' => new QaVerifierAgent($this->ollama),
             'analyzer' => new AnalyzerAgent($this->ollama),
+            'site_context' => new SiteContextAgent($this->ollama, [
+                new WebScraperTool(new CrawlService),
+                new SiteDiscoveryTool(new CrawlService),
+            ]),
             'researcher' => new ResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
             'multi_researcher' => new MultiResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
             'deep_researcher' => new DeepResearcherAgent($this->ollama, [

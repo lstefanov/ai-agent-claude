@@ -1874,14 +1874,33 @@ function flowBuilder(config) {
 
             // Update the small text label under the bar.
             if (label) {
-                const labelText = {
-                    pending:   'Изчаква своя ред',
-                    running:   'В момента работи…',
-                    completed: 'Завършен',
-                    failed:    'Неуспешен',
-                    skipped:   'Пропуснат',
-                };
-                label.textContent = labelText[status] ?? '';
+                if (status === 'running' && progress && (progress.pages_total > 0 || progress.phase === 'discovery')) {
+                    // Detailed crawl progress for the site explorer: pages found /
+                    // processed / failed + the page currently being read (tooltip).
+                    const phaseMap = {
+                        discovery: 'Откриване на страници',
+                        map:       'Обработка на страници',
+                        merge:     'Обобщаване',
+                        running:   'В момента работи…',
+                    };
+                    let txt = phaseMap[progress.phase] ?? 'В момента работи…';
+                    if (progress.pages_total > 0) {
+                        txt += ` · ${progress.pages_done || 0}/${progress.pages_total}`;
+                        if (progress.pages_failed > 0) txt += ` (${progress.pages_failed} неуспешни)`;
+                    }
+                    label.textContent = txt;
+                    label.title = progress.last_line || '';
+                } else {
+                    const labelText = {
+                        pending:   'Изчаква своя ред',
+                        running:   'В момента работи…',
+                        completed: 'Завършен',
+                        failed:    'Неуспешен',
+                        skipped:   'Пропуснат',
+                    };
+                    label.textContent = labelText[status] ?? '';
+                    label.title = '';
+                }
             }
         },
 

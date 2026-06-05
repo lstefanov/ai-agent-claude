@@ -3,6 +3,7 @@
 return [
 
     // --- Researchers / Data Gatherers ---
+    'site_context' => ['output_role' => 'hidden',    'label' => 'Базов контекст',             'description' => 'Скрейпва началната страница и изгражда компактна идентичност на бизнеса (име, дейност, ключови услуги, контакти) — споделен контекст за следващите клонове'],
     'researcher' => ['output_role' => 'hidden',    'label' => 'Изследовател',               'description' => 'Събира контекст, тенденции, актуални новини, данни за конкуренти'],
     'deep_researcher' => ['output_role' => 'hidden',    'label' => 'Дълбок изследовател',        'description' => 'Търси с Brave + scrape-ва сайта; при map-reduce режим резюмира всяка страница поотделно (за малки модели като mistral-nemo)'],
     'trend_researcher' => ['output_role' => 'hidden',    'label' => 'Изследовател на тенденции',  'description' => 'Търси тенденции и вирусни теми в нишата за контент идеи'],

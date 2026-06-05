@@ -45,18 +45,6 @@ class DeepResearcherAgent extends BaseAgent
         '/plans', '/plan', '/tarifi', '/tariffs', '/subscribe', '/karti',
     ];
 
-    /**
-     * Key pages probed when building a business profile from a specific target
-     * site. The empty string is the homepage and is always scraped.
-     */
-    private const SITE_PROFILE_PATHS = [
-        '',
-        '/za-nas', '/za-nas.html', '/about', '/about-us', '/about.html', '/za-nas/',
-        '/услуги', '/uslugi', '/services', '/service', '/uslugi.html',
-        '/цени', '/ceni', '/tseni', '/prices', '/pricing',
-        '/контакти', '/kontakti', '/contacts', '/contact', '/contact-us', '/kontakti.html',
-    ];
-
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
         $config    = $agent->config ?? [];
@@ -85,12 +73,20 @@ class DeepResearcherAgent extends BaseAgent
             // discovery unavailable, or it returned nothing).
             if (! $mapReduceUsed) {
                 $siteMax = (int) ($config['max_pages_to_scrape'] ?? $systemPageCap);
+                // crawl_site discovers pages via sitemap + internal links (no hardcoded
+                // path guessing) and scrapes them.
                 if ($this->hasTool('crawl_site')) {
                     $siteContent = (string) $this->useTool('crawl_site', ['url' => $targetUrl, 'max' => $siteMax]);
                 }
 
+                // Last resort: read the given homepage URL itself. This is the URL we
+                // were handed — NOT a guessed path — so it keeps the "no hardcoded URLs"
+                // rule while still degrading gracefully when discovery is unavailable.
                 if ($siteContent === '' && $this->hasTool('scrape_page')) {
-                    $siteContent = $this->scrapeTargetSite($targetUrl, max(4, $siteMax));
+                    $homepage = $this->useTool('scrape_page', ['url' => $targetUrl]);
+                    if ($homepage && $homepage !== 'Scraping not available for this page.') {
+                        $siteContent = "=== SCRAPED PAGE: {$targetUrl} ===\n{$homepage}";
+                    }
                 }
 
                 // Cap total site content so we stay inside the synthesis LLM's context
@@ -337,9 +333,22 @@ class DeepResearcherAgent extends BaseAgent
 
     private function pageSummarySystemPrompt(): string
     {
-        return 'Ти си извличащ информация. Извлечи САМО реалните факти от текста: услуги, продукти,'
-            .' цени, контакти, локация, ключови твърдения. Пиши кратко, на български, без измислици.'
-            .' Без увод и заключение — само фактите.';
+        // The model READS and UNDERSTANDS each page — it is NOT told which strings
+        // or URLs to look for. It decides what the page is and extracts whatever real
+        // data is present. This is what lets prices on individual service pages get
+        // captured without any hardcoded price keywords or URL patterns.
+        return implode(' ', [
+            'Ти анализираш съдържанието на ЕДНА уеб страница и разбираш какво представлява.',
+            'Първо определи типа ѝ (начална, услуга, ценоразпис, контакти, за нас, блог, друго).',
+            'После извлечи САМО реално присъстващите данни:',
+            '• УСЛУГИ И ЦЕНИ: за всяка услуга/продукт с цена изведи ред във формат "Услуга — Цена (валута)".',
+            'Ако страницата описва конкретна услуга и цената ѝ е в текста (а не в таблица), пак я улови.',
+            '• КОНТАКТИ: телефон, имейл, адрес, локация, работно време.',
+            '• РЕВЮТА/МНЕНИЯ: ако има клиентски отзиви на страницата, отбележи ги с автор и оценка.',
+            '• КЛЮЧОВИ ФАКТИ: уникални предимства, технологии, гаранции.',
+            'Пиши кратко и структурирано на български. БЕЗ измислици — ако нещо липсва, не го споменавай.',
+            'Без увод и заключение — само извлечените данни.',
+        ]);
     }
 
     /**
@@ -482,57 +491,6 @@ class DeepResearcherAgent extends BaseAgent
         }
         $file = storage_path("logs/run-{$flowRunId}.log");
         @file_put_contents($file, date('[H:i:s]')." {$message}\n", FILE_APPEND | LOCK_EX);
-    }
-
-    /**
-     * Scrape the target site directly: always the homepage, plus key pages
-     * (services / prices / contacts) probed via HEAD. Returns combined markdown.
-     */
-    private function scrapeTargetSite(string $url, int $maxPages): string
-    {
-        $scheme = parse_url($url, PHP_URL_SCHEME) ?: 'https';
-        $host = parse_url($url, PHP_URL_HOST);
-        if (! $host) {
-            return '';
-        }
-        $root = $scheme.'://'.$host;
-        $homepage = rtrim($url, '/') ?: $root;
-
-        $scraped = '';
-        $count = 0;
-        $seen = [];
-
-        foreach (self::SITE_PROFILE_PATHS as $path) {
-            if ($count >= $maxPages) {
-                break;
-            }
-
-            $pageUrl = $path === '' ? $homepage : $root.$path;
-            if (isset($seen[$pageUrl])) {
-                continue;
-            }
-            $seen[$pageUrl] = true;
-
-            // The homepage is always attempted; other paths are HEAD-probed first
-            // so we only scrape pages that actually exist.
-            if ($path !== '') {
-                try {
-                    if (! Http::timeout(3)->head($pageUrl)->successful()) {
-                        continue;
-                    }
-                } catch (\Exception) {
-                    continue;
-                }
-            }
-
-            $markdown = $this->useTool('scrape_page', ['url' => $pageUrl]);
-            if ($markdown && $markdown !== 'Scraping not available for this page.') {
-                $scraped .= "\n\n=== SCRAPED PAGE: {$pageUrl} ===\n{$markdown}";
-                $count++;
-            }
-        }
-
-        return $scraped;
     }
 
     private function scrapeTopPricingPages(string $searchResults, int $maxPages): string

@@ -26,6 +26,16 @@ class AgentGeneratorService
         $modelsContext = $this->buildModelsContext();
         $targetUrl     = UrlExtractor::first($flow->description ?? '');
 
+        // ── Website-analysis flows: deterministic branched skeleton ──────────
+        // Small local models are unreliable at producing a correct branched DAG
+        // (wrong types, duplicates, missing the real crawler). When the flow
+        // targets a concrete URL we build the pipeline structurally in code and
+        // only fill in hand-written Bulgarian prompts — no LLM guesswork about
+        // types or dependencies. This is the root-cause fix for flow 18.
+        if (! empty($targetUrl)) {
+            return $this->generateSiteAnalysisPipeline($flow, $targetUrl, $logToken, $onProgress);
+        }
+
         // For a website-analysis flow the subject is the scraped site — NOT the
         // company record, which is unrelated and would pollute the agents. So we
         // present the URL as the only subject and forbid company placeholders.
@@ -83,8 +93,8 @@ Flow за изграждане: "{$flow->description}"
 ПРАВИЛА ЗА ПРОЕКТИРАНЕ НА PIPELINE:
 ⚠️ КРИТИЧНО: Избери шаблона САМО ако описанието на flow-а директно съвпада. НЕ добавяй агенти за конкуренти, освен ако думата "конкурент/и" или "competitor" изрично се появява в описанието на flow-а.
 
-- За анализ на единична фирма/бизнес (одит, профил, доклад за конкретна компания, анализ на уебсайт):
-  researcher → deep_researcher → review_analyzer → analyzer → report_writer → bg_text_corrector → qa_verifier
+- За анализ на единична фирма/бизнес БЕЗ конкретен сайт (одит, профил, доклад по име на компания):
+  researcher → review_analyzer → analyzer → report_writer → bg_text_corrector → qa_verifier
 - За social media flows: trend_researcher → hook_writer → content_bg → hashtag_generator → caption_writer → bg_text_corrector → qa_verifier
 - За competitive intelligence (САМО когато описанието споменава "конкуренти" или "competitor"): competitor_profiler → swot_builder → report_writer → bg_text_corrector → qa_verifier
 - За SEO flows: keyword_extractor → seo_writer → meta_generator → bg_text_corrector → qa_verifier
@@ -222,9 +232,175 @@ MSG;
 
         $agents = $this->ensureQaVerifierLast($agents);
         $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
+        $agents = $this->dedupeAgents($agents);
         $agents = $this->finalizeDependencyGraph($agents);
 
         return $agents;
+    }
+
+    /**
+     * Build a website-analysis pipeline deterministically (no LLM structure
+     * guesswork) and run it through the same normalize + graph-finalize path the
+     * LLM output uses. The result is the user's approved branched architecture:
+     *
+     *   Базов контекст ─┬─► Изследовател ─► Анализатор ─┐
+     *                   └─► Ревюта      ─► Анализатор ─┴─► Доклад ─► Коректор ─► QA
+     */
+    private function generateSiteAnalysisPipeline(Flow $flow, string $targetUrl, ?string $logToken, ?callable $onProgress): array
+    {
+        if ($onProgress) {
+            $onProgress('Изграждане на pipeline за анализ на сайт');
+        }
+
+        $skeleton = $this->buildSiteAnalysisSkeleton($targetUrl);
+
+        $agents = array_values(array_filter(array_map(
+            fn ($a, $i) => $this->normalizeAgent($a, $i + 1),
+            $skeleton,
+            array_keys($skeleton),
+        )));
+        $agents = $this->finalizeDependencyGraph($agents);
+
+        // Audit trail in the builder's "Лог на генерирането" panel — deterministic
+        // builds have no raw LLM response, so we record the resolved skeleton.
+        AgentGenerationLog::create([
+            'flow_id'       => $flow->id,
+            'company_id'    => $flow->company_id ?? $flow->company?->id,
+            'token'         => $logToken,
+            'provider'      => 'deterministic',
+            'model'         => 'site-analysis-skeleton',
+            'system_prompt' => 'Детерминистичен разклонен скелет за анализ на сайт (без LLM за структурата).',
+            'user_message'  => "Целеви сайт: {$targetUrl}\nFlow: ".($flow->description ?? ''),
+            'options'       => [],
+            'raw_response'  => json_encode($agents, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
+            'parsed_count'  => count($agents),
+            'duration_ms'   => 0,
+            'status'        => 'completed',
+        ]);
+
+        Log::info('[AgentGenerator] Built deterministic site-analysis pipeline ('.count($agents).' agents) for '.$targetUrl);
+
+        return $agents;
+    }
+
+    /**
+     * Raw agent dicts for the branched site-analysis pipeline. Types, uids and
+     * depends_on are fixed in code; normalizeAgent() fills model + config defaults.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildSiteAnalysisSkeleton(string $targetUrl): array
+    {
+        $qa = fn (string $check): array => [
+            'temperature' => 0.3,
+            'qa' => [
+                'enabled' => false,
+                'verifier_agent_uid' => 'qa_main',
+                'threshold' => self::DEFAULT_QA_THRESHOLD,
+                'max_retries' => 3,
+                'custom_prompt' => $check,
+            ],
+        ];
+
+        return [
+            [
+                'name' => 'Базов контекст за бизнеса',
+                'type' => 'site_context',
+                'uid' => 'site_context',
+                'depends_on' => [],
+                'order' => 1,
+                'role' => 'Скрейпва началната страница на сайта и изгражда компактна идентичност на бизнеса (име, дейност, основни услуги, контакти). Това е споделеният базов контекст за двата следващи клона.',
+                'system_prompt' => 'Ти изграждаш базов профил на бизнес от началната му страница. Извличаш САМО реално присъстващи факти: име на бизнеса, с какво се занимава, основни направления услуги/продукти, контакти и локация, език. Не измисляш нищо. Пишеш кратко и структурирано на български.',
+                'prompt_template' => "Изгради базов профил на бизнеса от сайта {{url}}. Използвай съдържанието на началната страница, предоставено по-долу. Върни кратък структуриран профил на български: име, дейност, основни услуги, контакти, локация и език. Без измислици — пропусни каквото липсва.",
+                'config' => $qa('Провери дали профилът съдържа реално име на бизнеса и поне 2-3 направления услуги/дейност, извлечени от началната страница.'),
+            ],
+            [
+                'name' => 'Изследовател на сайта',
+                'type' => 'deep_researcher',
+                'uid' => 'site_explorer',
+                'depends_on' => ['site_context'],
+                'order' => 2,
+                'role' => 'Обхожда ВСИЧКИ страници на сайта, разбира съдържанието на всяка и извлича структурирано услуги с цени, контакти и факти за бизнеса. Прогресът се показва страница по страница.',
+                'system_prompt' => 'Ти си изследовател, който обхожда цял уебсайт. За всяка страница разбираш какво представлява съдържанието и извличаш САМО реалните данни — услуги и техните цени, описания, контакти, локации. Не търсиш фиксирани думи и не измисляш цени. Обединяваш всичко в изчерпателна, структурирана база знания на български, със консолидирана таблица на услугите и цените.',
+                'prompt_template' => "Обходи целия сайт {{url}} и извлечи изчерпателна информация за бизнеса: всички услуги/продукти с техните цени (както от ценова страница, така и от отделните страници на услуги), контакти, локации и ключови твърдения. Базовият контекст за бизнеса е: {{input}}. Върни структурирана база знания на български с консолидирана таблица услуга → цена и всички намерени контакти.",
+                'config' => array_merge($qa('Провери дали са обходени множество страници и са извлечени конкретни услуги с цени и контакти. Трябва да има реални числови цени, ако сайтът ги публикува.'), [
+                    'temperature' => 0.3,
+                    'map_reduce' => true,
+                    'max_pages_to_scrape' => 200,
+                    'map_concurrency' => 4,
+                ]),
+            ],
+            [
+                'name' => 'Анализатор на ревюта',
+                'type' => 'review_analyzer',
+                'uid' => 'review_finder',
+                'depends_on' => ['site_context'],
+                'order' => 3,
+                'role' => 'Намира реални ревюта за бизнеса: вградените на самия сайт (Google/Facebook widget-и, testimonials), плюс външни източници (Google Maps, Facebook). Анализира тон и повтарящи се теми.',
+                'system_prompt' => 'Ти откриваш и анализираш реални клиентски ревюта за конкретен бизнес. Разпознаваш ревюта вградени в съдържанието на сайта, както и от външни източници. Никога не измисляш ревюта, оценки или цитати. Ако не са намерени реални ревюта, го казваш ясно. Пишеш на български.',
+                'prompt_template' => "Намери и анализирай реалните ревюта за бизнеса от сайта {{url}}. Базов контекст за бизнеса (име, дейност): {{input}}. Потърси вградени ревюта/testimonials на самия сайт и външни ревюта (Google Maps, Facebook). Обобщи: общ тон, повтарящи се похвали и оплаквания, средна оценка и конкретни цитати с източник. Ако няма реални ревюта — кажи го ясно.",
+                'config' => $qa('Провери дали изходът се базира на реални намерени ревюта (с източник) или ясно заявява, че такива не са намерени. Без измислени оценки.'),
+            ],
+            [
+                'name' => 'Анализатор на съдържанието',
+                'type' => 'analyzer',
+                'uid' => 'content_analyzer',
+                'depends_on' => ['site_explorer'],
+                'order' => 4,
+                'role' => 'Анализира събраната от сайта информация: услуги, ценова структура, силни страни, позициониране и възможности.',
+                'system_prompt' => 'Ти анализираш събраните данни за бизнеса от неговия сайт. Идентифицираш ключови услуги, ценова структура, силни и слаби страни, позициониране и възможности за подобрение. Запазваш всички конкретни данни (особено цени) и ги структурираш ясно. Пишеш на български.',
+                'prompt_template' => "Анализирай задълбочено събраната информация за сайта: {{input}}. Извлечи и структурирай: пълен списък услуги с цени, ценова структура, силни страни, позициониране и конкретни възможности за подобрение. Запази ВСИЧКИ числови цени и контакти. Изход на български.",
+                'config' => $qa('Провери дали анализът съдържа структурирани услуги с цени, силни страни и конкретни изводи, базирани на входните данни.'),
+            ],
+            [
+                'name' => 'Анализатор на ревютата',
+                'type' => 'sentiment_analyzer',
+                'uid' => 'review_sentiment',
+                'depends_on' => ['review_finder'],
+                'order' => 5,
+                'role' => 'Структурира резултата от ревютата: общ sentiment, средна оценка, повтарящи се теми и препоръки на база обратната връзка.',
+                'system_prompt' => 'Ти структурираш анализа на клиентски ревюта в ясни изводи: общ тон, средна оценка, повтарящи се похвали и оплаквания, препоръки. Базираш се само на предоставените реални ревюта. Ако ревюта липсват, го отбелязваш. Пишеш на български.',
+                'prompt_template' => "Структурирай анализа на ревютата: {{input}}. Дай: общ sentiment, средна оценка (ако е налична), топ повтарящи се похвали и оплаквания, и конкретни препоръки за бизнеса на база обратната връзка. Без измислици. Изход на български.",
+                'config' => $qa('Провери дали изводите за ревютата се базират на реалните входни данни и ясно отбелязват липсата на ревюта, ако такива няма.'),
+            ],
+            [
+                'name' => 'Автор на доклад',
+                'type' => 'report_writer',
+                'uid' => 'report_author',
+                'depends_on' => ['content_analyzer', 'review_sentiment'],
+                'order' => 6,
+                'role' => 'Сглобява изчерпателен финален доклад от анализа на съдържанието и анализа на ревютата — с executive summary, пълна таблица услуги/цени, контакти, секция ревюта и препоръки.',
+                'system_prompt' => 'Ти пишеш изчерпателен бизнес доклад на български от два източника: анализ на съдържанието на сайта и анализ на ревютата. Включваш ВСИЧКИ конкретни данни — пълна таблица на услугите с цени, контакти, локации — и не съкращаваш фактологията. Структурата е ясна с раздели. За голям сайт докладът е подробен и дълъг. Не измисляш данни.',
+                'prompt_template' => "Напиши изчерпателен доклад за бизнеса на български на база двата входа по-долу: {{input}}.\nЗадължителни раздели:\n1. Executive summary\n2. Профил на бизнеса и направления\n3. Пълна таблица на услугите с цени (всички намерени услуги — не съкращавай)\n4. Контакти и локации\n5. Анализ на ревютата (тон, оценка, теми)\n6. Силни страни и възможности\n7. Конкретни препоръки\nЗапази всички числови цени и контакти от входа. Докладът трябва да е подробен, съответстващ на обема на сайта.",
+                'config' => array_merge($qa('Провери дали докладът съдържа всички задължителни раздели, пълна таблица услуги/цени с реални числа и секция за ревютата. Езикът е български.'), [
+                    'temperature' => 0.5,
+                ]),
+            ],
+            [
+                'name' => 'Български коректор',
+                'type' => self::BG_TEXT_CORRECTOR_TYPE,
+                'uid' => 'bg_corrector',
+                'depends_on' => ['report_author'],
+                'order' => 7,
+                'role' => 'Коригира правописа и стила на финалния доклад без да променя смисъла, фактите, цените или таблиците.',
+                'system_prompt' => 'Ти си коректор на правопис. Поправяш САМО правописни и граматични грешки в кирилица. Запазваш структурата, таблиците, цените, контактите и числата непроменени. Не пренаписваш и не добавяш информация. Връщаш само коригирания текст без обяснения.',
+                'prompt_template' => 'Прегледай доклада и поправи САМО правописните и граматичните грешки. Запази таблиците, цените и контактите непроменени. Върни само коригирания текст.',
+                'config' => ['temperature' => 0.2],
+            ],
+            [
+                'name' => 'QA Верификатор',
+                'type' => self::QA_VERIFIER_TYPE,
+                'uid' => 'qa_main',
+                'depends_on' => ['bg_corrector'],
+                'order' => 8,
+                'is_verifier' => true,
+                'qa_threshold' => self::DEFAULT_QA_THRESHOLD,
+                'role' => 'Оценява качеството на финалния доклад по скала 0-100: пълнота, наличие на цени/контакти/ревюта, яснота и език.',
+                'system_prompt' => 'Ти си QA специалист. Оценяваш финалния доклад обективно по пълнота (услуги, цени, контакти, ревюта), яснота, форматиране и български език. Не пренаписваш — само оценяваш дали е готов за употреба.',
+                'prompt_template' => 'Оцени качеството на финалния доклад по скала 0-100: {{input}}. Провери дали съдържа пълна таблица услуги/цени, контакти, секция ревюта и ясни препоръки на правилен български. Върни структурирана оценка с кратко обяснение и pass/fail според прага.',
+                'config' => ['temperature' => 0.1],
+            ],
+        ];
     }
 
     /**
@@ -318,42 +494,45 @@ MSG;
 
     private function buildModelsContext(): string
     {
-        // Show ALL models — not just available ones — so AI can choose
-        // the best tool for each job regardless of what's currently installed.
-        // Mark available ones so AI prefers them.
-        $models = LlmModel::orderBy('category')->orderBy('display_name')->get();
+        // List ONLY installed + enabled models. Showing uninstalled tags made the
+        // LLM recommend models the user doesn't have, so they were never pulled and
+        // the run fell back unpredictably. The model is anyway re-selected by code
+        // (ModelSelectorService) — this list is just guidance.
+        $models = LlmModel::where('is_available', true)
+            ->where('is_enabled', true)
+            ->orderBy('category')
+            ->orderBy('display_name')
+            ->get();
 
         if ($models->isEmpty()) {
             return $this->getDefaultModelsContext();
         }
 
         return $models->map(function ($m) {
-            $available = $m->is_available ? ' ✓ (installed)' : ' (not installed)';
-            $bestFor   = $m->description ? " — {$m->description}" : '';
-            return "- {$m->ollama_tag}{$available}{$bestFor}";
+            $bestFor = $m->description ? " — {$m->description}" : '';
+            return "- {$m->ollama_tag}{$bestFor}";
         })->join("\n");
     }
 
     private function buildTypesContext(): string
     {
-        $lines = ['НЕОБХОДИМИ ТИПОВЕ АГЕНТИ (включи ВСИЧКИ приложими):'];
+        $lines = ['НЕОБХОДИМИ ТИПОВЕ АГЕНТИ (използвай САМО "type" от този списък — ЗАБРАНЕНО е да измисляш нови типове):'];
         foreach (config('agent_types') as $slug => $info) {
             $lines[] = "- {$slug} → {$info['description']}";
         }
+        $lines[] = 'НЕ дублирай един и същ агент. За финална езикова корекция използвай ЕДИНСТВЕН bg_text_corrector — не създавай допълнителни „коректори" или „опростители".';
+
         return implode("\n", $lines);
     }
 
     private function getDefaultModelsContext(): string
     {
+        // Fallback list when the LlmModel catalogue is empty — installed defaults only.
         return implode("\n", [
-            '- todorov/bggpt ✓ (installed) — Bulgarian language text generation',
-            '- mistral-nemo ✓ (installed) — JSON output, structured content, image prompts, analysis',
-            '- phi3.5 ✓ (installed) — fast QA verification, simple tasks',
-            '- phi3:mini ✓ (installed) — lightweight, fast responses',
-            '- llama3.1:8b — general English text, summaries',
-            '- mistral — JSON output, structured output',
-            '- deepseek-r1:8b — reasoning, analysis, decisions',
-            '- qwen2:7b — multilingual translation (29 languages)',
+            '- todorov/bggpt — Bulgarian language text generation',
+            '- mistral-nemo — JSON output, structured content, image prompts, analysis',
+            '- qwen2.5:14b — analysis, structured reasoning',
+            '- phi3.5 — fast QA verification, simple tasks',
         ]);
     }
 
@@ -542,7 +721,7 @@ MSG;
         // Long: reports, analyses, summaries that regularly exceed 2 000 tokens.
         $long = [
             'report_writer', 'report_composer', 'analyzer', 'swot_builder',
-            'summarizer', 'data_extractor', 'email_sequence_writer',
+            'sentiment_analyzer', 'summarizer', 'data_extractor', 'email_sequence_writer',
             'press_release_writer', 'calendar_planner', 'ab_test_generator',
             'survey_builder', 'persona_builder', 'chatbot_responder',
             'podcast_outline', 'video_script_writer', 'story_writer',
@@ -684,6 +863,41 @@ MSG;
         unset($agent);
 
         return array_values($agents);
+    }
+
+    /**
+     * Second-line defence for LLM-generated (non-URL) pipelines:
+     *  - invented types that don't exist in config/agent_types.php are remapped to
+     *    a real body type (otherwise they silently fall through to a generic agent);
+     *  - exact-duplicate agents (same type + same name) are collapsed — this is what
+     *    produced the nonsensical "Коректиране и улеснение ×2 + Български коректор".
+     */
+    private function dedupeAgents(array $agents): array
+    {
+        $knownTypes = array_keys(config('agent_types', []));
+        $seen       = [];
+        $out        = [];
+
+        foreach ($agents as $agent) {
+            $type = $agent['type'] ?? 'content_bg';
+
+            if (! in_array($type, $knownTypes, true)) {
+                Log::warning('[AgentGenerator] Unknown agent type "'.$type.'" remapped to content_bg');
+                $type          = 'content_bg';
+                $agent['type'] = $type;
+            }
+
+            $sig = $type.'|'.mb_strtolower(trim((string) ($agent['name'] ?? '')));
+            if (isset($seen[$sig])) {
+                Log::warning('[AgentGenerator] Dropping duplicate agent "'.($agent['name'] ?? '').'" ('.$type.')');
+
+                continue;
+            }
+            $seen[$sig] = true;
+            $out[]      = $agent;
+        }
+
+        return $this->renumberAgents($out);
     }
 
     private function defaultBgTextCorrectorAgent(): array
