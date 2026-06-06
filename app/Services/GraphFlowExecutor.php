@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\ExecuteNodeJob;
 use App\Models\Flow;
+use App\Models\FlowEdge;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\NodeRun;
@@ -54,8 +55,20 @@ class GraphFlowExecutor
         }
 
         $context = $flowRun->context ?? [];
-        $context['seed'] = $this->buildSeed($flow);
+        // Per-run inputs come from the run trigger (manual form) or the webhook
+        // payload; explicit `inputs` win over a raw webhook payload.
+        $runInputs = array_merge(
+            (array) ($context['webhook_payload'] ?? []),
+            (array) ($context['inputs'] ?? []),
+        );
+        $context['seed'] = $this->buildSeed($flow, $runInputs);
         $context['waves'] = $analysis['waves'];
+        // WS4: only run the branch-pruning logic when the graph actually has a
+        // decision node — keeps every existing flow's behaviour unchanged.
+        $context['has_decisions'] = $flow->nodes()
+            ->where('is_active', true)
+            ->where('type', 'decision')
+            ->exists();
         // Partial-failure policy: 'fail_fast' (default) cancels the run on the
         // first node error; 'best_effort' lets independent branches continue and
         // fan-in nodes assemble from whatever predecessors completed.
@@ -64,9 +77,9 @@ class GraphFlowExecutor
             : 'fail_fast';
 
         $flowRun->update([
-            'status'         => 'running',
-            'context'        => $context,
-            'started_at'     => now(),
+            'status' => 'running',
+            'context' => $context,
+            'started_at' => now(),
             // Snapshot the Drawflow graph_layout at the moment the run starts so
             // the historical run viewer can show the exact graph that was executed
             // even if the user edits the flow afterwards.
@@ -97,8 +110,18 @@ class GraphFlowExecutor
             return;
         }
 
+        // WS4: prune branches not taken by an upstream decision. A node runs only
+        // if it has an active incoming path; the rest are marked 'skipped'.
+        $waveKeys = $waves[$index];
+        if ($flowRun->context['has_decisions'] ?? false) {
+            [$waveKeys, $skipped] = $this->resolveActiveNodes($flowRun, $waveKeys);
+            if (! empty($skipped)) {
+                $this->markSkipped($flowRun, $skipped);
+            }
+        }
+
         $nodeIds = FlowNode::where('flow_id', $flowRun->flow_id)
-            ->whereIn('node_key', $waves[$index])
+            ->whereIn('node_key', $waveKeys)
             ->pluck('id');
 
         $jobs = $nodeIds->map(fn ($id) => new ExecuteNodeJob($flowRunId, (int) $id))->all();
@@ -178,6 +201,18 @@ class GraphFlowExecutor
         ]);
 
         $flowRun->flow->update(['last_run_at' => now()]);
+
+        // Plan library (Фаза 2): a successful run proves the approved plan —
+        // it becomes a few-shot example for future planning.
+        app(PlanLibraryService::class)->recordRunOutcome($flowRun);
+
+        // Deliver the result to the flow's configured channel (email/Slack/
+        // webhook/file). Best-effort — a delivery failure never fails the run.
+        try {
+            app(DeliveryService::class)->deliver($flowRun);
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     private function terminalAssembly(FlowRun $flowRun): string
@@ -198,6 +233,97 @@ class GraphFlowExecutor
             ->implode("\n\n");
     }
 
+    /**
+     * WS4 — split a wave into nodes to run vs. nodes pruned by an upstream
+     * decision. A node is active if it has no predecessors, or at least one
+     * incoming edge is active: the predecessor completed AND — when it is a
+     * decision that recorded a choice — the edge's from_port is the chosen one.
+     * Decisions without a recorded choice don't prune (safe fallback).
+     *
+     * @param  list<string>  $waveKeys
+     * @return array{0: list<string>, 1: list<string>} [active, skipped]
+     */
+    private function resolveActiveNodes(FlowRun $flowRun, array $waveKeys): array
+    {
+        $edges = FlowEdge::where('flow_id', $flowRun->flow_id)
+            ->whereIn('to_node_key', $waveKeys)
+            ->get(['from_node_key', 'to_node_key', 'from_port']);
+
+        if ($edges->isEmpty()) {
+            return [$waveKeys, []]; // every node in this wave is a root
+        }
+
+        $fromKeys = $edges->pluck('from_node_key')->unique()->all();
+
+        $statuses = NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('node_key', $fromKeys)
+            ->pluck('status', 'node_key');
+
+        $decisionKeys = FlowNode::where('flow_id', $flowRun->flow_id)
+            ->where('type', 'decision')
+            ->whereIn('node_key', $fromKeys)
+            ->pluck('node_key')
+            ->flip();
+
+        $decisions = $flowRun->context['decisions'] ?? [];
+
+        $incoming = [];
+        foreach ($edges as $edge) {
+            $incoming[$edge->to_node_key][] = $edge;
+        }
+
+        $active = [];
+        $skipped = [];
+
+        foreach ($waveKeys as $key) {
+            $edgesIn = $incoming[$key] ?? [];
+
+            if ($edgesIn === []) {
+                $active[] = $key; // root within this sub-wave
+
+                continue;
+            }
+
+            $hasActiveEdge = false;
+            foreach ($edgesIn as $edge) {
+                if (($statuses[$edge->from_node_key] ?? null) !== 'completed') {
+                    continue; // predecessor failed/skipped/not-run → edge inactive
+                }
+                // Decision predecessor with a recorded choice → only its chosen port.
+                if (isset($decisionKeys[$edge->from_node_key], $decisions[$edge->from_node_key])
+                    && (string) $decisions[$edge->from_node_key] !== (string) $edge->from_port) {
+                    continue;
+                }
+                $hasActiveEdge = true;
+                break;
+            }
+
+            $hasActiveEdge ? $active[] = $key : $skipped[] = $key;
+        }
+
+        return [$active, $skipped];
+    }
+
+    /**
+     * Mark pruned nodes as 'skipped' so the UI shows them greyed out and their
+     * own successors see an inactive incoming edge (the skip propagates).
+     *
+     * @param  list<string>  $keys
+     */
+    private function markSkipped(FlowRun $flowRun, array $keys): void
+    {
+        $nodes = FlowNode::where('flow_id', $flowRun->flow_id)
+            ->whereIn('node_key', $keys)
+            ->get(['id', 'node_key']);
+
+        foreach ($nodes as $node) {
+            NodeRun::updateOrCreate(
+                ['flow_run_id' => $flowRun->id, 'flow_node_id' => $node->id],
+                ['node_key' => $node->node_key, 'status' => 'skipped', 'completed_at' => now()],
+            );
+        }
+    }
+
     public function fail(FlowRun $flowRun, string $message): void
     {
         $context = $flowRun->fresh()->context ?? [];
@@ -214,24 +340,42 @@ class GraphFlowExecutor
      * Immutable seed context for the whole run (ported from the old executor's
      * pre-seed block). Lives under context['seed'] and is never mutated.
      *
+     * Per-run inputs override the flow defaults: a run can supply its own
+     * {{topic}}/{{url}} plus arbitrary {{placeholder}} keys, so one flow serves
+     * many inputs without editing the graph.
+     *
+     * @param  array<string,mixed>  $runInputs
      * @return array<string,string>
      */
-    private function buildSeed(Flow $flow): array
+    private function buildSeed(Flow $flow, array $runInputs = []): array
     {
         $company = $flow->company;
-        $targetUrl = UrlExtractor::first($flow->description ?? '') ?? '';
+
+        $topic = trim((string) ($runInputs['topic'] ?? $runInputs['input'] ?? $flow->topic ?? ''));
+        $targetUrl = trim((string) ($runInputs['url'] ?? $runInputs['target_url'] ?? $runInputs['website'] ?? ''))
+            ?: (UrlExtractor::first($flow->description ?? '') ?? '');
         $isSiteFlow = $targetUrl !== '';
 
-        return [
+        $seed = [
             'company_description' => $isSiteFlow ? '' : ($company?->description ?? ''),
             'company_name' => $isSiteFlow ? '' : ($company?->name ?? ''),
             'company_industry' => $isSiteFlow ? '' : ($company?->industry ?? ''),
-            'input' => $flow->topic ?? '',
-            'topic' => $flow->topic ?? '',
-            'flow_topic' => $flow->topic ?? '',
+            'input' => $topic,
+            'topic' => $topic,
+            'flow_topic' => $topic,
             'url' => $targetUrl,
             'target_url' => $targetUrl,
             'website' => $targetUrl,
         ];
+
+        // Arbitrary extra per-run inputs become first-class {{placeholder}} keys
+        // (never overwrite the reserved keys above).
+        foreach ($runInputs as $key => $value) {
+            if (is_string($key) && $key !== '' && is_scalar($value) && ! array_key_exists($key, $seed)) {
+                $seed[$key] = (string) $value;
+            }
+        }
+
+        return $seed;
     }
 }

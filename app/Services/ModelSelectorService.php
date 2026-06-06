@@ -19,7 +19,7 @@ class ModelSelectorService
         // Detailed reports synthesised from large multi-agent input — needs a big context window.
         'report' => ['qwen2.5:14b', 's_emanuilov/BgGPT-v1.0:27b', 's_emanuilov/BgGPT-v1.0:9b', 'gemma3:12b'],
         'research' => ['mistral-nemo', 'qwen2.5:14b', 'qwen2.5:7b', 'mistral'],
-        'analysis' => ['qwen2.5:14b', 'mistral-nemo', 'gemma3:12b', 'gemma2:9b'],
+        'analysis' => ['gemma4', 'qwen2.5:14b', 'mistral-nemo', 'gemma3:12b', 'gemma2:9b'],
         // QA must emit clean JSON reliably — the 2.6b model could not. Capable models first.
         'qa' => ['qwen2.5:14b', 'gemma2:9b', 's_emanuilov/BgGPT-v1.0:9b'],
         'en_writer' => ['gemma3:12b', 'mistral', 'llama3.1:8b'],
@@ -27,7 +27,7 @@ class ModelSelectorService
         'translate' => ['aya-expanse:8b', 'qwen2:7b', 'qwen2.5:14b'],
         'code' => ['qwen2.5-coder:7b', 'qwen2.5-coder:14b'],
         'vision' => ['qwen2.5vl:7b', 'llava:7b'],
-        'utility' => ['mistral', 'mistral-nemo', 'gemma2:9b'],
+        'utility' => ['gemma4', 'mistral', 'mistral-nemo', 'gemma2:9b'],
     ];
 
     /**
@@ -184,7 +184,7 @@ class ModelSelectorService
     }
 
     /**
-     * A model guaranteed to be installed: the configured generator model if it is
+     * A model guaranteed to be installed: the configured fallback tag if it is
      * installed, otherwise any installed+enabled model, otherwise the configured
      * fallback tag as a last resort.
      */
@@ -192,11 +192,11 @@ class ModelSelectorService
     {
         $installed = $this->installedTags();
 
-        $generator = config('services.ollama.generator_model', 'mistral');
-        if (in_array($generator, $installed, true)) {
-            return $generator;
+        $fallback = (string) config('services.ollama.fallback_model', 'llama3.1:8b');
+        if (in_array($fallback, $installed, true)) {
+            return $fallback;
         }
 
-        return $installed[0] ?? config('services.ollama.fallback_model', 'mistral');
+        return $installed[0] ?? $fallback;
     }
 }

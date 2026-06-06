@@ -37,8 +37,10 @@ return [
 
     'ollama' => [
         'url' => env('OLLAMA_URL', 'http://localhost:11434'),
-        'generator_model' => env('OLLAMA_GENERATOR_MODEL', 'mistral'),
         'fallback_model' => env('OLLAMA_DEFAULT_FALLBACK', 'llama3.1:8b'),
+        // Local model for FREE planning (GENERATOR_PROVIDER=ollama). Needs solid
+        // structured-JSON + reasoning: qwen2.5:14b е най-добрият от каталога.
+        'planner_model' => env('OLLAMA_PLANNER_MODEL', 'qwen2.5:14b'),
         // Auto-pull missing agent models before a flow run. Disabled in tests.
         'auto_pull' => env('OLLAMA_AUTO_PULL', true),
         // Strong model used by FinalComposerService to assemble the final result
@@ -46,23 +48,64 @@ return [
         'composer_model' => env('OLLAMA_COMPOSER_MODEL', 'gemma3:12b'),
     ],
 
-    // Which LLM provider auto-generates agents for a Flow: ollama | anthropic | openai.
-    // Ollama stays the default; external providers need the matching api_key below.
+    // Which LLM provider plans the agents for a Flow: openai | anthropic | ollama.
+    // Cloud (openai/anthropic) дава най-добрите планове; ollama е БЕЗПЛАТНОТО
+    // локално планиране (structured outputs на OLLAMA_PLANNER_MODEL) — същият
+    // тристепенен planner, но качеството зависи от локалния модел.
     'generator' => [
-        'provider' => env('GENERATOR_PROVIDER', 'ollama'),
+        'provider' => env('GENERATOR_PROVIDER', 'openai'),
+    ],
+
+    // FlowPlannerService tuning (the "agent that creates agents").
+    'planner' => [
+        // Phase C: a second LLM pass that reviews + repairs the generated plan.
+        'critique' => env('PLANNER_CRITIQUE', true),
+        // Hard cap on how many agents in one plan may run on a PAID provider
+        // (openai/* + anthropic/* combined) at runtime.
+        'max_paid_agents' => env('PLANNER_MAX_PAID_AGENTS', 2),
+        // Фаза 2: proven plans injected as few-shot examples at design time.
+        'few_shots' => env('PLANNER_FEW_SHOTS', 2),
+        // Фаза 3: revise failing agents mid-run (QA fail / degenerate output).
+        'adaptive' => env('PLANNER_ADAPTIVE', true),
+        // Фаза 3: paid provider used when a revision escalates a failing step
+        // away from a weak local model: openai | anthropic.
+        'escalation_provider' => env('PLANNER_ESCALATION_PROVIDER', 'openai'),
+        // Plan-library retrieval switches to embedding cosine similarity once
+        // the proven entries reach this count (below it: structural scoring).
+        'vector_threshold' => env('PLANNER_VECTOR_THRESHOLD', 100),
     ],
 
     'anthropic' => [
         'api_key' => env('ANTHROPIC_API_KEY'),
         'model' => env('ANTHROPIC_GENERATOR_MODEL', 'claude-sonnet-4-6'),
+        // Default model for agents the planner pins to Anthropic at runtime
+        // (their node model becomes "anthropic/<runtime_model>").
+        'runtime_model' => env('ANTHROPIC_RUNTIME_MODEL', 'claude-haiku-4-5'),
         'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
         'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
+        // USD per 1M tokens (in = prompt, out = completion) — for cost tracking.
+        'pricing' => [
+            'claude-sonnet-4-6' => ['in' => 3.00, 'out' => 15.00],
+            'claude-haiku-4-5' => ['in' => 1.00, 'out' => 5.00],
+        ],
     ],
 
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
         'model' => env('OPENAI_GENERATOR_MODEL', 'gpt-4o'),
+        // Default model for agents the planner pins to OpenAI at runtime
+        // (their node model becomes "openai/<runtime_model>").
+        'runtime_model' => env('OPENAI_RUNTIME_MODEL', 'gpt-4o-mini'),
         'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com'),
+        // Embeddings model for plan-library vector retrieval.
+        'embedding_model' => env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
+        // USD per 1M tokens (in = prompt, out = completion) — for cost tracking.
+        // Prefix match applies: "gpt-4o-2024-11-20" picks the "gpt-4o" row.
+        'pricing' => [
+            'gpt-4o-mini' => ['in' => 0.15, 'out' => 0.60],
+            'gpt-4o' => ['in' => 2.50, 'out' => 10.00],
+            'text-embedding-3-small' => ['in' => 0.02, 'out' => 0],
+        ],
     ],
 
     'brave' => [

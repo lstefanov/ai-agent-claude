@@ -10,6 +10,7 @@ use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowGraphController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\LlmModelController;
+use App\Http\Controllers\PlanAbController;
 use Illuminate\Support\Facades\Route;
 
 // Companies
@@ -21,6 +22,9 @@ Route::resource('companies.flows', FlowController::class)->shallow();
 // Archive / unarchive flows
 Route::post('flows/{flow}/archive', [FlowController::class, 'archive'])->name('flows.archive');
 Route::post('flows/{flow}/unarchive', [FlowController::class, 'unarchive'])->name('flows.unarchive');
+
+// Flow-level settings (result delivery)
+Route::post('flows/{flow}/settings', [FlowController::class, 'updateSettings'])->name('flows.settings.update');
 
 // Webhook secret management
 Route::post('flows/{flow}/webhook/generate', [FlowController::class, 'generateWebhookSecret'])->name('flows.webhook.generate');
@@ -40,18 +44,19 @@ Route::get('flows/{flow}/builder', [FlowBuilderController::class, 'show'])->name
 Route::post('flows/{flow}/graph', [FlowGraphController::class, 'store'])->name('flows.graph.store');
 Route::post('flows/{flow}/graph/validate', [FlowGraphController::class, 'validateGraph'])->name('flows.graph.validate');
 
+// Фаза 4: A/B сравнение на planner провайдърите (OpenAI vs Anthropic)
+Route::get('flows/{flow}/plan-ab', [PlanAbController::class, 'show'])->name('flows.plan-ab');
+Route::post('flows/{flow}/plan-ab/start', [PlanAbController::class, 'start'])->name('flows.plan-ab.start');
+Route::get('plan-ab-status/{token}', [PlanAbController::class, 'status'])->name('flows.plan-ab.status');
+Route::post('flows/{flow}/plan-ab/apply', [PlanAbController::class, 'apply'])->name('flows.plan-ab.apply');
+
 // Flow runs
 Route::post('flows/{flow}/run', [FlowRunController::class, 'store'])->name('flow-runs.store');
 Route::get('runs/{flowRun}', [FlowRunController::class, 'show'])->name('flow-runs.show');
 Route::get('runs/{flowRun}/poll', [FlowRunController::class, 'poll'])->name('flow-runs.poll');
 Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-runs.log');
-
-// Agent management
-Route::post('flows/{flow}/agents', [AgentController::class, 'store'])->name('agents.store');
-Route::delete('flows/{flow}/agents/{agent}', [AgentController::class, 'destroy'])->name('agents.destroy');
-Route::post('flows/{flow}/agents/reorder', [AgentController::class, 'reorder'])->name('agents.reorder');
-Route::get('flows/{flow}/agents/{agent}/edit', [AgentController::class, 'edit'])->name('agents.edit');
-Route::put('flows/{flow}/agents/{agent}', [AgentController::class, 'update'])->name('agents.update');
+// Фаза 3: persist a succeeded mid-run revision into the flow (user-confirmed).
+Route::post('runs/{flowRun}/apply-revision', [FlowRunController::class, 'applyRevision'])->name('flow-runs.apply-revision');
 
 // AJAX: generate AI text for a single agent field
 Route::post('ai/generate-agent-field', [AgentController::class, 'generateAgentField'])->name('agents.generate-field');

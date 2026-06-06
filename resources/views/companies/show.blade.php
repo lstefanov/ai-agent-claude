@@ -84,7 +84,7 @@
 
             {{-- Meta --}}
             <div class="flex items-center gap-4 shrink-0 text-sm text-gray-400">
-                <span>{{ $flow->agents_count }} агенти</span>
+                <span>{{ $flow->nodes_count }} агенти</span>
                 @if($flow->last_run_at)
                     <span class="text-xs">{{ $flow->last_run_at->diffForHumans() }}</span>
                 @endif
@@ -166,7 +166,7 @@
 
             {{-- Meta --}}
             <div class="flex items-center gap-4 shrink-0 text-sm text-gray-400">
-                <span>{{ $flow->agents_count }} агенти</span>
+                <span>{{ $flow->nodes_count }} агенти</span>
                 <a href="{{ route('flows.show', $flow) }}"
                    class="text-indigo-500 hover:text-indigo-700 font-medium text-sm">
                     Преглед →

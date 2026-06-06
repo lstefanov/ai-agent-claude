@@ -10,6 +10,7 @@ class NodeRun extends Model
     protected $fillable = [
         'flow_run_id', 'flow_node_id', 'node_key', 'status', 'input', 'output', 'raw_output',
         'quality_metrics', 'params_snapshot', 'model_used', 'tokens_used', 'duration_ms', 'error',
+        'prompt_tokens', 'completion_tokens', 'cost_usd',
         'started_at', 'completed_at',
     ];
 

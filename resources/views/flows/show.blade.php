@@ -33,6 +33,11 @@ $qaThresholdOptions = range(0, 100, 5);
                class="inline-flex items-center justify-center bg-white border border-indigo-300 hover:border-indigo-400 text-indigo-700 px-4 py-2 rounded-lg text-sm font-medium transition">
                 ⛓ Граф редактор
             </a>
+            <a href="{{ route('flows.plan-ab', $flow) }}"
+               class="inline-flex items-center justify-center bg-white border border-violet-300 hover:border-violet-400 text-violet-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+               title="Планирай с Ollama (безплатно), OpenAI и Anthropic и избери по-добрия план">
+                ⚖ A/B план
+            </a>
             <form action="{{ route('flow-runs.store', $flow) }}" method="POST" class="flex items-start gap-2">
                 @csrf
                 <button type="submit"
@@ -144,6 +149,50 @@ $qaThresholdOptions = range(0, 100, 5);
             </form>
         @endif
     </div>
+</div>
+
+{{-- Result delivery panel --}}
+@php $delivery = $flow->settings['delivery'] ?? []; @endphp
+<div class="bg-white rounded-xl border border-gray-200 p-6 mt-6"
+     x-data="{ channel: '{{ $delivery['channel'] ?? 'none' }}' }">
+    <h2 class="text-base font-semibold text-gray-900 flex items-center gap-2 mb-1">
+        <span>📤</span> Доставка на резултата
+    </h2>
+    <p class="text-sm text-gray-500 mb-4">След успешен run финалният изход се изпраща автоматично към избрания канал.</p>
+
+    <form action="{{ route('flows.settings.update', $flow) }}" method="POST" class="space-y-4">
+        @csrf
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Канал</label>
+                <select name="delivery_channel" x-model="channel"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="none">— без доставка —</option>
+                    <option value="email">Email</option>
+                    <option value="slack">Slack (webhook)</option>
+                    <option value="webhook">Webhook (HTTP POST)</option>
+                    <option value="file">Файл (storage/app/deliveries)</option>
+                </select>
+            </div>
+            <div x-show="channel !== 'none' && channel !== 'file'" x-cloak>
+                <label class="block text-sm font-medium text-gray-700 mb-1"
+                       x-text="channel === 'email' ? 'Email адрес' : 'Webhook URL'"></label>
+                <input type="text" name="delivery_target" value="{{ $delivery['target'] ?? '' }}"
+                       :placeholder="channel === 'email' ? 'name@example.com' : 'https://...'"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+        </div>
+        <div x-show="channel === 'email'" x-cloak>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Тема на имейла (по избор)</label>
+            <input type="text" name="delivery_subject" value="{{ $delivery['subject'] ?? '' }}"
+                   placeholder="Резултат от flow: {{ $flow->name }}"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <button type="submit"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+            Запази доставката
+        </button>
+    </form>
 </div>
 
 <script>

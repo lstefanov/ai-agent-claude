@@ -8,23 +8,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Flow extends Model
 {
-    protected $fillable = ['company_id', 'name', 'description', 'status', 'schedule_cron', 'last_run_at', 'is_archived', 'archived_at', 'webhook_secret', 'graph_layout'];
+    protected $fillable = ['company_id', 'name', 'description', 'topic', 'status', 'schedule_cron', 'last_run_at', 'is_archived', 'archived_at', 'webhook_secret', 'graph_layout', 'plan_intent', 'settings'];
 
     protected $casts = [
-        'last_run_at'  => 'datetime',
-        'archived_at'  => 'datetime',
-        'is_archived'  => 'boolean',
+        'last_run_at' => 'datetime',
+        'archived_at' => 'datetime',
+        'is_archived' => 'boolean',
         'graph_layout' => 'array',
+        'plan_intent' => 'array',
+        'settings' => 'array',
     ];
 
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
-    }
-
-    public function agents(): HasMany
-    {
-        return $this->hasMany(Agent::class);
     }
 
     public function nodes(): HasMany

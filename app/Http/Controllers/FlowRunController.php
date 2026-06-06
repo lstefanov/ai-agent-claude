@@ -19,6 +19,14 @@ class FlowRunController extends Controller
                 ->with('error', 'Графът няма активни възли.');
         }
 
+        // Per-run inputs ({{topic}} + arbitrary placeholders) — one flow can serve
+        // many inputs without editing the graph. Kept as plain strings; the seed
+        // (GraphFlowExecutor::buildSeed) merges them over the flow defaults.
+        $inputs = collect((array) $request->input('inputs', []))
+            ->filter(fn ($v) => is_scalar($v) && (string) $v !== '')
+            ->map(fn ($v) => (string) $v)
+            ->all();
+
         // Create a pending run immediately, then hand off to the DAG executor,
         // which dispatches the first wave as a Bus::batch onto the `flows` queue.
         // Queue workers process the waves in parallel — the request returns at once.
@@ -26,6 +34,7 @@ class FlowRunController extends Controller
             'flow_id' => $flow->id,
             'status' => 'pending',
             'triggered_by' => 'manual',
+            'context' => $inputs ? ['inputs' => $inputs] : [],
         ]);
 
         $executor->run($flow, 'manual', $flowRun);
@@ -37,7 +46,7 @@ class FlowRunController extends Controller
 
     public function show(FlowRun $flowRun)
     {
-        $flowRun->load(['flow.company', 'flow.agents', 'flow.nodes', 'agentRuns.agent', 'nodeRuns.flowNode']);
+        $flowRun->load(['flow.company', 'flow.nodes', 'nodeRuns.flowNode']);
 
         return view('runs.show', compact('flowRun'));
     }
@@ -50,11 +59,73 @@ class FlowRunController extends Controller
         return response($content, 200, ['Content-Type' => 'text/plain; charset=UTF-8']);
     }
 
+    /**
+     * Persist a SUCCEEDED Фаза-3 revision into the flow itself (with the
+     * user's explicit confirmation from the run viewer): updates both the
+     * flow_nodes row and the Drawflow graph_layout so the builder shows the
+     * revised prompts on next open.
+     */
+    public function applyRevision(Request $request, FlowRun $flowRun): JsonResponse
+    {
+        $nodeKey = (string) $request->input('node_key');
+
+        $entries = $flowRun->context['replan'][$nodeKey] ?? [];
+        $payload = collect($entries)
+            ->filter(fn ($e) => ($e['succeeded'] ?? false) && ! empty($e['payload']))
+            ->last()['payload'] ?? null;
+
+        if (! is_array($payload)) {
+            return response()->json(['ok' => false, 'error' => 'Няма успешна ревизия за този възел.'], 422);
+        }
+
+        $flow = $flowRun->flow;
+        $node = $flow->nodes()->where('node_key', $nodeKey)->first();
+
+        if (! $node) {
+            return response()->json(['ok' => false, 'error' => 'Възелът вече не съществува в графа.'], 404);
+        }
+
+        $config = $node->config ?? [];
+        $config['temperature'] = $payload['temperature'];
+
+        $node->update([
+            'system_prompt' => $payload['system_prompt'],
+            'prompt_template' => $payload['prompt_template'],
+            'model' => $payload['model'],
+            'config' => $config,
+        ]);
+
+        // Keep the Drawflow layout in sync — the builder loads from graph_layout.
+        $layout = $flow->graph_layout;
+        if (is_array($layout)) {
+            foreach ($layout['drawflow'] ?? [] as $moduleName => $module) {
+                if (isset($module['data'][$nodeKey]['data'])) {
+                    $data = $module['data'][$nodeKey]['data'];
+                    $data['system_prompt'] = $payload['system_prompt'];
+                    $data['prompt_template'] = $payload['prompt_template'];
+                    $data['model'] = $payload['model'];
+                    $data['config'] = array_merge((array) ($data['config'] ?? []), ['temperature' => $payload['temperature']]);
+                    $layout['drawflow'][$moduleName]['data'][$nodeKey]['data'] = $data;
+                }
+            }
+            $flow->update(['graph_layout' => $layout]);
+        }
+
+        // Mark as applied in the run context so the button collapses.
+        $context = $flowRun->context ?? [];
+        foreach ($context['replan'][$nodeKey] ?? [] as $i => $entry) {
+            if (($entry['succeeded'] ?? false) && ! empty($entry['payload'])) {
+                $context['replan'][$nodeKey][$i]['applied_at'] = now()->toISOString();
+            }
+        }
+        $flowRun->update(['context' => $context]);
+
+        return response()->json(['ok' => true]);
+    }
+
     public function poll(FlowRun $flowRun): JsonResponse
     {
-        $flowRun->load(['agentRuns.agent', 'nodeRuns']);
-        $agentRuns = $flowRun->agentRuns->sortBy('id');
-        $attemptCounts = $agentRuns->groupBy('agent_id')->map->count();
+        $flowRun->load('nodeRuns');
         $context = $flowRun->context ?? [];
 
         // Per-node runs for the graph builder's live node coloring.
@@ -69,45 +140,28 @@ class FlowRunController extends Controller
             'error' => $r->error,
         ])->values();
 
-        // agent_runs: in graph mode, emit node_runs adapted to the same shape
-        // so the runs/show Alpine polling works without JS changes.
-        $isGraphRun = $flowRun->nodeRuns->isNotEmpty();
-        if ($isGraphRun) {
-            $agentRunsData = $flowRun->nodeRuns->sortBy('id')->map(fn ($r) => [
-                'agent_id' => $r->flow_node_id,
-                'status' => $r->status,
-                'model_used' => $r->model_used,
-                'params' => $r->params_snapshot,
-                'input' => $r->input,
-                'output' => $r->output,
-                'raw_output' => $r->raw_output,
-                'error' => $r->error,
-                'duration_ms' => $r->duration_ms,
-                'tokens_used' => $r->tokens_used,
-                'attempt_count' => 1,
-                'started_at' => $r->started_at?->format('H:i:s'),
-                'completed_at' => $r->completed_at?->format('H:i:s'),
-                'started_at_iso' => $r->started_at?->toISOString(),
-                'completed_at_iso' => $r->completed_at?->toISOString(),
-            ])->values();
-        } else {
-            $agentRunsData = $agentRuns->map(fn ($r) => [
-                'agent_id' => $r->agent_id,
-                'status' => $r->status,
-                'model_used' => $r->model_used,
-                'input' => $r->input,
-                'output' => $r->output,
-                'raw_output' => $r->raw_output,
-                'error' => $r->error,
-                'duration_ms' => $r->duration_ms,
-                'tokens_used' => $r->tokens_used,
-                'attempt_count' => $attemptCounts[$r->agent_id] ?? 1,
-                'started_at' => $r->started_at?->format('H:i:s'),
-                'completed_at' => $r->completed_at?->format('H:i:s'),
-                'started_at_iso' => $r->started_at?->toISOString(),
-                'completed_at_iso' => $r->completed_at?->toISOString(),
-            ])->values();
-        }
+        // agent_runs: node_runs adapted to the unified shape the runs/show
+        // Alpine polling consumes.
+        $agentRunsData = $flowRun->nodeRuns->sortBy('id')->map(fn ($r) => [
+            'agent_id' => $r->flow_node_id,
+            'status' => $r->status,
+            'model_used' => $r->model_used,
+            'params' => $r->params_snapshot,
+            'input' => $r->input,
+            'output' => $r->output,
+            'raw_output' => $r->raw_output,
+            'error' => $r->error,
+            'duration_ms' => $r->duration_ms,
+            'tokens_used' => $r->tokens_used,
+            'attempt_count' => 1,
+            'started_at' => $r->started_at?->format('H:i:s'),
+            'completed_at' => $r->completed_at?->format('H:i:s'),
+            'started_at_iso' => $r->started_at?->toISOString(),
+            'completed_at_iso' => $r->completed_at?->toISOString(),
+        ])->values();
+
+        // Total paid-provider cost for this run (openai/* nodes + revisions).
+        $costUsd = (float) $flowRun->nodeRuns->sum('cost_usd');
 
         return response()->json([
             'status' => $flowRun->status,
@@ -116,6 +170,9 @@ class FlowRunController extends Controller
             'failure_message' => $context['failure_message'] ?? null,
             'final_output' => $flowRun->final_output,
             'step_qa_results' => $context['step_qa_results'] ?? [],
+            'replan' => $context['replan'] ?? [],
+            'delivery' => $context['delivery'] ?? null,
+            'cost_usd' => $costUsd > 0 ? round($costUsd, 4) : null,
             'progress' => $this->parseRunProgress($flowRun->id),
             'node_runs' => $nodeRunsData,
             'agent_runs' => $agentRunsData,
@@ -124,9 +181,9 @@ class FlowRunController extends Controller
 
     /**
      * Parse the per-run log file into a structured live-progress snapshot for the
-     * currently running agent. The log is written by FlowExecutorService
-     * ("STEP n/total: name") and by agents such as DeepResearcherAgent
-     * ("[DISCOVERY] открити N страници", "[MAP] {url} → …", "[MERGE] …").
+     * currently running agent. The log is written by agents such as
+     * DeepResearcherAgent ("[DISCOVERY] открити N страници", "[MAP] {url} → …",
+     * "[MERGE] …"); "STEP n/total: name" markers are honoured when present.
      *
      * Returns null when there is no log yet. The "current agent slice" is every
      * line after the last STEP marker, so counts reflect only the running agent.

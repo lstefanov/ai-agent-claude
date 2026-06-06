@@ -62,6 +62,15 @@ class AgentFactory
             'slack_notifier' => new SlackNotifierAgent($this->ollama),
             'hashtag_generator' => new HashtagGeneratorAgent($this->ollama),
             'bg_text_corrector' => new BgTextCorrectorAgent($this->ollama),
+            // Planner-composed "on the fly" agent: gets the full tool belt, but only
+            // runs the tools whitelisted in its config['tools'] (see GenericAgent).
+            'custom' => new GenericAgent($this->ollama, [
+                new BraveSearchTool($this->braveSearch),
+                new WebScraperTool(new CrawlService),
+                new SiteCrawlerTool(new CrawlService),
+                new SiteDiscoveryTool(new CrawlService),
+                new GoogleReviewsTool(new GooglePlacesService),
+            ]),
             // All remaining LLM-only types (swot_builder, report_writer, seo_writer, etc.) use ContentAgent intentionally
             default => new ContentAgent($this->ollama),
         };

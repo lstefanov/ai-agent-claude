@@ -4,8 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Runtime DTO: NodeExecutorService bridges each FlowNode into a transient
+ * Agent instance so the concrete agent classes (BaseAgent subclasses) have a
+ * uniform contract. Agents are not persisted — pipelines live in flow_nodes.
+ */
 class Agent extends Model
 {
     protected $fillable = [
@@ -26,18 +30,5 @@ class Agent extends Model
     public function flow(): BelongsTo
     {
         return $this->belongsTo(Flow::class);
-    }
-
-    public function agentRuns(): HasMany
-    {
-        return $this->hasMany(AgentRun::class);
-    }
-
-    public function effectiveOutputRole(): string
-    {
-        if ($this->output_role) return $this->output_role;
-        if ($this->is_verifier) return 'quality';
-        $types = config('agent_types');
-        return $types[$this->type]['output_role'] ?? 'body';
     }
 }

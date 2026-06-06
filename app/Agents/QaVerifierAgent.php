@@ -28,8 +28,9 @@ class QaVerifierAgent extends BaseAgent
 
         $score = $this->parseScore($response);
 
-        // Store score in tokens_used field (repurposed for QA score storage)
-        $agentRun->update(['tokens_used' => $score]);
+        // Hand the score back via the transient AgentRun DTO (in-memory only —
+        // NodeExecutorService reads it through extractScore()).
+        $agentRun->tokens_used = $score;
 
         return $response;
     }

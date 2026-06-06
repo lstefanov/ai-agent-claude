@@ -31,11 +31,11 @@ class GenerateAgentsCommand extends Command
         try {
             $company = Company::findOrFail($request['company_id']);
 
-            $flow             = new Flow([
-                'name'        => $request['name'],
-                'description' => $request['description'],
-            ]);
-            $flow->company_id = $company->id;
+            // The flow exists (generation always starts from its builder). The
+            // description may differ from the saved one while the user iterates
+            // in the popup — plan against the freshly typed text.
+            $flow = Flow::findOrFail($request['flow_id']);
+            $flow->description = $request['description'];
             $flow->setRelation('company', $company);
 
             $lastHeartbeatAt = 0.0;

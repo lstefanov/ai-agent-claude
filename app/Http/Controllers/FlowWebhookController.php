@@ -21,10 +21,10 @@ class FlowWebhookController extends Controller
             return response()->json(['error' => 'Невалиден токен.'], 401);
         }
 
-        $activeAgents = $flow->agents()->where('is_active', true)->count();
+        $activeNodes = $flow->nodes()->where('is_active', true)->count();
 
-        if ($activeAgents === 0) {
-            return response()->json(['error' => 'Флоуът няма активни агенти.'], 422);
+        if ($activeNodes === 0) {
+            return response()->json(['error' => 'Флоуът няма активни агенти (възли в графа).'], 422);
         }
 
         $payload = $request->json()->all();
@@ -33,11 +33,8 @@ class FlowWebhookController extends Controller
             'flow_id'      => $flow->id,
             'status'       => 'pending',
             'triggered_by' => 'webhook',
-            'context'      => array_merge(
-                ['webhook_payload' => $payload],
-                ['step_qa_policies' => []],
-            ),
-            'started_at' => null,
+            'context'      => ['webhook_payload' => $payload],
+            'started_at'   => null,
         ]);
 
         $php     = env('PHP_CLI_BINARY', '/opt/homebrew/bin/php');

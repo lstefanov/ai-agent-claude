@@ -64,27 +64,14 @@ class BgTextCorrectorAgent extends BaseAgent
         return trim(preg_replace('/^\s*-{3,}\s*/u', '', $text) ?? $text);
     }
 
+    /**
+     * Pick the body text to correct from the upstream context: the last
+     * substantial text that is not an image output, hashtag list or QA score.
+     * This prevents correcting appendix content (hashtags, image prompts, etc.)
+     * which would cause duplication in the UI's finalOutput display.
+     */
     private function findBodyContent(Agent $agent, array $context): string
     {
-        // Primary: query DB for body-role agents in this flow before the corrector.
-        // This prevents correcting appendix content (faq_generator, meta_generator, etc.)
-        // which would cause duplication in the UI's finalOutput display.
-        $bodyNames = Agent::where('flow_id', $agent->flow_id)
-            ->where('order', '<', $agent->order)
-            ->get()
-            ->filter(fn ($a) => $a->effectiveOutputRole() === 'body')
-            ->pluck('name')
-            ->toArray();
-
-        if (! empty($bodyNames)) {
-            foreach (array_reverse($bodyNames) as $name) {
-                if (isset($context[$name]) && is_string($context[$name]) && $context[$name] !== '') {
-                    return $context[$name];
-                }
-            }
-        }
-
-        // Fallback: heuristic filtering when no body agents are defined in this flow
         $candidates = [];
         foreach ($context as $key => $value) {
             if (in_array($key, self::SYSTEM_KEYS, true)) {

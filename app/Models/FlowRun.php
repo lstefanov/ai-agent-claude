@@ -22,11 +22,6 @@ class FlowRun extends Model
         return $this->belongsTo(Flow::class);
     }
 
-    public function agentRuns(): HasMany
-    {
-        return $this->hasMany(AgentRun::class);
-    }
-
     public function nodeRuns(): HasMany
     {
         return $this->hasMany(NodeRun::class);

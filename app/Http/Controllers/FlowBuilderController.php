@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\AgentTemplate;
 use App\Models\Flow;
-use App\Models\FlowRun;
 use App\Models\LlmModel;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class FlowBuilderController extends Controller
 {
@@ -29,6 +29,34 @@ class FlowBuilderController extends Controller
             ->orderBy('category')
             ->orderBy('display_name')
             ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for']);
+
+        // Paid-provider options for the node "Модел" picker (☁) — an explicit
+        // "openai/<model>" / "anthropic/<model>" pin executes that node on the
+        // paid provider. Only providers with an API key are offered. The two
+        // slots per provider: runtime (бърз/евтин) и generator (най-силният).
+        $paidDescriptions = [
+            'runtime' => 'Бърз и евтин cloud модел — масови стъпки, стриктен JSON, надеждно следване на инструкции.',
+            'generator' => 'Най-силният модел на провайдъра — сложен fan-in синтез, дълги доклади, критични стъпки.',
+        ];
+
+        $paidModels = collect([
+            'openai' => ['runtime' => config('services.openai.runtime_model'), 'generator' => config('services.openai.model')],
+            'anthropic' => ['runtime' => config('services.anthropic.runtime_model'), 'generator' => config('services.anthropic.model')],
+        ])
+            ->filter(fn ($m, $provider) => ! empty(config("services.{$provider}.api_key")))
+            ->flatMap(fn ($slots, $provider) => collect($slots)
+                ->filter()
+                ->unique()
+                ->map(fn ($m, $slot) => [
+                    'value' => "{$provider}/{$m}",
+                    'label' => ucfirst($provider).' · '.$m,
+                    'description' => $paidDescriptions[$slot] ?? '',
+                ])
+                // values() — иначе flatMap слива по slot ключовете ('runtime'/
+                // 'generator') и вторият provider презаписва първия.
+                ->values())
+            ->values()
+            ->all();
 
         $templateIcons = AgentTemplate::query()
             ->where(fn ($query) => $query
@@ -93,11 +121,22 @@ class FlowBuilderController extends Controller
             'generate' => (bool) $request->boolean('generate'),
             'csrf' => csrf_token(),
             'companyId' => $flow->company_id,
+            'flowId' => $flow->id,
+            // A/B page staged plan ("Използвай този план") — one-shot pull.
+            'stagedAgents' => $request->boolean('staged')
+                ? (Cache::pull('staged_plan_'.$flow->id) ?? [])
+                : [],
             'flowName' => $flow->name,
             'flowDescription' => $flow->description,
+            // Per-run inputs: default {{topic}} + any custom placeholders the
+            // flow declares in settings.inputs ([{key,label}]). Rendered as
+            // fields on the run trigger so one flow serves many inputs.
+            'flowTopic' => $flow->topic,
+            'runInputs' => array_values((array) ($flow->settings['inputs'] ?? [])),
             'agentTypes' => $agentTypes,
             'templateIcons' => $templateIcons,
             'models' => $models,
+            'paidModels' => $paidModels,
             // In view mode, use the snapshot taken at run start so the historical
             // viewer shows the graph exactly as it was when the run executed.
             'graphLayout' => $mode === 'view' && $viewRun?->graph_snapshot

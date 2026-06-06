@@ -378,10 +378,35 @@
                     </button>
                     <button @click="validate()" type="button" class="px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Валидирай</button>
                     <button @click="save()" type="button" class="px-3 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Запис</button>
-                    <form :action="runUrl" method="POST" @submit="save()">
-                        @csrf
-                        <button type="submit" class="px-3 py-2 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700">▶ Стартирай</button>
-                    </form>
+                    <div class="relative" @click.outside="showRunInputs = false">
+                        <form :action="runUrl" method="POST" @submit="save()">
+                            @csrf
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" @click="showRunInputs = !showRunInputs"
+                                        class="px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                                        title="Вход за този run (тема, параметри)">⚙</button>
+                                <button type="submit" class="px-3 py-2 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700">▶ Стартирай</button>
+                            </div>
+                            <div x-show="showRunInputs" x-cloak
+                                 class="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-30 space-y-2 text-left">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Тема на този run</label>
+                                    <input type="text" name="inputs[topic]" x-model="runTopic"
+                                           placeholder="напр. лазерна епилация"
+                                           class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                                </div>
+                                <template x-for="f in runInputs" :key="f.key">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1" x-text="f.label || f.key"></label>
+                                        <input type="text" :name="'inputs[' + f.key + ']'" :value="f.default || ''"
+                                               :placeholder="f.placeholder || ''"
+                                               class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                                    </div>
+                                </template>
+                                <p class="text-[11px] text-gray-400">Стойностите заместват placeholder-ите в промптите.</p>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </template>
 
@@ -854,17 +879,87 @@
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Модел</label>
-                                    <select x-model="selected.model" :disabled="modalReadOnly"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500">
-                                        <option value="">(по подразбиране)</option>
-                                        <template x-for="m in recommendedModels(selected.type)" :key="'rec-' + m.ollama_tag">
-                                            <option :value="m.ollama_tag" x-text="'★ ' + (m.display_name || m.ollama_tag)"></option>
-                                        </template>
-                                        <template x-for="m in otherModels(selected.type)" :key="'other-' + m.ollama_tag">
-                                            <option :value="m.ollama_tag" x-text="m.display_name || m.ollama_tag"></option>
-                                        </template>
-                                    </select>
-                                    <p class="text-xs text-gray-400 mt-1">Препоръчаните модели са маркирани със ★.</p>
+                                    <div class="relative" @click.outside="modelPickerOpen = false" @keydown.escape.window="modelPickerOpen = false">
+                                        <button type="button" @click="modelPickerOpen = !modelPickerOpen" :disabled="modalReadOnly"
+                                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 bg-white hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:cursor-not-allowed transition">
+                                            <span class="min-w-0">
+                                                <span class="block text-sm font-medium text-gray-900 truncate" x-text="currentModelMeta().name"></span>
+                                                <span class="block text-xs text-gray-400 truncate" x-text="currentModelMeta().desc"></span>
+                                            </span>
+                                            <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class="modelPickerOpen ? 'rotate-180' : ''"
+                                                 fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                        </button>
+
+                                        <div x-show="modelPickerOpen" x-cloak x-transition.opacity.duration.100ms
+                                             class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-80 overflow-y-auto">
+
+                                            {{-- По подразбиране --}}
+                                            <button type="button" @click="pickModel('')"
+                                                    class="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition border-b border-gray-100"
+                                                    :class="selected.model === '' ? 'bg-indigo-50' : ''">
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <span class="text-sm font-medium text-gray-900">⚙ По подразбиране</span>
+                                                    <span x-show="selected.model === ''" class="text-indigo-600 text-sm">✓</span>
+                                                </div>
+                                                <div class="text-xs text-gray-500 mt-0.5">Кодът избира най-подходящия инсталиран локален модел според типа на агента.</div>
+                                            </button>
+
+                                            {{-- Препоръчани за типа --}}
+                                            <template x-if="recommendedModels(selected.type).length">
+                                                <div>
+                                                    <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 bg-amber-50/60">★ Препоръчани за този тип</div>
+                                                    <template x-for="m in recommendedModels(selected.type)" :key="'rec-' + m.ollama_tag">
+                                                        <button type="button" @click="pickModel(m.ollama_tag)"
+                                                                class="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition"
+                                                                :class="selected.model === m.ollama_tag ? 'bg-indigo-50' : ''">
+                                                            <div class="flex items-center justify-between gap-2">
+                                                                <span class="text-sm font-medium text-gray-900 truncate" x-text="'★ ' + (m.display_name || m.ollama_tag)"></span>
+                                                                <span x-show="selected.model === m.ollama_tag" class="text-indigo-600 text-sm shrink-0">✓</span>
+                                                            </div>
+                                                            <div class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="m.description || m.category"></div>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </template>
+
+                                            {{-- Локални Ollama модели --}}
+                                            <template x-if="otherModels(selected.type).length">
+                                                <div>
+                                                    <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50/80">Локални (Ollama)</div>
+                                                    <template x-for="m in otherModels(selected.type)" :key="'other-' + m.ollama_tag">
+                                                        <button type="button" @click="pickModel(m.ollama_tag)"
+                                                                class="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition"
+                                                                :class="selected.model === m.ollama_tag ? 'bg-indigo-50' : ''">
+                                                            <div class="flex items-center justify-between gap-2">
+                                                                <span class="text-sm font-medium text-gray-900 truncate" x-text="m.display_name || m.ollama_tag"></span>
+                                                                <span x-show="selected.model === m.ollama_tag" class="text-indigo-600 text-sm shrink-0">✓</span>
+                                                            </div>
+                                                            <div class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="m.description || m.category"></div>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </template>
+
+                                            {{-- Платени cloud модели --}}
+                                            <template x-if="paidModels.length">
+                                                <div>
+                                                    <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-violet-500 bg-violet-50/60">☁ Cloud (платени)</div>
+                                                    <template x-for="m in paidModels" :key="'paid-' + m.value">
+                                                        <button type="button" @click="pickModel(m.value)"
+                                                                class="w-full text-left px-3 py-2.5 hover:bg-violet-50 transition"
+                                                                :class="selected.model === m.value ? 'bg-violet-50' : ''">
+                                                            <div class="flex items-center justify-between gap-2">
+                                                                <span class="text-sm font-medium text-gray-900 truncate" x-text="'☁ ' + m.label"></span>
+                                                                <span x-show="selected.model === m.value" class="text-violet-600 text-sm shrink-0">✓</span>
+                                                            </div>
+                                                            <div class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="m.description"></div>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-gray-400 mt-1">Изпълнението на ☁ модели се таксува per token и се вижда като цена в run-а.</p>
                                 </div>
 
                                 <div x-show="selected.type === 'qa_verifier'">
@@ -896,6 +991,54 @@
                                            class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
                                     <label for="node-is-active" class="text-sm font-medium text-gray-700">Активен</label>
                                 </div>
+                            </div>
+
+                            {{-- Step-QA gate (non-verifier nodes): re-runs the node on low score; --}}
+                            {{-- from the 2nd retry the planner revises the agent (Фаза 3). --}}
+                            <div x-show="selected.type !== 'qa_verifier'" class="border-t border-gray-100 pt-4">
+                                <div class="flex items-center gap-3">
+                                    <input type="checkbox" x-model="selected.config.qa.enabled" :disabled="modalReadOnly" id="node-qa-enabled"
+                                           class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
+                                    <label for="node-qa-enabled" class="text-sm font-medium text-gray-700">QA проверка на този възел (gate с retry)</label>
+                                </div>
+                                <p class="text-xs text-gray-400 mt-1">При резултат под прага възелът се преизпълнява; от 2-рия опит planner-ът поправя агента (Фаза 3). Верификаторът се създава автоматично от критериите по-долу.</p>
+                                <div x-show="selected.config.qa.enabled" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">QA праг (%)</label>
+                                        <select x-model.number="selected.config.qa.threshold" :disabled="modalReadOnly"
+                                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            <template x-for="threshold in qaThresholdOptions" :key="threshold">
+                                                <option :value="threshold" x-text="threshold + '%'"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">QA критерии</label>
+                                        <textarea x-model="selected.config.qa.custom_prompt" :disabled="modalReadOnly" rows="2"
+                                                  placeholder="Какво трябва да провери верификаторът за изхода на този възел?"
+                                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Decision routing branches (each branch = one output port) --}}
+                            <div x-show="selected.type === 'decision'" class="border-t border-gray-100 pt-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Клонове на решението</label>
+                                <p class="text-xs text-gray-400 mb-3">Всеки клон е отделен изходен порт. Свържи всеки порт със следващия възел за този клон. Агентът избира ЕДИН клон според входа; останалите клонове се пропускат.</p>
+                                <template x-for="(br, i) in (selected.config.branches || [])" :key="i">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="text-[11px] font-mono text-gray-400 w-16 shrink-0" x-text="'output_' + (i+1)"></span>
+                                        <input type="text" x-model="br.label" :disabled="modalReadOnly" placeholder="Етикет"
+                                               class="w-32 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        <input type="text" x-model="br.when" :disabled="modalReadOnly" placeholder="Кога се избира този клон"
+                                               class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        <button type="button" x-show="!modalReadOnly" @click="removeBranch(i)"
+                                                class="text-red-500 hover:text-red-700 text-sm px-1 shrink-0" title="Премахни клон">✕</button>
+                                    </div>
+                                </template>
+                                <button type="button" x-show="!modalReadOnly" @click="addBranch()"
+                                        class="text-xs text-indigo-600 hover:text-indigo-800 font-medium mt-1">+ Добави клон</button>
+                                <p class="text-[11px] text-gray-400 mt-2">Изходните портове се синхронизират с клоновете при запазване на възела.</p>
                             </div>
                         </div>
 
@@ -1063,6 +1206,8 @@ function flowBuilder(config) {
             { id: 'params', label: 'Параметри' },
         ],
         models: config.models || [],
+        paidModels: config.paidModels || [],
+        modelPickerOpen: false,
         agentTypes: config.agentTypes || [],
         templateIcons: config.templateIcons || {},
         typeIconFallbacks: {
@@ -1108,6 +1253,10 @@ function flowBuilder(config) {
         },
         outputPrefs: config.outputPrefs || { langs: {}, tones: {}, styles: {}, formats: {} },
         runUrl: config.runUrl,
+        // Per-run inputs: @{{topic}} default + declared custom placeholders.
+        runTopic: config.flowTopic || '',
+        runInputs: Array.isArray(config.runInputs) ? config.runInputs : [],
+        showRunInputs: false,
         mode: config.mode || 'edit',
         saving: false,
         savedAt: null,
@@ -1200,6 +1349,17 @@ function flowBuilder(config) {
             } else if (config.generate) {
                 // Fresh flow created via "Запази и генерирай агенти".
                 this.$nextTick(() => this.startGeneration(true));
+            } else if (config.stagedAgents && config.stagedAgents.length) {
+                // Plan chosen on the A/B comparison page ("Използвай този план"):
+                // build it as a graph and auto-save (= одобрение + plan library).
+                this.$nextTick(async () => {
+                    try {
+                        this.applyGeneratedGraph(config.stagedAgents);
+                        await this.save();
+                    } catch (e) {
+                        console.error('staged plan apply failed', e);
+                    }
+                });
             }
         },
 
@@ -1361,6 +1521,11 @@ function flowBuilder(config) {
                 : {};
             configData.qa.enabled = Boolean(configData.qa.enabled);
             configData.qa.threshold = Number(configData.qa.threshold ?? 60);
+            // Keys for the per-node QA gate. The verifier is synthesized from the
+            // criteria at run time; verifier_node_key only points at a dedicated
+            // verifier node when the user wires one manually.
+            configData.qa.verifier_node_key = configData.qa.verifier_node_key || '';
+            configData.qa.custom_prompt = configData.qa.custom_prompt || '';
 
             return configData;
         },
@@ -1481,9 +1646,19 @@ function flowBuilder(config) {
 
         addNodeData(data) {
             const normalized = this.normalizeNodeData(data);
+            // A new decision node starts with two routing branches (= two output ports).
+            if (normalized.type === 'decision' && !(normalized.config.branches || []).length) {
+                normalized.config.branches = [
+                    { port: 'output_1', label: 'Клон A', when: '' },
+                    { port: 'output_2', label: 'Клон B', when: '' },
+                ];
+            }
+            const outputs = normalized.type === 'decision'
+                ? Math.max(1, (normalized.config.branches || []).length)
+                : 1;
             const pos = this.nextNodePosition();
             const before = Object.keys(this.editor.export().drawflow?.Home?.data || {});
-            const returnedId = this.editor.addNode(normalized.type, 1, 1, pos.x, pos.y, 'flow-node', normalized, this.nodeHtml(normalized));
+            const returnedId = this.editor.addNode(normalized.type, 1, outputs, pos.x, pos.y, 'flow-node', normalized, this.nodeHtml(normalized));
             const after = Object.keys(this.editor.export().drawflow?.Home?.data || {});
 
             return returnedId || after.find(id => !before.includes(id)) || after[after.length - 1];
@@ -1514,9 +1689,42 @@ function flowBuilder(config) {
             if (this.selectedId == null || !this.selected) return;
 
             const normalized = this.normalizeNodeData(this.selected);
+            // Decision: re-key branch ports to output_1..N and sync the node's
+            // output ports so each branch has its own port to wire an edge from.
+            if (normalized.type === 'decision' && Array.isArray(normalized.config.branches)) {
+                normalized.config.branches.forEach((b, i) => { b.port = 'output_' + (i + 1); });
+            }
             this.editor.updateNodeDataFromId(this.selectedId, normalized);
             this.updateNodeLabel(this.selectedId, normalized);
+            if (normalized.type === 'decision') {
+                this.syncDecisionPorts(this.selectedId, (normalized.config.branches || []).length);
+            }
             this.closeNodeModal();
+        },
+
+        // Branch editor helpers (decision nodes) ───────────────────────────
+        addBranch() {
+            if (!this.selected.config.branches) this.selected.config.branches = [];
+            const n = this.selected.config.branches.length + 1;
+            this.selected.config.branches.push({ port: 'output_' + n, label: 'Клон ' + n, when: '' });
+        },
+
+        removeBranch(i) {
+            if (!Array.isArray(this.selected.config.branches)) return;
+            this.selected.config.branches.splice(i, 1);
+            this.selected.config.branches.forEach((b, idx) => { b.port = 'output_' + (idx + 1); });
+        },
+
+        // Make the Drawflow node's output-port count match the branch count, so
+        // every branch has a dedicated port to connect an edge from.
+        syncDecisionPorts(id, target) {
+            target = Math.max(1, target);
+            const node = this.editor.getNodeFromId(id);
+            if (!node) return;
+            let current = Object.keys(node.outputs || {}).length;
+            while (current < target) { this.editor.addNodeOutput(id); current++; }
+            while (current > target) { this.editor.removeNodeOutput(id, 'output_' + current); current--; }
+            try { this.editor.updateConnectionNodes('node-' + id); } catch (e) {}
         },
 
         removeSelectedFromModal() {
@@ -1547,6 +1755,34 @@ function flowBuilder(config) {
 
         otherModels(type) {
             return this.models.filter(m => !(m.is_default_for || []).includes(type));
+        },
+
+        pickModel(value) {
+            if (this.modalReadOnly) return;
+            this.selected.model = value;
+            this.modelPickerOpen = false;
+        },
+
+        // Name + description for the currently selected model (picker button face).
+        currentModelMeta() {
+            const value = (this.selected && this.selected.model) || '';
+
+            if (value === '') {
+                return { name: '⚙ По подразбиране', desc: 'Кодът избира локален модел според типа на агента.' };
+            }
+
+            const paid = this.paidModels.find(m => m.value === value);
+            if (paid) {
+                return { name: '☁ ' + paid.label, desc: paid.description || 'Платен cloud модел.' };
+            }
+
+            const local = this.models.find(m => m.ollama_tag === value);
+            if (local) {
+                const star = (local.is_default_for || []).includes(this.selected.type) ? '★ ' : '';
+                return { name: star + (local.display_name || local.ollama_tag), desc: local.description || local.category || '' };
+            }
+
+            return { name: value, desc: 'Моделът не е в каталога (премахнат или преименуван).' };
         },
 
         templateToNodeData(tpl) {
@@ -2079,7 +2315,7 @@ function flowBuilder(config) {
             fetch(config.generateUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
-                body: JSON.stringify({ company_id: config.companyId, name: config.flowName, description: config.flowDescription }),
+                body: JSON.stringify({ company_id: config.companyId, flow_id: config.flowId, name: config.flowName, description: config.flowDescription }),
             })
             .then(r => r.json().then(d => ({ ok: r.ok, d })))
             .then(({ ok, d }) => {
@@ -2303,6 +2539,9 @@ function flowBuilder(config) {
                 }
             });
 
+            // qa_verifier agents are NOT placed as nodes: the step-QA gate runs a
+            // verifier synthesized from the gated node's own qa config (criteria +
+            // threshold), so there is no separate node to wire or lay out.
             this.refreshAllNodes();
         },
 

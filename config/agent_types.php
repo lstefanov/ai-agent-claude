@@ -12,6 +12,9 @@ return [
     'keyword_extractor' => ['output_role' => 'hidden',    'label' => 'Екстрактор на ключови думи', 'description' => 'Открива SEO ключови думи от SERP анализ с тип на намерение'],
     'image_describer' => ['output_role' => 'hidden',    'label' => 'Описател на изображения',    'description' => 'Описва изображение с текст (изисква vision-capable Ollama модел като llava)'],
     'scraper' => ['output_role' => 'hidden',    'label' => 'Скрейпър',                   'description' => 'Извлича суров текст и данни от уебстраници'],
+    // Planner-composed "on the fly" agent: behaviour is defined entirely by its
+    // config (tools whitelist + tool_params + prompts). See App\Agents\GenericAgent.
+    'custom' => ['output_role' => 'hidden',    'label' => 'Универсален агент',          'description' => 'Динамичен агент "on the fly": изпълнява избран набор tools (търсене, скрейпване, ревюта) и обработва събрания материал с LLM по зададения промпт'],
 
     // --- Analyzers / Processors ---
     'analyzer' => ['output_role' => 'hidden',    'label' => 'Анализатор',                 'description' => 'Анализира входа, извлича ключови инсайти, идентифицира възможности'],

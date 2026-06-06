@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Flow;
 use App\Services\GraphNormalizer;
+use App\Services\PlanLibraryService;
 use App\Support\GraphTopology;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,11 +13,17 @@ use Throwable;
 
 class FlowGraphController extends Controller
 {
-    public function __construct(private GraphNormalizer $normalizer) {}
+    public function __construct(
+        private GraphNormalizer $normalizer,
+        private PlanLibraryService $planLibrary,
+    ) {}
 
     /**
      * Persist a Drawflow export: raw layout in flows.graph_layout (for 1:1 reload)
      * + normalized flow_nodes/flow_edges.
+     *
+     * Saving IS the plan approval: the snapshot lands in the plan library as a
+     * 'candidate' and becomes a few-shot example once a run succeeds.
      */
     public function store(Request $request, Flow $flow): JsonResponse
     {
@@ -35,6 +42,13 @@ class FlowGraphController extends Controller
             report($e);
 
             return response()->json(['ok' => false, 'error' => 'Грешка при запис на графа.'], 500);
+        }
+
+        // Plan-library snapshot is best-effort — it must never fail the save.
+        try {
+            $this->planLibrary->captureApprovedPlan($flow->fresh());
+        } catch (Throwable $e) {
+            report($e);
         }
 
         return response()->json(['ok' => true]);

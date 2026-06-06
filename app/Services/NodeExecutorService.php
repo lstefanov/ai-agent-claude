@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Agents\AgentFactory;
+use App\Agents\DecisionAgent;
 use App\Agents\QaVerifierAgent;
 use App\Models\Agent;
 use App\Models\AgentRun;
@@ -11,8 +12,11 @@ use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\LlmModel;
 use App\Models\NodeRun;
+use App\Support\LlmUsage;
+use App\Support\PaidModel;
 use App\Support\PricingOutputMetrics;
 use App\Support\ReasoningStripper;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -39,6 +43,7 @@ class NodeExecutorService
     public function __construct(
         private AgentFactory $factory,
         private ModelSelectorService $modelSelector,
+        private FlowPlannerService $planner,
     ) {}
 
     // ──────────────────────────────────────────────────────────────────────
@@ -72,31 +77,53 @@ class NodeExecutorService
         $qaConfig = $this->resolvedQaConfig($node);
         $maxQaRetries = $qaConfig ? min(10, max(0, (int) ($qaConfig['max_retries'] ?? 3))) : 0;
         $qaRetriesUsed = 0;
+        // Фаза 3: revision applied for THIS RUN only (the saved graph stays
+        // untouched — the suggestion is recorded in the run context instead).
+        $revision = null;
 
         while (true) {
-            $output = $this->runOnce($flowRun, $node, $nodeRun);
+            $output = $this->runOnce($flowRun, $node, $nodeRun, $revision);
+
+            // Watchdog: degenerate output (empty/placeholder boilerplate) is a
+            // failure even before QA — try one planner revision immediately.
+            if ($revision === null && $this->looksDegenerate($output, $node)) {
+                $revision = $this->requestRevision($flowRun, $node, $nodeRun, $output, 'Изходът е изроден: празен/твърде кратък или съдържа шаблонен placeholder текст.');
+                if ($revision !== null) {
+                    $this->resetForRetry($nodeRun);
+
+                    continue;
+                }
+            }
 
             if (! $qaConfig) {
-                // No step-QA — done.
+                // No step-QA — done. A revision that produced a healthy output
+                // is a success — offer it for persisting into the graph.
+                $this->recordRevisionSuccess($flowRun, $node, $revision);
+
                 return;
             }
 
             $qaResult = $this->runVerifierInline($flowRun, $node, $nodeRun, $qaConfig, $output);
 
             if ($qaResult['passed']) {
+                $this->recordRevisionSuccess($flowRun, $node, $revision);
+
                 return;
             }
 
             if ($qaRetriesUsed < $maxQaRetries) {
                 $qaRetriesUsed++;
-                // Reset the node_run for the retry attempt.
-                $nodeRun->update([
-                    'status' => 'running',
-                    'output' => null,
-                    'raw_output' => null,
-                    'error' => null,
-                    'started_at' => now(),
-                ]);
+
+                // First retry is plain (cheap). From the second on, ask the
+                // planner to revise the failing agent (Фаза 3).
+                if ($qaRetriesUsed >= 2 && $revision === null) {
+                    $revision = $this->requestRevision(
+                        $flowRun, $node, $nodeRun, $output,
+                        "QA score {$qaResult['score']} < праг {$qaConfig['threshold']} (".($qaConfig['custom_prompt'] ?? 'обща проверка').')',
+                    );
+                }
+
+                $this->resetForRetry($nodeRun);
 
                 continue;
             }
@@ -132,9 +159,16 @@ class NodeExecutorService
     /**
      * Execute the node exactly once. Returns the cleaned output string.
      * Throws RuntimeException after MAX_ATTEMPTS technical failures.
+     *
+     * A planner revision (Фаза 3) is applied to the in-memory node only —
+     * never persisted to flow_nodes.
      */
-    private function runOnce(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun): string
+    private function runOnce(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun, ?array $revision = null): string
     {
+        if ($revision !== null) {
+            $this->applyRevision($node, $revision);
+        }
+
         $ctx = $this->buildNodeInput($flowRun, $node);
         $input = $this->renderPrompt($node, $ctx);
 
@@ -177,19 +211,23 @@ class NodeExecutorService
 
         $durationMs = now()->valueOf() - $startMs;
 
+        // Collect paid-provider usage accumulated during this node execution
+        // (openai/* chat calls + any planner revision calls it triggered).
+        $usage = LlmUsage::take();
+
         if ($lastError !== null) {
             $message = "Node {$node->name} failed after ".self::MAX_ATTEMPTS.' attempts: '.$lastError->getMessage();
-            $nodeRun->update([
+            $nodeRun->update(array_merge($usage, [
                 'status' => 'failed',
                 'error' => $message,
                 'duration_ms' => $durationMs,
                 'completed_at' => now(),
-            ]);
+            ]));
 
             throw new RuntimeException($message, previous: $lastError);
         }
 
-        $nodeRun->update([
+        $nodeRun->update(array_merge($usage, [
             'status' => 'completed',
             'output' => $output,
             'raw_output' => $rawOutput !== $output ? $rawOutput : null,
@@ -197,9 +235,170 @@ class NodeExecutorService
             'params_snapshot' => $agentInstance?->chatParams(),
             'duration_ms' => $durationMs,
             'completed_at' => now(),
-        ]);
+        ]));
+
+        // WS4: a decision node records which branch it picked so GraphFlowExecutor
+        // can prune the not-taken branches in later waves.
+        if ($agentInstance instanceof DecisionAgent && ($port = $agentInstance->chosenBranch()) !== null) {
+            $this->recordDecision($flowRun, $node, $port);
+        }
 
         return $output;
+    }
+
+    /** Persist a decision node's chosen output port into the run context. */
+    private function recordDecision(FlowRun $flowRun, FlowNode $node, string $port): void
+    {
+        $context = $flowRun->fresh()->context ?? [];
+        $context['decisions'][$node->node_key] = $port;
+        $flowRun->update(['context' => $context]);
+
+        Log::info("[NodeExecutor] Decision {$node->name} → {$port}");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Фаза 3 — adaptive replanning + degenerate-output watchdog
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Ask the planner to revise the failing agent. Returns null when adaptive
+     * replanning is disabled/unavailable or the planner couldn't help.
+     */
+    private function requestRevision(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun, string $badOutput, string $reason): ?array
+    {
+        if (! config('services.planner.adaptive', true) || ! $this->planner->isAvailable()) {
+            return null;
+        }
+
+        $revision = $this->planner->reviseAgent(
+            [
+                'name' => $node->name,
+                'type' => $node->type,
+                'system_prompt' => (string) $node->system_prompt,
+                'prompt_template' => (string) $node->prompt_template,
+                'model' => (string) $node->model,
+                'temperature' => isset($node->config['temperature']) ? (float) $node->config['temperature'] : null,
+            ],
+            (string) $nodeRun->input,
+            $badOutput,
+            $reason,
+        );
+
+        if ($revision === null) {
+            return null;
+        }
+
+        $escalationProvider = $revision['escalate'] ? $this->escalationProvider() : null;
+
+        // Audit trail: visible in the run context (and thus the run viewer).
+        $context = $flowRun->fresh()->context ?? [];
+        $context['replan'][$node->node_key][] = [
+            'trigger' => $reason,
+            'planner_reason' => $revision['reason'],
+            'escalated_to' => $escalationProvider,
+            'at' => now()->toISOString(),
+        ];
+        $flowRun->update(['context' => $context]);
+
+        Log::info("[NodeExecutor] Plan revision for {$node->name}: {$revision['reason']}"
+            .($escalationProvider ? " (ескалация към {$escalationProvider})" : ''));
+
+        return $revision;
+    }
+
+    /** The paid provider used for mid-run escalations, or null when unavailable. */
+    private function escalationProvider(): ?string
+    {
+        $provider = (string) config('services.planner.escalation_provider', 'openai');
+
+        if (! in_array($provider, ['openai', 'anthropic'], true)) {
+            $provider = 'openai';
+        }
+
+        return PaidModel::available($provider) ? $provider : null;
+    }
+
+    /**
+     * A revised node that subsequently PASSED gets its revision marked
+     * 'succeeded' (with the full payload) in the run context. The run viewer
+     * offers a one-click "Приложи в графа" that persists it to the flow.
+     */
+    private function recordRevisionSuccess(FlowRun $flowRun, FlowNode $node, ?array $revision): void
+    {
+        if ($revision === null) {
+            return;
+        }
+
+        $context = $flowRun->fresh()->context ?? [];
+        $entries = $context['replan'][$node->node_key] ?? [];
+
+        if ($entries === []) {
+            return;
+        }
+
+        $lastIdx = array_key_last($entries);
+        $entries[$lastIdx]['succeeded'] = true;
+        $entries[$lastIdx]['payload'] = [
+            'system_prompt' => $revision['system_prompt'],
+            'prompt_template' => $revision['prompt_template'],
+            'temperature' => $revision['temperature'],
+            // The model actually used after a possible escalation.
+            'model' => (string) $node->model,
+        ];
+
+        $context['replan'][$node->node_key] = $entries;
+        $flowRun->update(['context' => $context]);
+    }
+
+    /** Apply a planner revision to the IN-MEMORY node for this run only. */
+    private function applyRevision(FlowNode $node, array $revision): void
+    {
+        $node->system_prompt = $revision['system_prompt'];
+        $node->prompt_template = $revision['prompt_template'];
+
+        $config = $node->config ?? [];
+        $config['temperature'] = $revision['temperature'];
+        $node->config = $config;
+
+        if (($revision['escalate'] ?? false)
+            && ! PaidModel::isPaid($node->model)
+            && ($provider = $this->escalationProvider()) !== null) {
+            $node->model = PaidModel::pin($provider);
+        }
+    }
+
+    /**
+     * Watchdog: an output that is empty, suspiciously short, or contains the
+     * classic placeholder boilerplate is treated as a failure before QA.
+     */
+    private function looksDegenerate(string $output, FlowNode $node): bool
+    {
+        // Utility nodes legitimately emit terse confirmations — don't watchdog them.
+        if (in_array($node->type, ['webhook_sender', 'slack_notifier'], true)) {
+            return false;
+        }
+
+        $trimmed = trim($output);
+
+        if ($trimmed === '' || mb_strlen($trimmed) < 20) {
+            return true;
+        }
+
+        return (bool) preg_match(
+            '/example\.com|@example|lorem ipsum|отдел\s+„?\s*Маркетинг|Иван\s+Вазов["“”]?\s*123/iu',
+            $trimmed,
+        );
+    }
+
+    private function resetForRetry(NodeRun $nodeRun): void
+    {
+        $nodeRun->update([
+            'status' => 'running',
+            'output' => null,
+            'raw_output' => null,
+            'error' => null,
+            'started_at' => now(),
+        ]);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -207,7 +406,7 @@ class NodeExecutorService
     // ──────────────────────────────────────────────────────────────────────
 
     /**
-     * @return array{threshold: int, max_retries: int, verifier_node_key: string}|null
+     * @return array{threshold: int, max_retries: int, verifier_node_key: string, custom_prompt: string}|null
      */
     private function resolvedQaConfig(FlowNode $node): ?array
     {
@@ -217,15 +416,14 @@ class NodeExecutorService
             return null;
         }
 
-        $verifierKey = trim((string) ($qa['verifier_node_key'] ?? ''));
-        if ($verifierKey === '') {
-            return null;
-        }
-
         return [
-            'verifier_node_key' => $verifierKey,
+            // Optional: a dedicated verifier node. Empty → the verifier is
+            // synthesized from the criteria below (the default).
+            'verifier_node_key' => trim((string) ($qa['verifier_node_key'] ?? '')),
             'threshold' => (int) ($qa['threshold'] ?? self::DEFAULT_QA_THRESHOLD),
             'max_retries' => min(10, max(0, (int) ($qa['max_retries'] ?? 3))),
+            // Per-gate criteria — the gated node decides what "good" means.
+            'custom_prompt' => trim((string) ($qa['custom_prompt'] ?? '')),
         ];
     }
 
@@ -239,14 +437,10 @@ class NodeExecutorService
         array $qaConfig,
         string $nodeOutput
     ): array {
-        $verifierNode = FlowNode::where('flow_id', $node->flow_id)
-            ->where('node_key', $qaConfig['verifier_node_key'])
-            ->first();
-
-        if (! $verifierNode) {
-            // Verifier node missing → skip gate (don't fail).
-            return ['passed' => true, 'score' => 100];
-        }
+        $verifierKey = (string) ($qaConfig['verifier_node_key'] ?? '');
+        $verifierNode = $verifierKey !== ''
+            ? FlowNode::where('flow_id', $node->flow_id)->where('node_key', $verifierKey)->first()
+            : null;
 
         // Build context for the verifier: include the subject node's output.
         $agentContext = array_merge(
@@ -254,10 +448,21 @@ class NodeExecutorService
             ['input' => $nodeOutput]
         );
 
-        $verifierAgent = $this->bridgeAgent($verifierNode);
+        // Use a dedicated verifier node when one is referenced; otherwise
+        // synthesize the verifier from the gate's own criteria (the default for
+        // planner-generated flows — no separate node to lay out).
+        $verifierAgent = $verifierNode
+            ? $this->bridgeAgent($verifierNode)
+            : $this->syntheticVerifier($node);
         // Override qa_threshold so QaVerifierAgent builds its system prompt with
-        // the threshold from the writer's QA config (not the verifier's own setting).
+        // the threshold from this gate's config.
         $verifierAgent->qa_threshold = $qaConfig['threshold'];
+        // Per-gate criteria win: QaVerifierAgent uses system_prompt as the
+        // evaluation criteria, so the gated node's qa.custom_prompt decides what
+        // "good" means for THIS gate.
+        if (($qaConfig['custom_prompt'] ?? '') !== '') {
+            $verifierAgent->system_prompt = $qaConfig['custom_prompt'];
+        }
         $verifierBridgeRun = $this->bridgeRun($flowRun, $nodeOutput);
 
         try {
@@ -273,24 +478,46 @@ class NodeExecutorService
         }
 
         // Record QA results in the run context for UI display.
-        $this->recordQaResult($flowRun, $node, $verifierNode, $score, $qaConfig);
+        $this->recordQaResult($flowRun, $node, $verifierNode?->node_key, $score, $qaConfig);
 
         $passed = $score >= $qaConfig['threshold'];
 
         return ['passed' => $passed, 'score' => $score];
     }
 
+    /**
+     * A QA verifier agent created on the fly from a node's own gate config — the
+     * default when the gate doesn't reference a dedicated verifier node. The
+     * criteria come from qa.custom_prompt (applied by the caller); the model is
+     * the best installed QA model.
+     */
+    private function syntheticVerifier(FlowNode $node): Agent
+    {
+        $agent = new Agent;
+        $agent->forceFill([
+            'type' => 'qa_verifier',
+            'name' => 'QA · '.$node->name,
+            'model' => $this->modelSelector->resolveRunnable('qa_verifier', 'qa verifier'),
+            'config' => [],
+            'is_verifier' => true,
+            'flow_id' => $node->flow_id,
+        ]);
+        $agent->exists = false;
+
+        return $agent;
+    }
+
     private function recordQaResult(
         FlowRun $flowRun,
         FlowNode $node,
-        FlowNode $verifier,
+        ?string $verifierKey,
         int $score,
         array $qaConfig
     ): void {
         $context = $flowRun->fresh()->context ?? [];
         $context['step_qa_results'] ??= [];
         $context['step_qa_results'][$node->node_key] = [
-            'verifier_node_key' => $verifier->node_key,
+            'verifier_node_key' => $verifierKey, // null when synthesized
             'score' => $score,
             'threshold' => $qaConfig['threshold'],
         ];
@@ -310,7 +537,7 @@ class NodeExecutorService
 
     /**
      * @return array{seed: array<string,mixed>, upstream: array<string,string>}
-     *   upstream keyed by predecessor node NAME (falling back to node_key).
+     *                                                                          upstream keyed by predecessor node NAME (falling back to node_key).
      */
     private function buildNodeInput(FlowRun $flowRun, FlowNode $node): array
     {
@@ -451,12 +678,7 @@ class NodeExecutorService
             'output_style' => $node->output_style,
             'output_format' => $node->output_format,
             'output_role' => $node->output_role,
-            // BgTextCorrectorAgent::findBodyContent() queries Agent by flow_id + order.
-            // Set flow_id to the real value so the WHERE clause is valid (even though
-            // no legacy Agent rows exist). With order=999 the query returns 0 results
-            // and the agent falls through to the context-based heuristic.
             'flow_id' => $node->flow_id,
-            'order' => 999,
         ]);
         $agent->exists = false;
 
@@ -465,21 +687,34 @@ class NodeExecutorService
 
     private function bridgeRun(FlowRun $flowRun, string $input): AgentRun
     {
+        // Transient DTO — never persisted. QaVerifierAgent sets tokens_used
+        // (the QA score) as a plain in-memory attribute.
         $run = new AgentRun;
         $run->forceFill([
             'flow_run_id' => $flowRun->id,
             'input' => $input,
         ]);
-        // exists=true so QaVerifierAgent's $run->update(['tokens_used'=>$score])
-        // writes to the in-memory attribute (the stray UPDATE hits no real row — harmless).
-        $run->exists = true;
 
         return $run;
     }
 
     private function ensureModelInstalled(Agent $agent): void
     {
-        if (! config('services.ollama.auto_pull', true) || ! $agent->model) {
+        // Paid-provider models (openai/*, anthropic/*) run remotely — nothing
+        // to install or substitute locally.
+        if (PaidModel::isPaid($agent->model)) {
+            return;
+        }
+
+        // "(по подразбиране)" in the builder = empty model → the code picks the
+        // best INSTALLED Ollama model for the agent's type at run time.
+        if (! $agent->model) {
+            $agent->model = $this->modelSelector->resolveRunnable($agent->type, $agent->name.' '.($agent->role ?? ''));
+
+            return;
+        }
+
+        if (! config('services.ollama.auto_pull', true)) {
             return;
         }
 

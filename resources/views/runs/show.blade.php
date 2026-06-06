@@ -4,72 +4,29 @@
 
 @php
 $qaThresholdOptions = range(0, 100, 5);
-$runQaThresholds = $flowRun->context['qa_thresholds'] ?? [];
-$stepQaPolicies = $flowRun->context['step_qa_policies'] ?? [];
 $stepQaResults = $flowRun->context['step_qa_results'] ?? [];
 $failureMessage = $flowRun->context['failure_message'] ?? null;
 
-// Detect graph mode: flow has nodes → use node_runs, otherwise fall back to legacy agent_runs.
-$isGraphRun = $flowRun->flow->nodes->isNotEmpty();
+// Graph run: FlowNodes → unified "agents" shape, NodeRuns → "runs" shape.
+$initialAgents = $flowRun->flow->nodes
+    ->map(fn($n) => [
+        'id'             => $n->id,
+        'name'           => $n->name,
+        'icon'           => '🤖',
+        'type'           => $n->type,
+        'output_role'    => $n->effectiveOutputRole(),
+        'is_verifier'    => $n->type === 'qa_verifier',
+        'qa_threshold'   => $n->config['qa']['threshold'] ?? null,
+        'step_qa_policy' => null,
+        'step_qa_result' => $stepQaResults[$n->node_key] ?? null,
+        'model'          => $n->model,
+        'order'          => 0,
+    ])->values();
 
-if ($isGraphRun) {
-    // Graph mode: map FlowNodes → unified "agents" shape and NodeRuns → "runs" shape.
-    $initialAgents = $flowRun->flow->nodes
-        ->map(fn($n) => [
-            'id'             => $n->id,
-            'name'           => $n->name,
-            'icon'           => '🤖',
-            'type'           => $n->type,
-            'output_role'    => $n->effectiveOutputRole(),
-            'is_verifier'    => $n->type === 'qa_verifier',
-            'qa_threshold'   => $n->config['qa']['threshold'] ?? null,
-            'step_qa_policy' => null,
-            'step_qa_result' => $stepQaResults[$n->node_key] ?? null,
-            'model'          => $n->model,
-            'order'          => 0,
-        ])->values();
-
-    $initialRuns = (object) $flowRun->nodeRuns->sortBy('id')
-        ->mapWithKeys(fn($r) => [
-            (string) $r->flow_node_id => [
-                'agent_id'     => $r->flow_node_id,
-                'status'       => $r->status,
-                'model_used'   => $r->model_used,
-                'input'        => $r->input,
-                'output'       => $r->output,
-                'raw_output'   => $r->raw_output,
-                'error'        => $r->error,
-                'duration_ms'  => $r->duration_ms,
-                'tokens_used'  => $r->tokens_used,
-                'attempt_count'=> 1,
-                'started_at'   => $r->started_at?->format('H:i:s'),
-                'completed_at' => $r->completed_at?->format('H:i:s'),
-            ]
-        ])->toArray();
-} else {
-    // Legacy agent mode.
-    $initialAgents = $flowRun->flow->agents
-        ->where('is_active', true)
-        ->sortBy('order')
-        ->map(fn($a) => [
-            'id'           => $a->id,
-            'name'         => $a->name,
-            'icon'         => $a->icon ?? '🤖',
-            'type'         => $a->type,
-            'output_role'  => $a->effectiveOutputRole(),
-            'is_verifier'  => (bool) $a->is_verifier,
-            'qa_threshold' => $runQaThresholds[(string) $a->id] ?? $a->qa_threshold,
-            'step_qa_policy' => $stepQaPolicies[(string) $a->id] ?? null,
-            'step_qa_result' => $stepQaResults[(string) $a->id] ?? null,
-            'model'        => $a->model,
-            'order'        => $a->order,
-        ])->values();
-
-    $initialAgentRuns = $flowRun->agentRuns->sortBy('id');
-    $initialAttemptCounts = $initialAgentRuns->groupBy('agent_id')->map->count();
-    $initialRuns = (object) $initialAgentRuns->mapWithKeys(fn($r) => [
-        (string) $r->agent_id => [
-            'agent_id'     => $r->agent_id,
+$initialRuns = (object) $flowRun->nodeRuns->sortBy('id')
+    ->mapWithKeys(fn($r) => [
+        (string) $r->flow_node_id => [
+            'agent_id'     => $r->flow_node_id,
             'status'       => $r->status,
             'model_used'   => $r->model_used,
             'input'        => $r->input,
@@ -78,12 +35,11 @@ if ($isGraphRun) {
             'error'        => $r->error,
             'duration_ms'  => $r->duration_ms,
             'tokens_used'  => $r->tokens_used,
-            'attempt_count'=> $initialAttemptCounts[$r->agent_id] ?? 1,
+            'attempt_count'=> 1,
             'started_at'   => $r->started_at?->format('H:i:s'),
             'completed_at' => $r->completed_at?->format('H:i:s'),
         ]
     ])->toArray();
-}
 
 // Detect platform from flow description / name
 $flowDesc     = strtolower($flowRun->flow->description ?? '');
@@ -101,6 +57,16 @@ if (str_contains($flowDesc . $flowName, 'facebook') || str_contains($flowDesc . 
 
 $companyName    = $flowRun->flow->company->name ?? 'Company';
 $companyInitial = mb_strtoupper(mb_substr($companyName, 0, 1));
+
+// Paid-provider cost accumulated so far (openai/* nodes + planner revisions).
+$initialCostUsd = round((float) $flowRun->nodeRuns->sum('cost_usd'), 4) ?: null;
+
+// Фаза 3: adaptive revisions per node_key + node names for display.
+$initialReplans = $flowRun->context['replan'] ?? [];
+$nodeNames = $flowRun->flow->nodes->pluck('name', 'node_key');
+
+// WS3: result delivery outcome (set after a successful run by DeliveryService).
+$initialDelivery = $flowRun->context['delivery'] ?? null;
 @endphp
 
 {{-- ── Inject data into window BEFORE Alpine boots ─────────────── --}}
@@ -114,10 +80,15 @@ window.__runData = {
     pollUrl:      @json(route('flow-runs.poll', $flowRun)),
     logUrl:       @json(route('flow-runs.log',  $flowRun)),
     qaThresholdOptions: @json($qaThresholdOptions),
-    stepQaPolicies: @json($stepQaPolicies),
     stepQaResults: @json($stepQaResults),
     failureMessage: @json($failureMessage),
+    costUsd:      @json($initialCostUsd),
+    replans:      @json((object) $initialReplans),
+    nodeNames:    @json((object) $nodeNames->toArray()),
+    applyRevisionUrl: @json(route('flow-runs.apply-revision', $flowRun)),
+    csrf:         @json(csrf_token()),
     finalOutput:  @json($flowRun->final_output),
+    delivery:     @json($initialDelivery),
 };
 </script>
 
@@ -184,6 +155,11 @@ window.__runData = {
             </template>
         </div>
         <div class="flex items-center gap-3">
+            <template x-if="costUsd">
+                <span class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium tabular-nums"
+                      title="Разход за OpenAI заявки в този run"
+                      x-text="'$' + costUsd.toFixed(4)"></span>
+            </template>
             <button @click="openLogModal()"
                     class="text-xs text-gray-400 hover:text-indigo-600 transition flex items-center gap-1"
                     title="Лог на изпълнението">
@@ -202,6 +178,48 @@ window.__runData = {
     </div>
     <template x-if="flowStatus === 'failed' && failureMessage">
         <div class="mt-3 rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-700" x-text="failureMessage"></div>
+    </template>
+
+    {{-- Фаза 3: адаптивни ревизии — какво поправи planner-ът по време на run-а --}}
+    <template x-if="Object.keys(replans).length">
+        <div class="mt-3 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2 text-sm">
+            <div class="font-semibold text-violet-800 mb-1">🛠 Адаптивни ревизии на агенти (по време на run-а)</div>
+            <template x-for="[nodeKey, entries] in Object.entries(replans)" :key="nodeKey">
+                <div class="py-1.5 border-t border-violet-100 first:border-t-0">
+                    <template x-for="(entry, idx) in entries" :key="idx">
+                        <div class="flex flex-wrap items-center gap-2 text-violet-900">
+                            <span class="font-medium" x-text="nodeNames[nodeKey] || nodeKey"></span>
+                            <span class="text-violet-600 text-xs" x-text="entry.planner_reason || entry.trigger"></span>
+                            <template x-if="entry.escalated_to">
+                                <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
+                                      x-text="'⤴ ' + entry.escalated_to"></span>
+                            </template>
+                            <template x-if="entry.succeeded && entry.payload && !entry.applied_at && !applyingRevision[nodeKey]">
+                                <button @click="applyRevision(nodeKey)"
+                                        class="text-xs bg-violet-600 hover:bg-violet-700 text-white px-2 py-0.5 rounded-md transition">
+                                    Приложи в графа
+                                </button>
+                            </template>
+                            <template x-if="entry.applied_at || applyingRevision[nodeKey] === 'done'">
+                                <span class="text-xs text-green-700 font-medium">✓ приложено в графа</span>
+                            </template>
+                            <template x-if="entry.succeeded && !entry.applied_at && applyingRevision[nodeKey] === 'busy'">
+                                <span class="text-xs text-violet-400">прилагане…</span>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </template>
+
+    {{-- WS3: result delivery outcome --}}
+    <template x-if="delivery">
+        <div class="mt-3 rounded-lg px-3 py-2 text-sm border"
+             :class="delivery.ok ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-700'">
+            <span class="font-semibold" x-text="'📤 Доставка (' + delivery.channel + '): ' + (delivery.ok ? 'успешна' : 'неуспешна')"></span>
+            <span class="text-xs opacity-80" x-show="delivery.detail" x-text="' — ' + delivery.detail"></span>
+        </div>
     </template>
 
     <div class="relative h-2.5 bg-gray-100 rounded-full overflow-hidden"
@@ -682,6 +700,13 @@ function flowRunMonitor() {
         stepQaPolicies: d.stepQaPolicies || {},
         stepQaResults: d.stepQaResults || {},
         failureMessage: d.failureMessage || null,
+        costUsd:     d.costUsd || null,
+        replans:     d.replans || {},
+        delivery:    d.delivery || null,
+        nodeNames:   d.nodeNames || {},
+        applyRevisionUrl: d.applyRevisionUrl,
+        csrfToken:   d.csrf,
+        applyingRevision: {},
         serverFinalOutput: d.finalOutput || null,
         _timer:      null,
         _poller:     null,
@@ -743,6 +768,9 @@ function flowRunMonitor() {
                 this.flowStatus = data.status;
                 this.failureMessage = data.failure_message || this.failureMessage;
                 this.stepQaResults = data.step_qa_results || this.stepQaResults;
+                this.costUsd = data.cost_usd || this.costUsd;
+                if (data.replan && Object.keys(data.replan).length) this.replans = data.replan;
+                if (data.delivery) this.delivery = data.delivery;
                 this.progress = data.progress || {};
                 if (data.final_output) this.serverFinalOutput = data.final_output;
 
@@ -807,6 +835,23 @@ function flowRunMonitor() {
             const start = new Date(r.started_at_iso).getTime();
             const end = r.completed_at_iso ? new Date(r.completed_at_iso).getTime() : Date.now();
             return Math.max(0, Math.floor((end - start) / 1000));
+        },
+
+        async applyRevision(nodeKey) {
+            this.applyingRevision = { ...this.applyingRevision, [nodeKey]: 'busy' };
+            try {
+                const res = await fetch(this.applyRevisionUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({ node_key: nodeKey }),
+                });
+                const data = await res.json();
+                this.applyingRevision = { ...this.applyingRevision, [nodeKey]: data.ok ? 'done' : null };
+                if (!data.ok) alert(data.error || 'Прилагането се провали.');
+            } catch (e) {
+                this.applyingRevision = { ...this.applyingRevision, [nodeKey]: null };
+                alert('Мрежова грешка: ' + e.message);
+            }
         },
 
         async openLogModal() {

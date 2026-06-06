@@ -15,25 +15,50 @@ class OllamaService
 
     public function chat(string $model, string $systemPrompt, string $userMessage, array $options = [], ?callable $onProgress = null): string
     {
+        // Hybrid execution: "openai/<model>" and "anthropic/<model>" agents run
+        // on their paid provider. Routing lives here — the single funnel every
+        // BaseAgent chat() call goes through — so none of the concrete agent
+        // classes know about providers.
+        if ($service = $this->paidService($model)) {
+            return $service->chat(
+                \App\Support\PaidModel::strip($model),
+                $systemPrompt,
+                $userMessage,
+                $options,
+                $onProgress,
+            );
+        }
+
         $keepAlive = $options['keep_alive'] ?? '10m';
         $httpTimeout = $options['http_timeout'] ?? 600; // caller can set a shorter timeout
         unset($options['keep_alive'], $options['http_timeout']);
+
+        // Ollama structured outputs: "format" is a TOP-LEVEL payload field — a
+        // full JSON schema (constrained decoding). Used by the local planner.
+        $format = $options['format'] ?? null;
+        unset($options['format']);
+
+        $payload = [
+            'model'    => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user',   'content' => $userMessage],
+            ],
+            'stream'  => true,   // Ollama API: emit NDJSON chunks as tokens are generated
+            'keep_alive' => $keepAlive,
+            'options' => array_merge(['temperature' => 0.7], $options),
+        ];
+
+        if ($format !== null) {
+            $payload['format'] = $format;
+        }
 
         // Use stream:true so Ollama sends tokens immediately (NDJSON).
         // Without streaming, Ollama buffers the entire response before sending ANY bytes,
         // causing "0 bytes received" timeouts on long synthesis responses.
         $response = Http::withOptions(['stream' => true])  // Guzzle: don't buffer the body
             ->timeout($httpTimeout)                         // safety net — matches job timeout
-            ->post($this->baseUrl . '/api/chat', [
-                'model'    => $model,
-                'messages' => [
-                    ['role' => 'system', 'content' => $systemPrompt],
-                    ['role' => 'user',   'content' => $userMessage],
-                ],
-                'stream'  => true,   // Ollama API: emit NDJSON chunks as tokens are generated
-                'keep_alive' => $keepAlive,
-                'options' => array_merge(['temperature' => 0.7], $options),
-            ]);
+            ->post($this->baseUrl . '/api/chat', $payload);
 
         $response->throw();
 
@@ -112,6 +137,28 @@ class OllamaService
         $concurrency = max(1, $concurrency);
         $results = [];
 
+        // Route any paid-provider requests (openai/* or anthropic/*) to their
+        // API (sequentially — these are rare planner-pinned steps), keep the
+        // rest for the local Ollama pool.
+        $ollamaRequests = [];
+        foreach ($requests as $key => $req) {
+            if ($service = $this->paidService($req['model'] ?? null)) {
+                try {
+                    $results[$key] = $service->chat(
+                        \App\Support\PaidModel::strip($req['model']),
+                        $req['system'] ?? '',
+                        $req['user'] ?? '',
+                        array_merge($req['options'] ?? [], ['http_timeout' => $httpTimeout]),
+                    );
+                } catch (\Throwable) {
+                    $results[$key] = '';
+                }
+            } else {
+                $ollamaRequests[$key] = $req;
+            }
+        }
+        $requests = $ollamaRequests;
+
         foreach (array_chunk($requests, $concurrency, true) as $wave) {
             $responses = Http::pool(function ($pool) use ($wave, $httpTimeout) {
                 $calls = [];
@@ -149,6 +196,16 @@ class OllamaService
         }
 
         return $results;
+    }
+
+    /** The paid-provider chat service for a prefixed model, or null for local models. */
+    private function paidService(?string $model): OpenAiChatService|AnthropicChatService|null
+    {
+        return match (\App\Support\PaidModel::provider($model)) {
+            'openai' => app(OpenAiChatService::class),
+            'anthropic' => app(AnthropicChatService::class),
+            default => null,
+        };
     }
 
     public function listModels(): array
