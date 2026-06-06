@@ -6,125 +6,102 @@ use App\Models\Agent;
 use App\Models\AgentRun;
 
 /**
- * Finds and analyses REAL customer reviews for a business. Three complementary
- * sources, none of which rely on hardcoded review URLs:
+ * Analyses ONLY verified customer reviews. Fabrication is prevented structurally,
+ * not by prompt wording (small models ignore "don't make things up" — run 71
+ * invented 5 fake Google reviews with broken Bulgarian):
  *
- *  1. On-page reviews — re-reads the site's own pages so the LLM can detect
- *     embedded testimonials / review widgets that appear in the page content.
- *  2. External profiles — a web search surfaces Google / Facebook review pages.
- *  3. Google Maps — a targeted search locates the business's Maps/Business
- *     profile and scrapes it (best-effort; JS-rendered widgets may not render
- *     server-side, in which case the search snippets still carry the signal).
+ *  - Trusted sources = Google Places API (rating + count + sample reviews) and
+ *    operator-configured review_urls. Only these are fed to the model.
+ *  - Web-search snippets / Google-scrape are NOT used as review text — they were
+ *    the fuel for hallucinated ratings and quotes.
+ *  - If no trusted source returns data, we emit a deterministic "no verified
+ *    reviews" statement WITHOUT any LLM generation.
  *
- * The LLM decides what is and isn't a review — we never pattern-match review text.
+ * The Places query uses the real business name + city from the site_context
+ * profile (this agent's input), so it matches the correct place instead of a
+ * domain-derived guess.
  */
 class ReviewAnalyzerAgent extends BaseAgent
 {
+    private const BG_CITIES = 'София|Пловдив|Варна|Бургас|Русе|Стара Загора|Плевен|Сливен|Добрич|Шумен|Перник|Хасково|Ямбол|Пазарджик|Благоевград|Велико Търново|Враца|Габрово|Видин|Монтана|Кърджали|Кюстендил|Търговище|Ловеч|Силистра|Разград|Смолян|Асеновград|Дупница|Казанлък|Свищов';
+
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
-        $config    = $agent->config ?? [];
+        $config = $agent->config ?? [];
         $targetUrl = $context['target_url'] ?? $context['url'] ?? null;
-        $domain    = $targetUrl
+        $domain = $targetUrl
             ? strtolower(preg_replace('/^www\./i', '', parse_url($targetUrl, PHP_URL_HOST) ?? ''))
             : '';
 
-        $sources = [];
-        $haveGooglePlaces = false;
-
-        // Business-name + region hints derived from the domain.
-        $businessHint = $domain !== '' ? ucfirst(preg_replace('/\..*$/', '', $domain)) : '';
+        [$businessName, $city] = $this->businessIdentity($agentRun->input, $domain);
         $region = ($domain !== '' && preg_match('/\.([a-z]{2})$/i', $domain, $m)) ? strtoupper($m[1]) : null;
 
-        // ── 1. Google Places API — the reliable source for Google reviews ───
-        // (rating + count + sample reviews). Plain scraping can't reach the JS
-        // reviews block, so this official API is tried FIRST.
-        if ($businessHint !== '' && $this->hasTool('google_reviews')) {
-            $places = $this->useTool('google_reviews', ['query' => $businessHint, 'region' => $region]);
+        $verified = [];
+
+        // ── 1. Google Places API — the trusted source for public reviews ──
+        if ($businessName !== '' && $this->hasTool('google_reviews')) {
+            $query = trim($businessName.' '.$city);
+            $places = $this->useTool('google_reviews', ['query' => $query, 'region' => $region]);
             if ($places !== null && trim($places) !== '') {
-                $sources[]        = "--- Google ревюта (Places API) ---\n{$places}";
-                $haveGooglePlaces = true;
+                $verified[] = "--- Google ревюта (Places API) за: {$query} ---\n{$places}";
             }
         }
 
-        // ── 2. On-page reviews / testimonials ───────────────────────────────
-        // Pre-configured review URLs win if an operator set them; otherwise read
-        // the target site itself and let the LLM spot any embedded reviews.
-        $pagesToCheck = ! empty($config['review_urls'])
-            ? (array) $config['review_urls']
-            : array_filter([$targetUrl]);
-
-        if ($this->hasTool('scrape_page')) {
-            foreach ($pagesToCheck as $pageUrl) {
+        // ── 2. Operator-configured review URLs — a deliberate, trusted signal ──
+        if (! empty($config['review_urls']) && $this->hasTool('scrape_page')) {
+            foreach ((array) $config['review_urls'] as $pageUrl) {
                 $content = $this->useTool('scrape_page', ['url' => $pageUrl]);
                 if ($content && $content !== 'Scraping not available for this page.') {
-                    $sources[] = "--- Съдържание от {$pageUrl} (потърси вградени отзиви/testimonials/оценки) ---\n{$content}";
+                    $verified[] = "--- Ревюта от {$pageUrl} (зададена от оператора) ---\n".mb_substr($content, 0, 8000);
                 }
             }
         }
 
-        // ── 3. External review profiles (Google / Facebook) ─────────────────
-        if ($domain !== '' && $this->hasTool('web_search')) {
-            $query   = "\"{$domain}\" отзиви OR ревюта OR reviews site:google.com OR site:facebook.com OR site:trustpilot.com";
-            $results = $this->useTool('web_search', ['query' => $query]);
-            if ($results) {
-                $sources[] = "--- Външни резултати за ревюта на {$domain} ---\n{$results}";
-            }
+        // No trusted source → deterministic statement. We never let the model
+        // synthesise ratings/quotes from web snippets.
+        if (empty($verified)) {
+            return 'Не са намерени проверени публични ревюта за този бизнес'
+                .($businessName !== '' ? ' („'.$businessName.'")' : '')
+                .'. Google Places не върна резултат и няма зададен от оператора източник на ревюта, '
+                .'затова не се представят клиентски оценки или цитати.';
         }
 
-        // ── 4. Google scrape via Crawl4AI — fallback ONLY if Places gave nothing
-        // (e.g. no API key). Best-effort; Google often blocks the headless render.
-        if (! $haveGooglePlaces && $domain !== '') {
-            $google = $this->fetchGoogleReviews($domain, $businessHint);
-            if ($google) {
-                $sources[] = $google;
-            }
-        }
+        $extraContext = "\n\n".implode("\n\n", $verified);
 
-        $extraContext = $sources ? "\n\n".implode("\n\n", $sources) : '';
-
-        $instruction = $extraContext !== ''
-            ? "\n\nАнализирай реалните ревюта от източниците по-горе и предостави на БЪЛГАРСКИ:\n"
-              ."- Общ тон и sentiment (позитивен / неутрален / негативен)\n"
-              ."- Средна оценка (ако е посочена) и брой ревюта\n"
-              ."- Повтарящи се похвали и оплаквания\n"
-              ."- Конкретни цитати с източник (ако са налични)\n"
-              ."- Кратко заключение\n"
-              ."Ако в източниците няма реални ревюта — кажи ясно: 'Не са намерени публични ревюта.'\n"
-              ."НИКОГА не измисляй ревюта, оценки или коментари."
-            : "\n\nНе са открити източници с ревюта. Напиши ясно: 'Не са намерени публични ревюта за този бизнес.'"
-              ." НИКОГА не измисляй ревюта. Отговаряй на БЪЛГАРСКИ.";
+        $instruction = "\n\nАнализирай САМО реалните ревюта от източниците по-горе и дай на БЪЛГАРСКИ:\n"
+            ."- Общ тон и sentiment (позитивен / неутрален / негативен)\n"
+            ."- Средна оценка и брой ревюта (точно както са посочени в данните)\n"
+            ."- Повтарящи се похвали и оплаквания\n"
+            ."- Конкретни цитати С ИЗТОЧНИК — дословно от текста по-горе\n"
+            ."- Кратко заключение\n"
+            .'Използвай ЕДИНСТВЕНО данните по-горе. НИКОГА не измисляй ревюта, оценки, имена или цитати.';
 
         return $this->chat($agent, $agentRun->input, $extraContext.$instruction);
     }
 
     /**
-     * Fetch Google reviews by scraping a constructed Google search URL THROUGH
-     * the scrape_page tool (Crawl4AI). Crawl4AI opens the URL in a real headless
-     * browser, so Google's JS-rendered reviews block comes back as text — no
-     * separate browser integration needed. Falls back to plain web-search snippets
-     * when scraping yields nothing (Google consent page / bot block).
+     * Pull the business name + city out of the site_context profile so the Places
+     * lookup matches the real place. Falls back to a domain-derived name.
+     *
+     * @return array{0: string, 1: string}
      */
-    private function fetchGoogleReviews(string $domain, string $businessHint): ?string
+    private function businessIdentity(string $profile, string $domain): array
     {
-        $query = trim($businessHint) !== '' ? $businessHint : $domain;
-
-        // 1) Render a Google search for the business' reviews via Crawl4AI.
-        if ($this->hasTool('scrape_page')) {
-            $googleUrl = 'https://www.google.com/search?hl=bg&gl=bg&q='.rawurlencode($query.' reviews отзиви');
-            $scraped   = $this->useTool('scrape_page', ['url' => $googleUrl]);
-            if ($scraped && $scraped !== 'Scraping not available for this page.' && trim($scraped) !== '') {
-                return "--- Google ревюта за \"{$query}\" (рендирано през Crawl4AI) ---\n{$scraped}";
-            }
+        $name = '';
+        if (preg_match('/(?:име(?:то)?\s*(?:на\s*бизнеса|на\s*марката)?|марка|бранд)[^:：\n]*[:：]\s*(.+)/iu', $profile, $m)) {
+            $line = trim((string) preg_split('/[\n\r|]/u', $m[1])[0]);
+            $name = trim(preg_replace('/[*_`#"„"]+/u', '', $line));
+            $name = mb_substr($name, 0, 60);
+        }
+        if ($name === '' && $domain !== '') {
+            $name = ucfirst(preg_replace('/\..*$/', '', $domain));
         }
 
-        // 2) Fallback: plain web-search snippets (often carry the rating + excerpts).
-        if ($this->hasTool('web_search')) {
-            $results = $this->useTool('web_search', ['query' => "{$query} Google reviews отзиви ревюта"]);
-            if ($results) {
-                return "--- Google резултати за ревюта на \"{$query}\" ---\n{$results}";
-            }
+        $city = '';
+        if (preg_match('/\b('.self::BG_CITIES.')\b/u', $profile, $m)) {
+            $city = $m[1];
         }
 
-        return null;
+        return [$name, $city];
     }
 }

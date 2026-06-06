@@ -20,12 +20,48 @@ class BgTextCorrectorAgent extends BaseAgent
             return $this->chat($agent, $agentRun->input);
         }
 
-        $prompt = "Прегледай следния текст и поправи САМО правописните грешки на кирилица. "
-            . "НЕ преструктурирай, НЕ пренаписвай, НЕ добавяй информация. "
-            . "Върни точно същия текст с поправен правопис:\n\n"
-            . $textToCorrect;
+        $prompt = 'Прегледай следния текст и поправи САМО правописните грешки на кирилица. '
+            .'НЕ преструктурирай, НЕ пренаписвай, НЕ добавяй информация. '
+            ."Върни точно същия текст с поправен правопис:\n\n"
+            .$textToCorrect;
 
-        return $this->chat($agent, $prompt);
+        $corrected = $this->chat($agent, $prompt);
+
+        return $this->guardCorrection($textToCorrect, $corrected);
+    }
+
+    /**
+     * A spell-corrector must reproduce roughly the same text. If the output
+     * deviates wildly in length or introduces placeholder boilerplate, the model
+     * rewrote/hallucinated instead of correcting (run 71: "Благо" → a fabricated
+     * "отдел Маркетинг 2023" report). In that case keep the original untouched.
+     */
+    private function guardCorrection(string $original, string $corrected): string
+    {
+        $corrected = $this->stripPreamble($corrected);
+
+        $origLen = mb_strlen(trim($original));
+        $newLen = mb_strlen(trim($corrected));
+
+        if ($origLen === 0 || $newLen === 0) {
+            return $original;
+        }
+
+        $ratio = $newLen / $origLen;
+
+        if ($ratio < 0.5 || $ratio > 1.6 || $this->looksLikePlaceholder($corrected)) {
+            return $original;
+        }
+
+        return $corrected;
+    }
+
+    /** Strip a leading meta-preamble like "Разбира се, ето коригирания текст:" + separators. */
+    private function stripPreamble(string $text): string
+    {
+        $text = preg_replace('/^\s*(разбира се[^\n]*|ето[^\n]*коригиран[^\n]*|коригиран[^\n:]*:)\s*/iu', '', $text) ?? $text;
+
+        return trim(preg_replace('/^\s*-{3,}\s*/u', '', $text) ?? $text);
     }
 
     private function findBodyContent(Agent $agent, array $context): string

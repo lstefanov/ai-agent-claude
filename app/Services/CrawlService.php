@@ -2,17 +2,24 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 class CrawlService
 {
     private string $baseUrl;
-    private int    $timeout;
+
+    private int $timeout;      // per-page render timeout sent to the scraper
+
+    private int $httpTimeout;  // PHP client timeout — must exceed the scraper's two-pass budget
 
     public function __construct()
     {
         $this->baseUrl = config('services.crawl.url', 'http://localhost:8189');
-        $this->timeout = (int) config('services.crawl.timeout', 15);
+        $this->timeout = (int) config('services.crawl.timeout', 35);
+        // The scraper now does up to two render passes (networkidle → load+magic),
+        // so a single /scrape can take ~timeout*2+10s. Give the HTTP client headroom.
+        $this->httpTimeout = $this->timeout * 2 + 20;
     }
 
     /**
@@ -21,8 +28,8 @@ class CrawlService
     public function scrape(string $url): ?string
     {
         try {
-            $response = Http::timeout($this->timeout)->post("{$this->baseUrl}/scrape", [
-                'url'     => $url,
+            $response = Http::timeout($this->httpTimeout)->post("{$this->baseUrl}/scrape", [
+                'url' => $url,
                 'timeout' => $this->timeout,
             ]);
 
@@ -53,9 +60,9 @@ class CrawlService
                 $calls = [];
                 foreach ($wave as $i => $url) {
                     $calls[] = $pool->as((string) $i)
-                        ->timeout($this->timeout)
+                        ->timeout($this->httpTimeout)
                         ->post("{$this->baseUrl}/scrape", [
-                            'url'     => $url,
+                            'url' => $url,
                             'timeout' => $this->timeout,
                         ]);
                 }
@@ -66,7 +73,7 @@ class CrawlService
             foreach ($wave as $i => $url) {
                 $resp = $responses[(string) $i] ?? null;
                 try {
-                    if ($resp instanceof \Illuminate\Http\Client\Response && $resp->successful()) {
+                    if ($resp instanceof Response && $resp->successful()) {
                         $md = $resp->json('markdown');
                         if (is_string($md) && trim($md) !== '') {
                             $out[$url] = $md;
@@ -102,7 +109,7 @@ class CrawlService
      */
     public function crawlSite(string $url, ?int $max = null): array
     {
-        $max  = $max ?? (int) config('services.crawl.max_pages', 20);
+        $max = $max ?? (int) config('services.crawl.max_pages', 20);
         $urls = $this->discoverUrls($url, $max);
 
         // Prioritise: homepage first, then /p/ product/service pages, then the rest.
@@ -115,6 +122,7 @@ class CrawlService
             }
             $aProduct = str_contains(parse_url($a, PHP_URL_PATH) ?? '', '/p/') ? 0 : 1;
             $bProduct = str_contains(parse_url($b, PHP_URL_PATH) ?? '', '/p/') ? 0 : 1;
+
             return $aProduct - $bProduct;
         });
 

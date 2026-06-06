@@ -53,15 +53,15 @@ return [
     ],
 
     'anthropic' => [
-        'api_key'  => env('ANTHROPIC_API_KEY'),
-        'model'    => env('ANTHROPIC_GENERATOR_MODEL', 'claude-sonnet-4-6'),
+        'api_key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('ANTHROPIC_GENERATOR_MODEL', 'claude-sonnet-4-6'),
         'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
-        'version'  => env('ANTHROPIC_VERSION', '2023-06-01'),
+        'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
     ],
 
     'openai' => [
-        'api_key'  => env('OPENAI_API_KEY'),
-        'model'    => env('OPENAI_GENERATOR_MODEL', 'gpt-4o'),
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_GENERATOR_MODEL', 'gpt-4o'),
         'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com'),
     ],
 
@@ -86,7 +86,7 @@ return [
     'crawl' => [
         'url' => env('CRAWL_SERVICE_URL', 'http://localhost:8189'),
         'enabled' => env('CRAWL_SERVICE_ENABLED', true),
-        'timeout' => env('CRAWL_SERVICE_TIMEOUT', 15),
+        'timeout' => env('CRAWL_SERVICE_TIMEOUT', 35),
         'max_pages' => env('CRAWL_MAX_PAGES', 20),
     ],
 

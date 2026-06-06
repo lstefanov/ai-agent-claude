@@ -13,7 +13,9 @@ use Throwable;
 class AgentGeneratorService
 {
     private const BG_TEXT_CORRECTOR_TYPE = 'bg_text_corrector';
+
     private const QA_VERIFIER_TYPE = 'qa_verifier';
+
     private const DEFAULT_QA_THRESHOLD = 60;
 
     public function __construct(
@@ -23,9 +25,9 @@ class AgentGeneratorService
 
     public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null): array
     {
-        $company       = $flow->company;
+        $company = $flow->company;
         $modelsContext = $this->buildModelsContext();
-        $targetUrl     = UrlExtractor::first($flow->description ?? '');
+        $targetUrl = UrlExtractor::first($flow->description ?? '');
 
         // ── Website-analysis flows: deterministic branched skeleton ──────────
         // Small local models are unreliable at producing a correct branched DAG
@@ -63,7 +65,7 @@ SUBJECT;
             $urlDirective = '';
         }
 
-        $systemPrompt = <<<PROMPT
+        $systemPrompt = <<<'PROMPT'
 Ти си AI архитект на маркетингови и бизнес автоматизации.
 Твоята задача: проектирай ПЪЛЕН, готов за продукция multi-agent pipeline.
 
@@ -157,21 +159,21 @@ MSG;
         $options = ['temperature' => 0.2, 'num_predict' => 4000];
         $providerModel = $this->generator->providerModel();
 
-        Log::info('[AgentGenerator] Using provider: ' . $providerModel['provider'] . ' (' . $providerModel['model'] . ')');
-        Log::info('[AgentGenerator] Flow: ' . $flow->description);
+        Log::info('[AgentGenerator] Using provider: '.$providerModel['provider'].' ('.$providerModel['model'].')');
+        Log::info('[AgentGenerator] Flow: '.$flow->description);
 
         // Persist a full, untruncated record of the generation request so it can be
         // reviewed later in the builder's "Лог на генерирането" panel.
         $genLog = AgentGenerationLog::create([
-            'flow_id'       => $flow->id,
-            'company_id'    => $flow->company_id ?? $flow->company?->id,
-            'token'         => $logToken,
-            'provider'      => $providerModel['provider'],
-            'model'         => $providerModel['model'],
+            'flow_id' => $flow->id,
+            'company_id' => $flow->company_id ?? $flow->company?->id,
+            'token' => $logToken,
+            'provider' => $providerModel['provider'],
+            'model' => $providerModel['model'],
             'system_prompt' => $systemPrompt,
-            'user_message'  => $userMessage,
-            'options'       => $options,
-            'status'        => 'running',
+            'user_message' => $userMessage,
+            'options' => $options,
+            'status' => 'running',
         ]);
         $startMs = (int) (microtime(true) * 1000);
 
@@ -188,14 +190,14 @@ MSG;
             );
         } catch (Throwable $e) {
             $genLog->update([
-                'status'      => 'failed',
-                'error'       => $e->getMessage(),
+                'status' => 'failed',
+                'error' => $e->getMessage(),
                 'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
             ]);
             throw $e;
         }
 
-        Log::info('[AgentGenerator] Raw response length: ' . strlen($raw));
+        Log::info('[AgentGenerator] Raw response length: '.strlen($raw));
 
         if ($onProgress) {
             $onProgress('Обработка на резултата');
@@ -203,19 +205,20 @@ MSG;
 
         $agents = $this->parseAgentJson($raw);
 
-        Log::info('[AgentGenerator] Parsed ' . count($agents) . ' agents');
+        Log::info('[AgentGenerator] Parsed '.count($agents).' agents');
 
         $genLog->update([
             'raw_response' => $raw,
             'parsed_count' => count($agents),
-            'duration_ms'  => (int) (microtime(true) * 1000) - $startMs,
-            'status'       => count($agents) < 3 ? 'failed' : 'completed',
-            'error'        => count($agents) < 3 ? 'AI върна по-малко от 3 агента.' : null,
+            'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
+            'status' => count($agents) < 3 ? 'failed' : 'completed',
+            'error' => count($agents) < 3 ? 'AI върна по-малко от 3 агента.' : null,
         ]);
 
         // Safety net: if AI returned fewer than 3, something went wrong
         if (count($agents) < 3) {
-            Log::warning('[AgentGenerator] Too few agents (' . count($agents) . '), returning empty to trigger retry');
+            Log::warning('[AgentGenerator] Too few agents ('.count($agents).'), returning empty to trigger retry');
+
             return [];
         }
 
@@ -265,18 +268,18 @@ MSG;
         // Audit trail in the builder's "Лог на генерирането" panel — deterministic
         // builds have no raw LLM response, so we record the resolved skeleton.
         AgentGenerationLog::create([
-            'flow_id'       => $flow->id,
-            'company_id'    => $flow->company_id ?? $flow->company?->id,
-            'token'         => $logToken,
-            'provider'      => 'deterministic',
-            'model'         => 'site-analysis-skeleton',
+            'flow_id' => $flow->id,
+            'company_id' => $flow->company_id ?? $flow->company?->id,
+            'token' => $logToken,
+            'provider' => 'deterministic',
+            'model' => 'site-analysis-skeleton',
             'system_prompt' => 'Детерминистичен разклонен скелет за анализ на сайт (без LLM за структурата).',
-            'user_message'  => "Целеви сайт: {$targetUrl}\nFlow: ".($flow->description ?? ''),
-            'options'       => [],
-            'raw_response'  => json_encode($agents, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
-            'parsed_count'  => count($agents),
-            'duration_ms'   => 0,
-            'status'        => 'completed',
+            'user_message' => "Целеви сайт: {$targetUrl}\nFlow: ".($flow->description ?? ''),
+            'options' => [],
+            'raw_response' => json_encode($agents, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
+            'parsed_count' => count($agents),
+            'duration_ms' => 0,
+            'status' => 'completed',
         ]);
 
         Log::info('[AgentGenerator] Built deterministic site-analysis pipeline ('.count($agents).' agents) for '.$targetUrl);
@@ -311,9 +314,11 @@ MSG;
                 'depends_on' => [],
                 'order' => 1,
                 'role' => 'Скрейпва началната страница на сайта и изгражда компактна идентичност на бизнеса (име, дейност, основни услуги, контакти). Това е споделеният базов контекст за двата следващи клона.',
-                'system_prompt' => 'Ти изграждаш базов профил на бизнес от началната му страница. Извличаш САМО реално присъстващи факти: име на бизнеса, с какво се занимава, основни направления услуги/продукти, контакти и локация, език. Не измисляш нищо. Пишеш кратко и структурирано на български.',
-                'prompt_template' => "Изгради базов профил на бизнеса от сайта {{url}}. Използвай съдържанието на началната страница, предоставено по-долу. Върни кратък структуриран профил на български: име, дейност, основни услуги, контакти, локация и език. Без измислици — пропусни каквото липсва.",
-                'config' => $qa('Провери дали профилът съдържа реално име на бизнеса и поне 2-3 направления услуги/дейност, извлечени от началната страница.'),
+                'system_prompt' => 'Ти изграждаш базов профил на бизнес от неговия сайт. Извличаш САМО реално присъстващи факти: име на бизнеса, с какво се занимава, основни направления услуги/продукти, ПЪЛНИ контакти (телефон, имейл, адрес с град) и локация, език. Контактите ги вземаш дословно от страницата за контакти / футъра — не ги измисляш и не ги отгатваш от домейна. Ако даден факт липсва в текста, пишеш „не е посочено". Пишеш кратко и структурирано на български.',
+                'prompt_template' => 'Изгради базов профил на бизнеса от сайта {{url}}. Използвай съдържанието на началната страница И на страницата за контакти, предоставени по-долу. Върни кратък структуриран профил на български: име, дейност, основни услуги, ПЪЛНИ контакти (телефон, имейл, адрес с град), локация и език. Вземи контактите ДОСЛОВНО от текста — без измислици. Каквото липсва, отбележи «не е посочено».',
+                'config' => array_merge($qa('Провери дали профилът съдържа реално име на бизнеса и поне 2-3 направления услуги/дейност, извлечени от началната страница.'), [
+                    'self_check' => ['require_contacts' => true, 'max_retries' => 1],
+                ]),
             ],
             [
                 'name' => 'Изследовател на сайта',
@@ -323,7 +328,7 @@ MSG;
                 'order' => 2,
                 'role' => 'Обхожда ВСИЧКИ страници на сайта, разбира съдържанието на всяка и извлича структурирано услуги с цени, контакти и факти за бизнеса. Прогресът се показва страница по страница.',
                 'system_prompt' => 'Ти си изследовател, който обхожда цял уебсайт. За всяка страница разбираш какво представлява съдържанието и извличаш САМО реалните данни — услуги и техните цени, описания, контакти, локации. Не търсиш фиксирани думи и не измисляш цени. Обединяваш всичко в изчерпателна, структурирана база знания на български, със консолидирана таблица на услугите и цените.',
-                'prompt_template' => "Обходи целия сайт {{url}} и извлечи изчерпателна информация за бизнеса: всички услуги/продукти с техните цени (както от ценова страница, така и от отделните страници на услуги), контакти, локации и ключови твърдения. Базовият контекст за бизнеса е: {{input}}. Върни структурирана база знания на български с консолидирана таблица услуга → цена и всички намерени контакти.",
+                'prompt_template' => 'Обходи целия сайт {{url}} и извлечи изчерпателна информация за бизнеса: всички услуги/продукти с техните цени (както от ценова страница, така и от отделните страници на услуги), контакти, локации и ключови твърдения. Базовият контекст за бизнеса е: {{input}}. Върни структурирана база знания на български с консолидирана таблица услуга → цена и всички намерени контакти.',
                 'config' => array_merge($qa('Провери дали са обходени множество страници и са извлечени конкретни услуги с цени и контакти. Трябва да има реални числови цени, ако сайтът ги публикува.'), [
                     'temperature' => 0.3,
                     'map_reduce' => true,
@@ -344,7 +349,7 @@ MSG;
                 'order' => 3,
                 'role' => 'Намира реални ревюта за бизнеса: вградените на самия сайт (Google/Facebook widget-и, testimonials), плюс външни източници (Google Maps, Facebook). Анализира тон и повтарящи се теми.',
                 'system_prompt' => 'Ти откриваш и анализираш реални клиентски ревюта за конкретен бизнес. Разпознаваш ревюта вградени в съдържанието на сайта, както и от външни източници. Никога не измисляш ревюта, оценки или цитати. Ако не са намерени реални ревюта, го казваш ясно. Пишеш на български.',
-                'prompt_template' => "Намери и анализирай реалните ревюта за бизнеса от сайта {{url}}. Базов контекст за бизнеса (име, дейност): {{input}}. Потърси вградени ревюта/testimonials на самия сайт и външни ревюта (Google Maps, Facebook). Обобщи: общ тон, повтарящи се похвали и оплаквания, средна оценка и конкретни цитати с източник. Ако няма реални ревюта — кажи го ясно.",
+                'prompt_template' => 'Намери и анализирай реалните ревюта за бизнеса от сайта {{url}}. Базов контекст за бизнеса (име, дейност): {{input}}. Потърси вградени ревюта/testimonials на самия сайт и външни ревюта (Google Maps, Facebook). Обобщи: общ тон, повтарящи се похвали и оплаквания, средна оценка и конкретни цитати с източник. Ако няма реални ревюта — кажи го ясно.',
                 'config' => $qa('Провери дали изходът се базира на реални намерени ревюта (с източник) или ясно заявява, че такива не са намерени. Без измислени оценки.'),
             ],
             [
@@ -357,11 +362,12 @@ MSG;
                 'order' => 4,
                 'role' => 'Анализира събраната от сайта информация: услуги, ценова структура, силни страни, позициониране и възможности.',
                 'system_prompt' => 'Ти анализираш събраните данни за бизнеса от неговия сайт. Идентифицираш ключови услуги, ценова структура, силни и слаби страни, позициониране и възможности за подобрение. Запазваш всички конкретни данни (особено цени) и ги структурираш ясно. Пишеш на български.',
-                'prompt_template' => "Анализирай задълбочено събраната информация за сайта: {{input}}. Извлечи и структурирай: пълен списък услуги с цени, ценова структура, силни страни, позициониране и конкретни възможности за подобрение. Запази ВСИЧКИ числови цени, контакти и адрес ДОСЛОВНО — не съкращавай ценовия списък. Изход на български.",
-                // Голям контекст: тук се чете цялата база знания (60+ страници) и се
-                // консолидира — без достатъчен num_ctx входът се отрязва и данни се губят.
+                'prompt_template' => 'Анализирай задълбочено събраната информация за сайта: {{input}}. Извлечи и структурирай: ПЪЛНА таблица услуги → цена (всяка услуга на отделен ред, с реалната ѝ цена — НЕ съкращавай и не пиши «и други»), ценова структура, силни страни, позициониране и конкретни възможности за подобрение. Запази ВСИЧКИ числови цени, контакти и адрес ДОСЛОВНО. Това е структурният гръбнак на финалния доклад — нищо конкретно да не се губи. Изход на български.',
+                // num_ctx нарочно НЕ е фиксиран — BaseAgent оразмерява контекста спрямо
+                // реалната дължина на входа (цялата база знания, 60+ страници), за да не
+                // се отрязва. quality_guard принуждава пълна ценова таблица с retry.
                 'config' => array_merge($qa('Провери дали анализът съдържа структурирани услуги с цени, силни страни и конкретни изводи, базирани на входните данни.'), [
-                    'num_ctx' => 16384,
+                    'quality_guard' => ['min_priced_rows' => 5, 'max_retries' => 2],
                 ]),
             ],
             [
@@ -372,25 +378,34 @@ MSG;
                 'order' => 5,
                 'role' => 'Структурира резултата от ревютата: общ sentiment, средна оценка, повтарящи се теми и препоръки на база обратната връзка.',
                 'system_prompt' => 'Ти структурираш анализа на клиентски ревюта в ясни изводи: общ тон, средна оценка, повтарящи се похвали и оплаквания, препоръки. Базираш се само на предоставените реални ревюта. Ако ревюта липсват, го отбелязваш. Пишеш на български.',
-                'prompt_template' => "Структурирай анализа на ревютата: {{input}}. Дай: общ sentiment, средна оценка (ако е налична), топ повтарящи се похвали и оплаквания, и конкретни препоръки за бизнеса на база обратната връзка. Без измислици. Изход на български.",
+                'prompt_template' => 'Структурирай анализа на ревютата: {{input}}. Дай: общ sentiment, средна оценка (ако е налична), топ повтарящи се похвали и оплаквания, и конкретни препоръки за бизнеса на база обратната връзка. Без измислици. Изход на български.',
                 'config' => $qa('Провери дали изводите за ревютата се базират на реалните входни данни и ясно отбелязват липсата на ревюта, ако такива няма.'),
             ],
             [
                 'name' => 'Автор на доклад',
                 'type' => 'report_writer',
                 'uid' => 'report_author',
-                // Fan-in от 5: двата анализа (структурата на доклада) ПЛЮС суровите
-                // данни от изследователя и ревютата (за точни цени/контакти/цитати).
-                // Така съдържанието от ранните агенти достига доклада без загуба от
-                // двойното кондензиране през анализаторите.
-                'depends_on' => ['content_analyzer', 'review_sentiment', 'site_explorer', 'review_finder', 'site_context'],
+                // Fan-in от структурираните изходи (НЕ суровите dump-ове): анализът на
+                // съдържанието (пълна ценова таблица, lossless-guard-нат), анализът на
+                // ревютата и базовият контекст (име + реални контакти). Така входът на
+                // доклада остава компактен и СЕ ПОБИРА в контекста — затова на run 71
+                // 53K суров вход в малък модел даваше "Благо".
+                'depends_on' => ['content_analyzer', 'review_sentiment', 'site_context'],
                 'order' => 6,
-                'role' => 'Сглобява изчерпателен финален доклад от анализа на съдържанието и анализа на ревютата — с executive summary, пълна таблица услуги/цени, контакти, секция ревюта и препоръки.',
-                'system_prompt' => 'Ти пишеш изчерпателен бизнес доклад на български. Получаваш няколко входа: двата анализа (на съдържанието и на ревютата) — те са структурният гръбнак на доклада; и суровите събрани данни (обхождане на сайта + ревюта) — от тях вадиш точните цени, контакти и цитати. Включваш ВСИЧКИ конкретни данни — пълна таблица на услугите с цени, контакти, локации — и не съкращаваш фактологията. Структурата е ясна с раздели. За голям сайт докладът е подробен и дълъг. Не измисляш данни.',
-                'prompt_template' => "Напиши изчерпателен доклад за бизнеса на български на база ВСИЧКИ входове по-долу: {{input}}.\nИзползвай анализите като структура, а суровите данни (обхождане + ревюта) — за да възстановиш точните цени, контакти и цитати. Нищо конкретно да не се изпуска.\nЗадължителни раздели:\n1. Executive summary\n2. Профил на бизнеса и направления\n3. Пълна таблица на услугите с цени (всички намерени услуги — не съкращавай)\n4. Контакти и локации\n5. Анализ на ревютата (тон, оценка, теми, цитати с източник)\n6. Силни страни и възможности\n7. Конкретни препоръки\nЗапази всички числови цени и контакти от входовете. Докладът трябва да е подробен, съответстващ на обема на сайта.",
+                'role' => 'Сглобява изчерпателен финален доклад от анализа на съдържанието, анализа на ревютата и базовия контекст — с executive summary, пълна таблица услуги/цени, контакти, секция ревюта и препоръки.',
+                'system_prompt' => 'Ти пишеш изчерпателен бизнес доклад на български. Получаваш структурираните изходи на предходните агенти: анализа на съдържанието (пълна таблица услуги/цени — структурният гръбнак), анализа на ревютата и базовия профил (име + контакти). Пренасяш ВСИЧКИ конкретни данни ДОСЛОВНО — пълната таблица на услугите с цени, контактите (телефон, имейл, адрес с град), локациите — и не съкращаваш фактологията. Не измисляш нищо и не вмъкваш примерни/шаблонни данни (никакви example.com, „отдел Маркетинг", измислени телефони). Ако даден факт липсва във входа, го пропускаш. Структурата е ясна с раздели; докладът е подробен.',
+                'prompt_template' => "Напиши изчерпателен доклад за бизнеса на български на база входовете по-долу: {{input}}.\nПренеси точните цени и контакти ДОСЛОВНО от входовете. Нищо конкретно да не се изпуска и нищо да не се измисля.\nЗадължителни раздели:\n1. Executive summary\n2. Профил на бизнеса и направления\n3. Пълна таблица на услугите с цени (всички намерени услуги — не съкращавай)\n4. Контакти и локации (реалните от входа)\n5. Анализ на ревютата (тон, оценка, теми, цитати с източник; ако няма реални — го посочваш)\n6. Силни страни и възможности\n7. Конкретни препоръки\nЗапази всички числови цени и контакти от входовете. Докладът трябва да е подробен.",
+                // num_ctx нарочно НЕ е фиксиран — оразмерява се спрямо реалния вход.
+                // self_check: ако докладът е изроден (твърде къс) или халюцинира шаблон,
+                // се прави насочен retry вместо да се emit-не боклук.
                 'config' => array_merge($qa('Провери дали докладът съдържа всички задължителни раздели, пълна таблица услуги/цени с реални числа и секция за ревютата. Езикът е български.'), [
                     'temperature' => 0.5,
-                    'num_ctx' => 8192,
+                    'self_check' => [
+                        'required_sections' => ['услуг', 'контакт', 'ревю', 'препорък'],
+                        'min_output_chars' => 800,
+                        'no_placeholder' => true,
+                        'max_retries' => 2,
+                    ],
                 ]),
             ],
             [
@@ -527,6 +542,7 @@ MSG;
 
         return $models->map(function ($m) {
             $bestFor = $m->description ? " — {$m->description}" : '';
+
             return "- {$m->ollama_tag}{$bestFor}";
         })->join("\n");
     }
@@ -582,31 +598,32 @@ MSG;
 
         // Find outermost JSON array
         $start = strpos($cleaned, '[');
-        $end   = strrpos($cleaned, ']');
+        $end = strrpos($cleaned, ']');
 
         if ($start === false || $end === false) {
             Log::error('[AgentGenerator] No JSON array found in response');
+
             return [];
         }
 
-        $json   = substr($cleaned, $start, $end - $start + 1);
+        $json = substr($cleaned, $start, $end - $start + 1);
         $agents = json_decode($json, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            Log::error('[AgentGenerator] JSON parse error: ' . json_last_error_msg());
-            Log::error('[AgentGenerator] Attempted JSON: ' . substr($json, 0, 500));
+            Log::error('[AgentGenerator] JSON parse error: '.json_last_error_msg());
+            Log::error('[AgentGenerator] Attempted JSON: '.substr($json, 0, 500));
 
             // Try to recover truncated JSON by finding the last complete object
             $agents = $this->recoverTruncatedJson($json);
         }
 
-        if (!is_array($agents)) {
+        if (! is_array($agents)) {
             return [];
         }
 
         // Normalise and fill in defaults for each agent
         return array_values(array_filter(array_map(
-            fn($a, $i) => $this->normalizeAgent($a, $i + 1),
+            fn ($a, $i) => $this->normalizeAgent($a, $i + 1),
             $agents,
             array_keys($agents)
         )));
@@ -615,28 +632,44 @@ MSG;
     private function recoverTruncatedJson(string $json): array
     {
         // Find the last complete } before the truncation point
-        $agents   = [];
-        $depth    = 0;
+        $agents = [];
+        $depth = 0;
         $inString = false;
         $objStart = null;
-        $escape   = false;
+        $escape = false;
 
         for ($i = 0; $i < strlen($json); $i++) {
             $ch = $json[$i];
 
-            if ($escape) { $escape = false; continue; }
-            if ($ch === '\\' && $inString) { $escape = true; continue; }
-            if ($ch === '"') { $inString = !$inString; continue; }
-            if ($inString) continue;
+            if ($escape) {
+                $escape = false;
+
+                continue;
+            }
+            if ($ch === '\\' && $inString) {
+                $escape = true;
+
+                continue;
+            }
+            if ($ch === '"') {
+                $inString = ! $inString;
+
+                continue;
+            }
+            if ($inString) {
+                continue;
+            }
 
             if ($ch === '[' || $ch === '{') {
-                if ($ch === '{' && $depth === 1) $objStart = $i;
+                if ($ch === '{' && $depth === 1) {
+                    $objStart = $i;
+                }
                 $depth++;
             } elseif ($ch === ']' || $ch === '}') {
                 $depth--;
                 if ($ch === '}' && $depth === 1 && $objStart !== null) {
                     $objJson = substr($json, $objStart, $i - $objStart + 1);
-                    $obj     = json_decode($objJson, true);
+                    $obj = json_decode($objJson, true);
                     if (is_array($obj) && isset($obj['name'])) {
                         $agents[] = $obj;
                     }
@@ -645,13 +678,14 @@ MSG;
             }
         }
 
-        Log::info('[AgentGenerator] Recovered ' . count($agents) . ' agents from truncated JSON');
+        Log::info('[AgentGenerator] Recovered '.count($agents).' agents from truncated JSON');
+
         return $agents;
     }
 
     private function normalizeAgent(mixed $agent, int $fallbackOrder): ?array
     {
-        if (!is_array($agent) || empty($agent['name'])) {
+        if (! is_array($agent) || empty($agent['name'])) {
             return null;
         }
 
@@ -677,36 +711,36 @@ MSG;
         $systemPrompt = trim((string) ($agent['system_prompt'] ?? ''));
         if ($systemPrompt === '') {
             $systemPrompt = 'Ти си агент "'.$agent['name'].'". '
-                . ($role !== '' ? $role.' ' : '')
-                . 'Отговаряй на български език.';
+                .($role !== '' ? $role.' ' : '')
+                .'Отговаряй на български език.';
         }
 
         return [
-            'name'               => $agent['name'],
-            'type'               => $type,
-            'role'               => $role !== '' ? $role : $agent['name'],
-            'capabilities'       => (array) ($agent['capabilities'] ?? []),
-            'strengths'          => $agent['strengths'] ?? null,
-            'limitations'        => $agent['limitations'] ?? null,
-            'input_description'  => $agent['input_description'] ?? null,
+            'name' => $agent['name'],
+            'type' => $type,
+            'role' => $role !== '' ? $role : $agent['name'],
+            'capabilities' => (array) ($agent['capabilities'] ?? []),
+            'strengths' => $agent['strengths'] ?? null,
+            'limitations' => $agent['limitations'] ?? null,
+            'input_description' => $agent['input_description'] ?? null,
             'output_description' => $agent['output_description'] ?? null,
-            'prompt_template'    => $promptTemplate,
-            'system_prompt'      => $systemPrompt,
-            'model'              => $model,
-            'model_reason'       => 'Автоматично избран според типа на агента ('.$type.') и наличните модели.',
-            'order'              => (int) ($agent['order'] ?? $fallbackOrder),
+            'prompt_template' => $promptTemplate,
+            'system_prompt' => $systemPrompt,
+            'model' => $model,
+            'model_reason' => 'Автоматично избран според типа на агента ('.$type.') и наличните модели.',
+            'order' => (int) ($agent['order'] ?? $fallbackOrder),
             // Force qa_verifier type to always be a verifier even if AI forgot the flag
-            'is_verifier'        => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
+            'is_verifier' => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
                 ? true
                 : (bool) ($agent['is_verifier'] ?? false),
-            'qa_threshold'       => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
+            'qa_threshold' => ($agent['type'] ?? '') === self::QA_VERIFIER_TYPE
                 ? $this->generatedQaThresholdOrDefault($agent['qa_threshold'] ?? null)
                 : (isset($agent['qa_threshold']) ? (int) $agent['qa_threshold'] : null),
-            'config'             => $this->normalizeAgentConfig($agent['config'] ?? null, $type),
-            'uid'                => $agent['uid'] ?? null,
+            'config' => $this->normalizeAgentConfig($agent['config'] ?? null, $type),
+            'uid' => $agent['uid'] ?? null,
             // Branching DAG: uids of agents whose output this agent consumes.
             // Empty => the builder falls back to a sequential chain by order.
-            'depends_on'         => $this->normalizeDependsOn($agent['depends_on'] ?? null),
+            'depends_on' => $this->normalizeDependsOn($agent['depends_on'] ?? null),
         ];
     }
 
@@ -736,6 +770,7 @@ MSG;
         $config = is_array($raw) ? $raw : ['temperature' => 0.7];
         // Code is the source of truth for num_predict — ignore whatever the LLM wrote.
         $config['num_predict'] = $this->numPredictForType($type);
+
         return $config;
     }
 
@@ -910,15 +945,15 @@ MSG;
     private function dedupeAgents(array $agents): array
     {
         $knownTypes = array_keys(config('agent_types', []));
-        $seen       = [];
-        $out        = [];
+        $seen = [];
+        $out = [];
 
         foreach ($agents as $agent) {
             $type = $agent['type'] ?? 'content_bg';
 
             if (! in_array($type, $knownTypes, true)) {
                 Log::warning('[AgentGenerator] Unknown agent type "'.$type.'" remapped to content_bg');
-                $type          = 'content_bg';
+                $type = 'content_bg';
                 $agent['type'] = $type;
             }
 
@@ -929,7 +964,7 @@ MSG;
                 continue;
             }
             $seen[$sig] = true;
-            $out[]      = $agent;
+            $out[] = $agent;
         }
 
         return $this->renumberAgents($out);

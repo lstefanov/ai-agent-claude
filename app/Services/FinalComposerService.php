@@ -55,7 +55,15 @@ class FinalComposerService
             $formatted = $this->formatWithLlm($model, $deterministic);
             $formatted = ReasoningStripper::strip($formatted);
 
-            if (trim($formatted) !== '' && $this->allPartsPresentVerbatim($formatted, $effectiveParts)) {
+            // Accept the formatted version only if it (1) kept every part verbatim
+            // (no dropping), (2) did not balloon with invented content (no adding),
+            // and (3) introduced no placeholder boilerplate. The verbatim guard alone
+            // misses ADDED hallucinations — run 71's final result was a fabricated
+            // "отдел Маркетинг" report with example.com contacts.
+            if (trim($formatted) !== ''
+                && $this->allPartsPresentVerbatim($formatted, $effectiveParts)
+                && $this->withinLengthBudget($formatted, $deterministic)
+                && ! $this->containsPlaceholder($formatted)) {
                 return ['output' => $formatted, 'model' => $model];
             }
         } catch (Throwable) {
@@ -69,6 +77,30 @@ class FinalComposerService
     // Every part must keep at least this fraction of its sampled verbatim
     // fragments in the formatted output, otherwise the LLM is rejected.
     private const VERBATIM_COVERAGE_THRESHOLD = 0.8;
+
+    // The format pass may only add section headings / whitespace — so the
+    // normalized text must not grow beyond this ratio, or the LLM invented content.
+    private const MAX_GROWTH_RATIO = 1.25;
+
+    /** Reject a format pass that grew the content well beyond cosmetic headings. */
+    private function withinLengthBudget(string $formatted, string $deterministic): bool
+    {
+        $base = mb_strlen($this->normalize($deterministic));
+        if ($base === 0) {
+            return true;
+        }
+
+        return mb_strlen($this->normalize($formatted)) / $base <= self::MAX_GROWTH_RATIO;
+    }
+
+    /** Detect hallucinated placeholder boilerplate (checked on raw, un-normalized text). */
+    private function containsPlaceholder(string $text): bool
+    {
+        return (bool) preg_match(
+            '/example\.com|@example|lorem ipsum|отдел\s+„?\s*Маркетинг|Иван\s+Вазов["“”]?\s*123|0?2\s*123\s*45\s*67/iu',
+            $text
+        );
+    }
 
     /**
      * Verify every part survived the LLM formatting pass word-for-word.

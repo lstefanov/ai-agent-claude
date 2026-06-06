@@ -6,6 +6,7 @@ use App\Agents\Tools\AgentTool;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Services\OllamaService;
+use App\Support\PricingOutputMetrics;
 use RuntimeException;
 
 abstract class BaseAgent
@@ -85,15 +86,23 @@ abstract class BaseAgent
         $systemPrompt = $base.$this->buildOutputInstructions($agent).$extraSystemContext;
         $options = $this->buildOptions($agent);
 
+        // Silent-truncation guard: if no explicit num_ctx is configured, Ollama falls back to
+        // its tiny default (~2-4K tokens) and silently truncates large prompts, which makes the
+        // model hallucinate the missing part. Size the context window to the actual prompt so the
+        // model always SEES its full input. An explicit config value always wins.
+        if (! isset($options['num_ctx'])) {
+            $options['num_ctx'] = $this->estimateNumCtx($systemPrompt, $userMessage, $options['num_predict'] ?? null);
+        }
+
         $this->lastChatParams = [
-            'model'           => $agent->model,
-            'system_prompt'   => $systemPrompt,
-            'user_message'    => $userMessage,
-            'options'         => $options,
+            'model' => $agent->model,
+            'system_prompt' => $systemPrompt,
+            'user_message' => $userMessage,
+            'options' => $options,
             'output_language' => $agent->output_language,
-            'output_tone'     => $agent->output_tone,
-            'output_style'    => $agent->output_style,
-            'output_format'   => $agent->output_format,
+            'output_tone' => $agent->output_tone,
+            'output_style' => $agent->output_style,
+            'output_format' => $agent->output_format,
         ];
 
         $output = $this->ollama->chat(
@@ -158,5 +167,92 @@ abstract class BaseAgent
         }
 
         return $options;
+    }
+
+    /**
+     * Derive a context window large enough to hold the whole prompt plus the reply.
+     * Bulgarian/Cyrillic text is roughly 2.5 characters per token; we use that ratio
+     * conservatively and clamp to a sane Ollama window [8192, 32768].
+     */
+    protected function estimateNumCtx(string $systemPrompt, string $userMessage, int|float|null $numPredict = null): int
+    {
+        $inputTokens = (int) ceil((mb_strlen($systemPrompt) + mb_strlen($userMessage)) / 2.5);
+
+        // num_predict -1 (unlimited) → reserve a generous block for the response.
+        $reply = ($numPredict === null || (int) $numPredict < 0) ? 4096 : (int) $numPredict;
+
+        $needed = $inputTokens + $reply + 1024; // headroom for chat template / safety
+
+        return (int) max(8192, min(32768, $needed));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    //  Self-verification helpers (deterministic guards + targeted retry).
+    //  Agents opt in via config and call chatWithSelfCheck() with a predicate.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Run chat() and, while $passes($output) is false, re-run up to $maxRetries times,
+     * appending $retryHint to the user message each attempt. Returns the last output.
+     *
+     * @param  callable(string):bool  $passes
+     */
+    protected function chatWithSelfCheck(
+        Agent $agent,
+        string $userMessage,
+        callable $passes,
+        string $retryHint,
+        int $maxRetries = 2,
+        string $extraSystemContext = ''
+    ): string {
+        $output = $this->chat($agent, $userMessage, $extraSystemContext);
+        $maxRetries = max(0, min(3, $maxRetries));
+
+        for ($attempt = 0; $attempt < $maxRetries && ! $passes($output); $attempt++) {
+            $output = $this->chat($agent, $userMessage."\n\n".$retryHint, $extraSystemContext);
+        }
+
+        return $output;
+    }
+
+    /**
+     * Detects boilerplate the small models like to hallucinate when their real input
+     * was truncated (the classic "Маркетинг 2023 / example.com" fake report).
+     */
+    protected function looksLikePlaceholder(string $text): bool
+    {
+        return (bool) preg_match(
+            '/example\.com|@example|lorem ipsum|отдел\s+„?\s*Маркетинг|Иван\s+Вазов["“”]?\s*123|0?2\s*123\s*45\s*67/iu',
+            $text
+        );
+    }
+
+    /** True when the text carries a concrete phone number or a postal-address marker. */
+    protected function containsContact(string $text): bool
+    {
+        return (bool) preg_match('/\+359|\b0\d[\d\s\-]{6,}\d|\b(ул\.|бул\.|адрес|гр\.\s|град\s|ет\.)/iu', $text);
+    }
+
+    /** Number of markdown rows that contain a concrete numeric price. */
+    protected function pricedRowCount(string $output): int
+    {
+        return (int) (PricingOutputMetrics::fromOutput($output)['priced_rows'] ?? 0);
+    }
+
+    /**
+     * True only if every required (case-insensitive) section keyword appears in the output.
+     *
+     * @param  array<int, string>  $sections
+     */
+    protected function hasAllSections(string $output, array $sections): bool
+    {
+        $haystack = mb_strtolower($output);
+        foreach ($sections as $section) {
+            if (mb_strpos($haystack, mb_strtolower($section)) === false) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

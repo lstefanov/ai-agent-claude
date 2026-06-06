@@ -13,16 +13,21 @@ class ModelSelectorService
      * while resolveRunnable() restricts to what is actually installed.
      */
     private array $profiles = [
-        'bg_writer'    => ['todorov/bggpt', 's_emanuilov/BgGPT-v1.0:9b', 'gemma3:12b'],
-        'research'     => ['mistral-nemo', 'qwen2.5:14b', 'qwen2.5:7b', 'mistral'],
-        'analysis'     => ['qwen2.5:14b', 'mistral-nemo', 'gemma3:12b', 'gemma2:9b'],
-        'qa'           => ['s_emanuilov/BgGPT-v1.0:2.6b', 'gemma2:9b', 'mistral'],
-        'en_writer'    => ['gemma3:12b', 'mistral', 'llama3.1:8b'],
+        // Long-form Bulgarian writing (social posts, emails). Capable models first —
+        // the tiny todorov/bggpt:2.5b collapsed on long context (run 71: 53K input → "Благо").
+        'bg_writer' => ['s_emanuilov/BgGPT-v1.0:9b', 'qwen2.5:14b', 'gemma3:12b'],
+        // Detailed reports synthesised from large multi-agent input — needs a big context window.
+        'report' => ['qwen2.5:14b', 's_emanuilov/BgGPT-v1.0:27b', 's_emanuilov/BgGPT-v1.0:9b', 'gemma3:12b'],
+        'research' => ['mistral-nemo', 'qwen2.5:14b', 'qwen2.5:7b', 'mistral'],
+        'analysis' => ['qwen2.5:14b', 'mistral-nemo', 'gemma3:12b', 'gemma2:9b'],
+        // QA must emit clean JSON reliably — the 2.6b model could not. Capable models first.
+        'qa' => ['qwen2.5:14b', 'gemma2:9b', 's_emanuilov/BgGPT-v1.0:9b'],
+        'en_writer' => ['gemma3:12b', 'mistral', 'llama3.1:8b'],
         'image_prompt' => ['mistral', 'mistral-nemo'],
-        'translate'    => ['aya-expanse:8b', 'qwen2:7b', 'qwen2.5:14b'],
-        'code'         => ['qwen2.5-coder:7b', 'qwen2.5-coder:14b'],
-        'vision'       => ['qwen2.5vl:7b', 'llava:7b'],
-        'utility'      => ['mistral', 'mistral-nemo', 'gemma2:9b'],
+        'translate' => ['aya-expanse:8b', 'qwen2:7b', 'qwen2.5:14b'],
+        'code' => ['qwen2.5-coder:7b', 'qwen2.5-coder:14b'],
+        'vision' => ['qwen2.5vl:7b', 'llava:7b'],
+        'utility' => ['mistral', 'mistral-nemo', 'gemma2:9b'],
     ];
 
     /**
@@ -31,13 +36,15 @@ class ModelSelectorService
      */
     private array $typeToProfile = [
         // researchers / data gatherers
-        'site_context' => 'research',
+        // site_context & review_analyzer extract structured facts and must NOT invent —
+        // qwen2.5:14b (analysis profile) is far more reliable than mistral-nemo here.
+        'site_context' => 'analysis',
+        'review_analyzer' => 'analysis',
         'researcher' => 'research',
         'deep_researcher' => 'research',
         'multi_researcher' => 'research',
         'trend_researcher' => 'research',
         'competitor_profiler' => 'research',
-        'review_analyzer' => 'research',
         'keyword_extractor' => 'research',
         'scraper' => 'research',
 
@@ -63,8 +70,8 @@ class ModelSelectorService
         'caption_writer' => 'bg_writer',
         'hook_writer' => 'bg_writer',
         'ad_copywriter' => 'bg_writer',
-        'report_writer' => 'bg_writer',
-        'report_composer' => 'bg_writer',
+        'report_writer' => 'report',
+        'report_composer' => 'report',
         'newsletter_writer' => 'bg_writer',
         'email_composer' => 'bg_writer',
         'seo_writer' => 'bg_writer',
