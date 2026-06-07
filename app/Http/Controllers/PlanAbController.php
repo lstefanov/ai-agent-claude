@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Console\Commands\PlanAbCommand;
 use App\Models\Flow;
+use App\Services\OllamaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 /**
  * Фаза 4 UI — A/B сравнение на planner провайдърите за конкретен flow:
@@ -28,7 +31,7 @@ class PlanAbController extends Controller
         return view('flows.plan-ab', [
             'flow' => $flow,
             'available' => $available,
-            'availability' => collect(\App\Console\Commands\PlanAbCommand::PROVIDERS)
+            'availability' => collect(PlanAbCommand::PROVIDERS)
                 ->mapWithKeys(fn ($p) => [$p => in_array($p, $available, true)])
                 ->all(),
             'plannerModels' => [
@@ -50,7 +53,7 @@ class PlanAbController extends Controller
         $available = $this->availableProviders();
 
         if ($provider !== '') {
-            if (! in_array($provider, \App\Console\Commands\PlanAbCommand::PROVIDERS, true)) {
+            if (! in_array($provider, PlanAbCommand::PROVIDERS, true)) {
                 return response()->json(['error' => 'Непознат provider.'], 422);
             }
             if (! in_array($provider, $available, true)) {
@@ -82,9 +85,9 @@ class PlanAbController extends Controller
     private function availableProviders(): array
     {
         return array_values(array_filter(
-            \App\Console\Commands\PlanAbCommand::PROVIDERS,
+            PlanAbCommand::PROVIDERS,
             fn ($p) => $p === 'ollama'
-                ? app(\App\Services\OllamaService::class)->isAvailable()
+                ? app(OllamaService::class)->isAvailable()
                 : ! empty(config("services.{$p}.api_key")),
         ));
     }
@@ -109,7 +112,7 @@ class PlanAbController extends Controller
     {
         $validated = $request->validate([
             'token' => 'required|string',
-            'provider' => 'required|in:openai,anthropic',
+            'provider' => ['required', Rule::in(PlanAbCommand::PROVIDERS)],
         ]);
 
         $state = Cache::get("plan_ab_{$validated['token']}");

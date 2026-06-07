@@ -82,6 +82,10 @@ class AgentGeneratorService
         $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
         $agents = $this->dedupeAgents($agents);
         $agents = $this->finalizeDependencyGraph($agents);
+        // The model's depends_on is semantically unreliable (correctors/writers
+        // emitted as roots, research→report inverted) — rebuild the DAG from role
+        // tiers so the execution order is always correct.
+        $agents = $this->applyRoleBasedDependencies($agents);
 
         // uids are now assigned + stable → wire the final step-QA gate.
         return $this->enableFinalQaGate($agents);
@@ -135,7 +139,23 @@ class AgentGeneratorService
             return null;
         }
 
-        $type = $agent['type'] ?? 'content_bg';
+        $type = $this->slugifyId((string) ($agent['type'] ?? '')) ?: 'content_bg';
+
+        // BgGPT often labels every agent "content_bg" while still naming the uid
+        // after the real type (uid "bg_text_corrector" / type "content_bg"), or
+        // uses the canonical verifier uid "qa_main". Recover the type from the uid
+        // so the real corrector/verifier are recognised and the pipeline
+        // guarantees (ensureBgTextCorrectorBeforeQa / ensureQaVerifierLast) don't
+        // synthesise duplicates.
+        $uidType = $this->slugifyId((string) ($agent['uid'] ?? ''));
+        if ($uidType === 'qa_main') {
+            $type = self::QA_VERIFIER_TYPE;
+        } elseif ($uidType !== '' && in_array($uidType, array_keys(config('agent_types', [])), true)) {
+            // The uid is the model's clearest signal of intent; its `type` field is
+            // unreliable (random known-but-wrong values). Trust the uid when it
+            // names a real type.
+            $type = $uidType;
+        }
 
         // The model is chosen by code, not by the planning LLM — with one
         // exception: a step pinned to a paid provider ("openai/<model>" or
@@ -205,6 +225,18 @@ class AgentGeneratorService
             fn ($v) => is_string($v) ? trim($v) : (is_scalar($v) ? (string) $v : null),
             $raw,
         ), fn ($v) => $v !== null && $v !== ''));
+    }
+
+    /**
+     * Normalize a model-emitted identifier (uid / type / dependency) to clean
+     * snake_case so uids and their depends_on references reconcile even when the
+     * LLM inconsistently uses spaces or mixed case (e.g. "report writer" vs
+     * "report_writer"). Without this, mismatched edges are silently dropped and
+     * the agent floats to the top of the graph.
+     */
+    private function slugifyId(string $s): string
+    {
+        return trim((string) preg_replace('/[^a-z0-9]+/', '_', mb_strtolower(trim($s))), '_');
     }
 
     /**
@@ -381,14 +413,17 @@ class AgentGeneratorService
     {
         $usedUids = [];
         foreach ($agents as $i => &$agent) {
-            $uid = trim((string) ($agent['uid'] ?? ''));
+            $uid = $this->slugifyId((string) ($agent['uid'] ?? ''));
             if ($uid === '' || isset($usedUids[$uid])) {
-                $base = preg_replace('/[^a-z0-9]+/', '_', mb_strtolower($agent['type'] ?? 'agent'));
-                $uid = trim($base, '_').'_'.($i + 1);
+                $uid = ($this->slugifyId((string) ($agent['type'] ?? 'agent')) ?: 'agent').'_'.($i + 1);
             }
             $usedUids[$uid] = true;
             $agent['uid'] = $uid;
-            $agent['depends_on'] = $this->normalizeDependsOn($agent['depends_on'] ?? null);
+            // Slugify deps with the SAME rule as uids so references reconcile.
+            $agent['depends_on'] = array_map(
+                fn ($d) => $this->slugifyId((string) $d),
+                $this->normalizeDependsOn($agent['depends_on'] ?? null),
+            );
         }
         unset($agent);
 
@@ -429,6 +464,71 @@ class AgentGeneratorService
         }
 
         return $agents;
+    }
+
+    /**
+     * Pipeline tier of an agent, by its type's role:
+     *   0 site_context (seed) · 1 researchers/analyzers (hidden) ·
+     *   2 body/appendix writers · 3 bg_text_corrector · 4 qa_verifier.
+     */
+    private function roleTier(array $agent): int
+    {
+        $type = (string) ($agent['type'] ?? '');
+        // Tier strictly by TYPE — never the is_verifier flag: BgGPT randomly sets
+        // is_verifier=true on non-QA agents (researchers/analyzers), which would
+        // wrongly push them to the QA tier. The real verifier reliably has type
+        // qa_verifier (uid "qa_main" is recovered to that type in normalizeAgent).
+        if ($type === self::BG_TEXT_CORRECTOR_TYPE) {
+            return 3;
+        }
+        if ($type === self::QA_VERIFIER_TYPE) {
+            return 4;
+        }
+        $role = (string) config("agent_types.{$type}.output_role", 'hidden');
+        if ($role === 'body' || $role === 'appendix') {
+            return 2;
+        }
+
+        return $type === 'site_context' ? 0 : 1;
+    }
+
+    /**
+     * Rebuild the dependency graph deterministically from role tiers. The
+     * planning model's own depends_on is unreliable (it emits correctors/writers
+     * as roots and inverts research→report), so we wire a canonical fan-in
+     * pipeline: site_context → researchers/analyzers → writers → corrector → QA.
+     * Each tier depends on every node of the nearest non-empty lower tier, and
+     * agents are reordered by tier for a sensible builder layout.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyRoleBasedDependencies(array $agents): array
+    {
+        $byTier = [0 => [], 1 => [], 2 => [], 3 => [], 4 => []];
+        foreach ($agents as $a) {
+            $byTier[$this->roleTier($a)][] = $a['uid'] ?? '';
+        }
+
+        $lowerDeps = function (int $tier) use ($byTier): array {
+            for ($t = $tier - 1; $t >= 0; $t--) {
+                if (! empty($byTier[$t])) {
+                    return $byTier[$t];
+                }
+            }
+
+            return [];
+        };
+
+        foreach ($agents as &$a) {
+            $deps = $lowerDeps($this->roleTier($a));
+            $a['depends_on'] = array_values(array_filter($deps, fn ($u) => $u !== ($a['uid'] ?? '')));
+        }
+        unset($a);
+
+        usort($agents, fn ($x, $y) => $this->roleTier($x) <=> $this->roleTier($y));
+
+        return $this->renumberAgents($agents);
     }
 
     /** Kahn-style cycle detection over the uid dependency graph. */

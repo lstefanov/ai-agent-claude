@@ -92,7 +92,10 @@ class FlowPlannerService
             $agents = $this->critiquePlan($flow, $intent, $plan, $onProgress, $logToken);
         }
 
-        return $this->materialize($agents, $intent);
+        return $this->sanitizePlanUrls(
+            $this->materialize($agents, $intent),
+            UrlExtractor::first($flow->description ?? ''),
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -195,6 +198,12 @@ PROMPT;
 ПЪЛЕН production pipeline от агенти като насочен ацикличен граф (DAG).
 
 ЗЛАТНИ ПРАВИЛА:
+⚠️ ЕЗИК (ЗАДЪЛЖИТЕЛНО, НАЙ-ВАЖНО): name, role, system_prompt, prompt_template,
+qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. НИКОГА на английски.
+Само type е технически идентификатор и остава както е в каталога.
+- name: КРАТКО българско име от 2–5 думи (напр. „Извличане на контекст"), а НЕ описание
+  и НЕ английско изречение.
+- role: кратка българска роля — едно изречение.
 1. ВСЕКИ агент има ТОЧНО ЕДНА конкретна отговорност. По-добре повече малки агенти, отколкото един универсален.
 2. Покрий ВСЯКА задача от key_tasks с поне един агент. Не добавяй агенти за неискани неща.
 3. ГРАФ: всеки агент има уникален uid и depends_on (uid-и, чиито ИЗХОДИ са му вход).
@@ -321,6 +330,9 @@ PROMPT;
 Ако планът е добър → approved=true, issues=[], revised_agents=[].
 Ако има дефекти → approved=false, опиши ги в issues и върни ЦЕЛИЯ поправен план в revised_agents
 (всички агенти, не само променените).
+ЕЗИК: всички текстови полета в revised_agents (name, role, system_prompt,
+prompt_template, qa_custom_prompt, rationale) са на БЪЛГАРСКИ. Ако заварен агент е с
+английско name или role — поправи го на кратко българско (name 2–5 думи).
 PROMPT;
 
         $user = "INTENT:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
@@ -532,6 +544,41 @@ PROMPT;
         }
 
         return $out;
+    }
+
+    /**
+     * Replace hallucinated/foreign URLs in agent text with the {{url}} placeholder
+     * (resolved to the flow's real site at run time), keeping only URLs whose host
+     * matches the real site. Fixes models that fabricate a domain from the company
+     * name (e.g. "gamesportcenter-ruse.com" when the real site is primelaser.bg).
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function sanitizePlanUrls(array $agents, ?string $realUrl): array
+    {
+        $realHost = $realUrl ? parse_url($realUrl, PHP_URL_HOST) : null;
+        if (! $realHost) {
+            return $agents;
+        }
+
+        $fields = ['name', 'role', 'system_prompt', 'prompt_template', 'output_description', 'input_description'];
+
+        foreach ($agents as &$agent) {
+            foreach ($fields as $f) {
+                if (! is_string($agent[$f] ?? null) || $agent[$f] === '') {
+                    continue;
+                }
+                $agent[$f] = preg_replace_callback(
+                    '#https?://[^\s"\'<>)\]}]+#i',
+                    fn ($m) => strcasecmp((string) parse_url($m[0], PHP_URL_HOST), $realHost) === 0 ? $m[0] : '{{url}}',
+                    $agent[$f],
+                );
+            }
+        }
+        unset($agent);
+
+        return $agents;
     }
 
     /**
