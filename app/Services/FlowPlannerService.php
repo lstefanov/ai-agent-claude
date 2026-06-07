@@ -82,8 +82,16 @@ class FlowPlannerService
         $plan = $this->designPipeline($flow, $intent, $onProgress, $logToken);
         $agents = $plan['agents'] ?? [];
 
+        // A strong planner rarely under-produces; a single transient short plan
+        // should not abort the whole run — retry the design phase once.
         if (count($agents) < 3) {
-            Log::warning('[FlowPlanner] Pipeline design returned fewer than 3 agents — aborting plan.');
+            Log::warning('[FlowPlanner] Pipeline design returned '.count($agents).' agents — retrying once.');
+            $plan = $this->designPipeline($flow, $intent, $onProgress, $logToken);
+            $agents = $plan['agents'] ?? [];
+        }
+
+        if (count($agents) < 3) {
+            Log::warning('[FlowPlanner] Pipeline design still < 3 agents after retry — aborting plan.');
 
             return [];
         }

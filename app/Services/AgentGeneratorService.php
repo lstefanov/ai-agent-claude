@@ -33,6 +33,7 @@ class AgentGeneratorService
     public function __construct(
         private ModelSelectorService $modelSelector,
         private FlowPlannerService $planner,
+        private OllamaService $ollama,
     ) {}
 
     /**
@@ -88,7 +89,11 @@ class AgentGeneratorService
         $agents = $this->applyRoleBasedDependencies($agents);
 
         // uids are now assigned + stable → wire the final step-QA gate.
-        return $this->enableFinalQaGate($agents);
+        $agents = $this->enableFinalQaGate($agents);
+
+        // Localise English copy to Bulgarian (structure already final, ids
+        // untouched). No-op when the planner already wrote Bulgarian.
+        return $this->translateAgentsToBulgarian($agents);
     }
 
     /**
@@ -127,6 +132,101 @@ class AgentGeneratorService
         unset($agent);
 
         return $agents;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Bulgarian translation (post-planning localisation)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Localise the human-readable agent copy to Bulgarian after planning. The
+     * structure (uid/type/depends_on) is already final and is never touched —
+     * only display/prompt fields are translated, via the concurrent
+     * OllamaService::chatBatch() using the ModelSelector "translate" profile
+     * (aya-expanse). Fields already in Cyrillic are skipped, so this is a no-op
+     * for a Bulgarian planner and only kicks in for a strong English one.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function translateAgentsToBulgarian(array $agents): array
+    {
+        $fields = ['name', 'role', 'system_prompt', 'prompt_template', 'output_description'];
+        // Use the best installed NATIVE-Bulgarian writer (BgGPT via the bg_writer
+        // profile) — it produces far more fluent Bulgarian than the generic
+        // multilingual translate profile (aya-expanse), which renders broken,
+        // Russian-flavoured text.
+        $translateTag = $this->modelSelector->resolveRunnable('content_bg');
+
+        $requests = [];
+        $map = [];
+        foreach ($agents as $i => $agent) {
+            foreach ($fields as $f) {
+                if ($this->needsBgTranslation((string) ($agent[$f] ?? ''))) {
+                    $requests["a{$i}_{$f}"] = $this->bgTranslateRequest($translateTag, (string) $agent[$f]);
+                    $map["a{$i}_{$f}"] = [$i, $f];
+                }
+            }
+            $qa = $agent['config']['qa']['custom_prompt'] ?? null;
+            if (is_string($qa) && $this->needsBgTranslation($qa)) {
+                $requests["a{$i}_qa"] = $this->bgTranslateRequest($translateTag, $qa);
+                $map["a{$i}_qa"] = [$i, '__qa__'];
+            }
+        }
+
+        if ($requests === []) {
+            return $agents;
+        }
+
+        $results = $this->ollama->chatBatch($requests, 6, 120);
+
+        foreach ($results as $key => $translated) {
+            $translated = trim((string) $translated);
+            if ($translated === '' || ! isset($map[$key])) {
+                continue; // keep original on failure
+            }
+            [$i, $field] = $map[$key];
+            $original = $field === '__qa__'
+                ? (string) ($agents[$i]['config']['qa']['custom_prompt'] ?? '')
+                : (string) ($agents[$i][$field] ?? '');
+
+            // Reject a translation that dropped a {{placeholder}} the original
+            // carried — that would break runtime substitution.
+            preg_match_all('/\{\{[^}]*\}\}/', $original, $o);
+            preg_match_all('/\{\{[^}]*\}\}/', $translated, $n);
+            if (array_diff($o[0], $n[0]) !== []) {
+                continue;
+            }
+
+            if ($field === '__qa__') {
+                $agents[$i]['config']['qa']['custom_prompt'] = $translated;
+            } else {
+                $agents[$i][$field] = $translated;
+            }
+        }
+
+        return $agents;
+    }
+
+    /** A field needs translating only when it has non-Cyrillic prose. */
+    private function needsBgTranslation(string $text): bool
+    {
+        $text = trim($text);
+
+        return $text !== '' && ! preg_match('/\p{Cyrillic}/u', $text);
+    }
+
+    /** @return array{model: string, system: string, user: string, options: array<string, mixed>} */
+    private function bgTranslateRequest(string $model, string $text): array
+    {
+        return [
+            'model' => $model,
+            'system' => 'You are a professional translator. Translate the user message into Bulgarian. '
+                .'Keep every {{...}} placeholder, every URL and every proper name EXACTLY as in the original. '
+                .'Do not add notes or quotes. Output ONLY the Bulgarian translation.',
+            'user' => $text,
+            'options' => ['temperature' => 0.2],
+        ];
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -378,6 +478,7 @@ class AgentGeneratorService
     {
         $knownTypes = array_keys(config('agent_types', []));
         $seen = [];
+        $seenAppendix = [];
         $out = [];
 
         foreach ($agents as $agent) {
@@ -387,6 +488,17 @@ class AgentGeneratorService
                 Log::warning('[AgentGenerator] Unknown agent type "'.$type.'" remapped to content_bg');
                 $type = 'content_bg';
                 $agent['type'] = $type;
+            }
+
+            // Single-purpose (appendix) types must be unique — drop a second
+            // hashtag/faq/meta generator even when its name differs.
+            if (config("agent_types.{$type}.output_role") === 'appendix') {
+                if (isset($seenAppendix[$type])) {
+                    Log::warning('[AgentGenerator] Dropping duplicate single-purpose agent "'.($agent['name'] ?? '').'" ('.$type.')');
+
+                    continue;
+                }
+                $seenAppendix[$type] = true;
             }
 
             $sig = $type.'|'.mb_strtolower(trim((string) ($agent['name'] ?? '')));
