@@ -18,7 +18,13 @@
         background: #f8fafc;
         background-image: radial-gradient(#dbe3ef 1px, transparent 1px);
         background-size: 20px 20px;
+        cursor: default;
+        user-select: none;
+        -webkit-user-select: none;
     }
+
+    #drawflow.df-space { cursor: grab; }
+    #drawflow.df-panning { cursor: grabbing; }
 
     #drawflow .drawflow {
         min-width: 100%;
@@ -1304,6 +1310,7 @@ function flowBuilder(config) {
             this.editor.reroute = true;
             this.editor.start();
 
+            this.setupCanvasNavigation(el);
             this.bindNodeEditClicks(el);
 
             if (config.graphLayout) {
@@ -1377,6 +1384,103 @@ function flowBuilder(config) {
                 const key = nodeEl.id.replace('node-', '');
                 if (result) this.openResult(key); else this.openLog(key);
             }, true);
+        },
+
+        // Reliable canvas navigation layered on top of Drawflow's flaky,
+        // container-bound panning: wheel/trackpad pans (Ctrl+wheel still zooms),
+        // and drag-to-pan from anywhere (empty canvas / middle button / Space+drag)
+        // with window-level move/up listeners so a gesture can never freeze or
+        // get stuck when the pointer leaves the canvas.
+        setupCanvasNavigation(el) {
+            const editor = this.editor;
+            let panning = false;
+            let spaceHeld = false;
+            let panStartX = 0, panStartY = 0, baseX = 0, baseY = 0;
+
+            const applyPan = (x, y) => {
+                editor.canvas_x = x;
+                editor.canvas_y = y;
+                editor.precanvas.style.transform =
+                    `translate(${x}px, ${y}px) scale(${editor.zoom})`;
+            };
+
+            // Wheel / two-finger trackpad → pan. Ctrl+wheel falls through to
+            // Drawflow's zoom_enter (which only acts on ctrlKey).
+            el.addEventListener('wheel', (event) => {
+                if (event.ctrlKey) return;
+                event.preventDefault();
+                let dx = event.deltaX;
+                let dy = event.deltaY;
+                if (event.shiftKey && dx === 0) { dx = dy; dy = 0; }
+                applyPan(editor.canvas_x - dx, editor.canvas_y - dy);
+            }, { passive: false });
+
+            // Decide whether a mousedown starts a pan. Capture phase so it
+            // pre-empts Drawflow's own (container-bound) panning and node logic.
+            el.addEventListener('mousedown', (event) => {
+                const t = event.target;
+                const onEmptyCanvas = t === editor.precanvas
+                    || t.classList.contains('parent-drawflow')
+                    || t.classList.contains('drawflow');
+                const middle = event.button === 1;
+                const spacePan = spaceHeld && event.button === 0;
+                const emptyPan = event.button === 0 && onEmptyCanvas;
+                if (!middle && !spacePan && !emptyPan) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+                panning = true;
+                panStartX = event.clientX;
+                panStartY = event.clientY;
+                baseX = editor.canvas_x;
+                baseY = editor.canvas_y;
+                el.classList.add('df-panning');
+            }, true);
+
+            // Move/up live on window: a drag keeps working when the pointer
+            // leaves the canvas and always ends when the button is released.
+            window.addEventListener('mousemove', (event) => {
+                if (!panning) return;
+                applyPan(baseX + (event.clientX - panStartX), baseY + (event.clientY - panStartY));
+            });
+
+            window.addEventListener('mouseup', (event) => {
+                if (!panning) return;
+                panning = false;
+                el.classList.remove('df-panning');
+
+                // A near-stationary press on empty canvas behaves like a click:
+                // mirror Drawflow's deselect so the background clears selection.
+                const moved = Math.abs(event.clientX - panStartX) + Math.abs(event.clientY - panStartY);
+                if (moved < 3 && editor.node_selected) {
+                    editor.node_selected.classList.remove('selected');
+                    editor.node_selected = null;
+                    editor.dispatch('nodeUnselected', true);
+                }
+            });
+
+            // Hold Space to pan-drag from anywhere (and show a grab cursor).
+            window.addEventListener('keydown', (event) => {
+                if (event.code !== 'Space' || spaceHeld) return;
+                const a = document.activeElement;
+                if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+                spaceHeld = true;
+                el.classList.add('df-space');
+                event.preventDefault();
+            });
+            window.addEventListener('keyup', (event) => {
+                if (event.code !== 'Space') return;
+                spaceHeld = false;
+                el.classList.remove('df-space');
+            });
+
+            // Safety: losing focus must never leave a gesture stuck.
+            window.addEventListener('blur', () => {
+                panning = false;
+                spaceHeld = false;
+                editor.editor_selected = false;
+                el.classList.remove('df-panning', 'df-space');
+            });
         },
 
         bindNodeEditClicks(el) {
