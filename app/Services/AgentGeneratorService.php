@@ -91,6 +91,10 @@ class AgentGeneratorService
         // uids are now assigned + stable → wire the final step-QA gate.
         $agents = $this->enableFinalQaGate($agents);
 
+        // Expand terse prompt_templates into detailed instructions (weak local
+        // models write thin prompts), THEN localise everything to Bulgarian.
+        $agents = $this->enrichShallowPrompts($agents);
+
         // Localise English copy to Bulgarian (structure already final, ids
         // untouched). No-op when the planner already wrote Bulgarian.
         return $this->translateAgentsToBulgarian($agents);
@@ -257,6 +261,69 @@ class AgentGeneratorService
             'user' => 'Name: '.$name."\nWhat it does: ".($context !== '' ? $context : $name),
             'options' => ['temperature' => 0.2],
         ];
+    }
+
+    /**
+     * Expand terse `prompt_template`s into detailed, production-grade instructions
+     * using the planner model. Weak local models under-write prompts even with
+     * strong design instructions; this decouples agent COUNT (design phase) from
+     * prompt DEPTH — each agent gets its own token budget here. Runs BEFORE
+     * translation, so the detailed English text is then localised. Uses only the
+     * name-agnostic {{input}}/{{url}} placeholders, so later name-translation can
+     * never break an upstream reference.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function enrichShallowPrompts(array $agents): array
+    {
+        $model = (string) config('services.ollama.planner_model', 'qwen2.5:14b');
+        $system = 'You write detailed, production-grade instructions for ONE AI agent in an analysis '
+            .'pipeline. Expand the brief task into a thorough prompt_template of 5-8 sentences specifying: '
+            .'the exact output format/structure, precisely WHAT to extract or produce and what to EXCLUDE, '
+            .'and how to use the upstream data. Reference ALL upstream input with the placeholder {{input}} '
+            .'and the target website with {{url}} — keep those two placeholders verbatim. Be concrete and '
+            .'specific to THIS agent; never invent a different business or URL. Output ONLY the English '
+            .'prompt text — no preamble, no quotes, no markdown.';
+
+        $requests = [];
+        $map = [];
+        foreach ($agents as $i => $a) {
+            $tpl = trim((string) ($a['prompt_template'] ?? ''));
+            // qa_verifier is a gate (no template); leave already-detailed prompts.
+            if (($a['type'] ?? '') === self::QA_VERIFIER_TYPE || mb_strlen($tpl) >= 250) {
+                continue;
+            }
+            $brief = $tpl !== '' ? $tpl : trim((string) (($a['role'] ?? '').' '.($a['name'] ?? '')));
+            $requests["a{$i}"] = [
+                'model' => $model,
+                'system' => $system,
+                'user' => 'Agent name: '.($a['name'] ?? '')."\nRole: ".($a['role'] ?? '')
+                    ."\nType: ".($a['type'] ?? '')."\nBrief task to expand: ".$brief,
+                'options' => ['temperature' => 0.4, 'num_predict' => 700],
+            ];
+            $map["a{$i}"] = $i;
+        }
+
+        if ($requests === []) {
+            return $agents;
+        }
+
+        $results = $this->ollama->chatBatch($requests, 6, 150);
+
+        foreach ($results as $key => $out) {
+            $out = trim((string) $out);
+            if (! isset($map[$key])) {
+                continue;
+            }
+            $i = $map[$key];
+            // Only accept a genuine expansion (longer than what we had).
+            if (mb_strlen($out) > mb_strlen((string) ($agents[$i]['prompt_template'] ?? ''))) {
+                $agents[$i]['prompt_template'] = $out;
+            }
+        }
+
+        return $agents;
     }
 
     // ──────────────────────────────────────────────────────────────────────

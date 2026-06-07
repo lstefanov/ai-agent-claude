@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Flow;
 use App\Models\FlowRun;
 use App\Models\PlanLibraryEntry;
+use App\Support\PaidModel;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -137,11 +139,18 @@ class PlanLibraryService
      *    cosine similarity over intent embeddings (entries without an
      *    embedding fall back to their structural score).
      *
-     * @return \Illuminate\Support\Collection<int, PlanLibraryEntry>
+     * @return Collection<int, PlanLibraryEntry>
      */
     public function findSimilar(array $intent, int $limit = 2)
     {
-        $entries = PlanLibraryEntry::where('status', 'proven')->get();
+        $entries = PlanLibraryEntry::whereIn('status', ['proven', 'candidate'])
+            ->get()
+            // Proven plans are always usable; an UNPROVEN plan is only a good
+            // benchmark if it is high quality (many agents or a paid-provider
+            // origin, e.g. an Anthropic plan) — this keeps weak local candidates
+            // out of the few-shot while letting strong templates in.
+            ->filter(fn (PlanLibraryEntry $e) => $e->status === 'proven' || $this->planQuality($e) >= 8)
+            ->values();
 
         if ($entries->isEmpty()) {
             return collect();
@@ -164,7 +173,7 @@ class PlanLibraryService
         $scored = $entries->map(function (PlanLibraryEntry $e) use ($intent, $sources, $queryVector) {
             // Structural score: 0–10-ish.
             $structural = 0;
-            $structural += $e->deliverable === ($intent['deliverable'] ?? null) ? 4 : 0;
+            $structural += $this->deliverableAffinity($e->deliverable, $intent['deliverable'] ?? null);
             $structural += count(array_intersect($e->information_sources ?? [], $sources));
             foreach (['needs_image', 'needs_hashtags', 'competitor_focus', 'improvement_suggestions'] as $flag) {
                 $structural += $e->{$flag} === (bool) ($intent[$flag] ?? false) ? 1 : 0;
@@ -188,13 +197,50 @@ class PlanLibraryService
         // cosine ≥ 0.55 (×10) — random examples hurt more than they help.
         return $scored
             ->filter(fn ($e) => $e->getAttribute('similarity') >= ($e->getAttribute('similarity_kind') === 'vector' ? 5.5 : 5))
+            // Quality FIRST: the few-shot is a BENCHMARK, so among relevant plans
+            // prefer the strongest (most agents / paid-provider) over a weak local
+            // one that merely matches the deliverable label.
             ->sortByDesc(fn ($e) => [
+                $this->planQuality($e),
                 $e->getAttribute('similarity'),
                 $e->avg_qa_score ?? 0,
                 $e->runs_count,
             ])
             ->take($limit)
             ->values();
+    }
+
+    /**
+     * Benchmark quality of a library plan: agent count, boosted when the plan
+     * uses a paid (OpenAI/Anthropic) provider — those tend to be the richest,
+     * most granular templates.
+     */
+    private function planQuality(PlanLibraryEntry $e): int
+    {
+        $agents = is_array($e->agents) ? $e->agents : [];
+        $paid = collect($agents)->contains(
+            fn ($a) => in_array($a['provider'] ?? 'ollama', ['openai', 'anthropic'], true)
+        );
+
+        return count($agents) + ($paid ? 5 : 0);
+    }
+
+    /**
+     * Deliverable similarity: exact match, else partial credit for related
+     * long-form-synthesis deliverables, so a strong "report" template still
+     * surfaces for an "analysis" intent (the labels are noisy across models).
+     */
+    private function deliverableAffinity(?string $a, ?string $b): int
+    {
+        if ($a === null || $b === null) {
+            return 0;
+        }
+        if ($a === $b) {
+            return 4;
+        }
+        $synthesis = ['report', 'analysis', 'seo_content', 'blog_article', 'newsletter', 'email'];
+
+        return in_array($a, $synthesis, true) && in_array($b, $synthesis, true) ? 3 : 0;
     }
 
     /** Compact natural-language rendering of an intent for embedding. */
@@ -267,7 +313,7 @@ class PlanLibraryService
                 'role' => mb_substr((string) $n->role, 0, 200),
                 'prompt_excerpt' => mb_substr((string) $n->prompt_template, 0, 240),
                 'tools' => array_values((array) ($n->config['tools'] ?? [])),
-                'provider' => \App\Support\PaidModel::provider($n->model) ?? 'ollama',
+                'provider' => PaidModel::provider($n->model) ?? 'ollama',
             ])
             ->values()
             ->all();
