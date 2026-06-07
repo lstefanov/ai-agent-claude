@@ -83,10 +83,13 @@ class AgentGeneratorService
         $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
         $agents = $this->dedupeAgents($agents);
         $agents = $this->finalizeDependencyGraph($agents);
-        // The model's depends_on is semantically unreliable (correctors/writers
-        // emitted as roots, research→report inverted) — rebuild the DAG from role
-        // tiers so the execution order is always correct.
-        $agents = $this->applyRoleBasedDependencies($agents);
+        // A capable planner (qwen) emits a correct dependency CHAIN (discoverer →
+        // crawler → extractors → analysis → report) — keep it. Only a weak planner
+        // (BgGPT) leaves writers/correctors as roots; then fall back to the flat
+        // role-tier rebuild so the execution order is still sane.
+        $agents = $this->dependencyGraphIsDegenerate($agents)
+            ? $this->applyRoleBasedDependencies($agents)
+            : $this->ensureTailWiring($agents);
 
         // uids are now assigned + stable → wire the final step-QA gate.
         $agents = $this->enableFinalQaGate($agents);
@@ -738,6 +741,81 @@ class AgentGeneratorService
         usort($agents, fn ($x, $y) => $this->roleTier($x) <=> $this->roleTier($y));
 
         return $this->renumberAgents($agents);
+    }
+
+    /**
+     * True when the planner failed to wire a real pipeline: a DOWNSTREAM agent
+     * (body writer / corrector / qa_verifier — roleTier >= 2) is left as a ROOT,
+     * or (almost) every agent is a root. Then the model's edges are discarded for
+     * the flat role-tier rebuild. A healthy chain (only true sources are roots) is
+     * kept as-is.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     */
+    private function dependencyGraphIsDegenerate(array $agents): bool
+    {
+        if (count($agents) < 3) {
+            return false;
+        }
+
+        // Only the model's own agents count. The corrector + qa_verifier are
+        // synthesised and wired afterwards by ensureTailWiring(), so they are
+        // legitimately root-less here — ignore tiers >= 3.
+        $modelAgents = 0;
+        $roots = 0;
+        foreach ($agents as $a) {
+            $tier = $this->roleTier($a);
+            if ($tier >= 3) {
+                continue;
+            }
+            $modelAgents++;
+            if (empty($a['depends_on'])) {
+                $roots++;
+                // A body/report writer (tier 2) with no inputs = no pipeline built.
+                if ($tier === 2) {
+                    return true;
+                }
+            }
+        }
+
+        // (Almost) every model agent is a parallel root → no chain.
+        return $modelAgents > 0 && $roots >= $modelAgents - 1;
+    }
+
+    /**
+     * Keep the planner's source chain, but guarantee the tail: qa_main depends on
+     * the corrector, and a root-less corrector is wired to the body/report
+     * writer(s). The corrector + verifier are synthesised by ensure*() and the
+     * model often gates them on the wrong upstream.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function ensureTailWiring(array $agents): array
+    {
+        $writers = [];
+        $correctorUid = null;
+        foreach ($agents as $a) {
+            $tier = $this->roleTier($a);
+            if ($tier === 2) {
+                $writers[] = $a['uid'] ?? '';
+            } elseif ($tier === 3) {
+                $correctorUid = $a['uid'] ?? null;
+            }
+        }
+
+        foreach ($agents as &$a) {
+            $tier = $this->roleTier($a);
+            $uid = $a['uid'] ?? '';
+            if ($tier === 4 && $correctorUid !== null) {
+                $a['depends_on'] = [$correctorUid];
+            } elseif ($tier === 3 && empty($a['depends_on']) && $writers !== []) {
+                $a['depends_on'] = array_values(array_filter($writers, fn ($u) => $u !== $uid));
+            }
+        }
+        unset($a);
+
+        return $agents;
     }
 
     /** Kahn-style cycle detection over the uid dependency graph. */
