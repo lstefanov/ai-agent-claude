@@ -151,7 +151,7 @@ class AgentGeneratorService
      */
     private function translateAgentsToBulgarian(array $agents): array
     {
-        $fields = ['name', 'role', 'system_prompt', 'prompt_template', 'output_description'];
+        $fields = ['role', 'system_prompt', 'prompt_template', 'output_description'];
         // Use the best installed NATIVE-Bulgarian writer (BgGPT via the bg_writer
         // profile) — it produces far more fluent Bulgarian than the generic
         // multilingual translate profile (aya-expanse), which renders broken,
@@ -161,6 +161,14 @@ class AgentGeneratorService
         $requests = [];
         $map = [];
         foreach ($agents as $i => $agent) {
+            // The name is a terse label — translate it WITH the role/description as
+            // context so the model returns a natural, grammatical short Bulgarian
+            // name rather than an out-of-context literal rendering.
+            if ($this->needsBgTranslation((string) ($agent['name'] ?? ''))) {
+                $ctx = trim((string) ($agent['role'] ?? '').' '.(string) ($agent['output_description'] ?? ''));
+                $requests["a{$i}_name"] = $this->bgNameRequest($translateTag, (string) $agent['name'], $ctx);
+                $map["a{$i}_name"] = [$i, 'name'];
+            }
             foreach ($fields as $f) {
                 if ($this->needsBgTranslation((string) ($agent[$f] ?? ''))) {
                     $requests["a{$i}_{$f}"] = $this->bgTranslateRequest($translateTag, (string) $agent[$f]);
@@ -225,6 +233,28 @@ class AgentGeneratorService
                 .'Keep every {{...}} placeholder, every URL and every proper name EXACTLY as in the original. '
                 .'Do not add notes or quotes. Output ONLY the Bulgarian translation.',
             'user' => $text,
+            'options' => ['temperature' => 0.2],
+        ];
+    }
+
+    /**
+     * Context-aware Bulgarian name: pass the terse label plus a description of
+     * what the agent does, so the model returns a fluent short name instead of a
+     * literal word-by-word translation.
+     *
+     * @return array{model: string, system: string, user: string, options: array<string, mixed>}
+     */
+    private function bgNameRequest(string $model, string $name, string $context): array
+    {
+        return [
+            'model' => $model,
+            'system' => 'You name AI agents in fluent, natural Bulgarian. Given an English agent '
+                .'name and a short description, return a SHORT (2-4 words) agent name written '
+                .'ENTIRELY in Bulgarian Cyrillic and grammatically correct. Translate common English '
+                .'words (review->ревюта, report->доклад, scraper->събиране, analyzer->анализатор, '
+                .'corrector->коректор). Keep ONLY genuine brand/proper names (e.g. Google, the company '
+                .'name) as-is. No other English words, no quotes, no notes — output ONLY the name.',
+            'user' => 'Name: '.$name."\nWhat it does: ".($context !== '' ? $context : $name),
             'options' => ['temperature' => 0.2],
         ];
     }
