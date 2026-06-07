@@ -762,6 +762,7 @@ PROMPT;
 
         LlmContext::set([
             'purpose' => 'planner:'.$phase,
+            'session_id' => $logToken,
             'company_id' => $flow->company_id ?? $flow->company?->id,
             'flow_id' => $flow->id,
         ]);

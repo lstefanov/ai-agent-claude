@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class LlmRequest extends Model
 {
     protected $fillable = [
-        'provider', 'model', 'kind', 'purpose',
+        'provider', 'model', 'kind', 'purpose', 'session_id',
         'company_id', 'flow_id', 'flow_run_id', 'node_run_id', 'agent_name', 'agent_type',
         'system_prompt', 'user_message', 'response_text', 'options',
         'prompt_tokens', 'completion_tokens', 'total_tokens', 'cost_usd', 'duration_ms',

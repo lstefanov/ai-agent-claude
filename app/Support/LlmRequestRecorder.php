@@ -40,6 +40,7 @@ class LlmRequestRecorder
                 'model' => $model,
                 'kind' => $kind,
                 'purpose' => $ctx['purpose'] ?? null,
+                'session_id' => $ctx['session_id'] ?? null,
 
                 'company_id' => $ctx['company_id'] ?? null,
                 'flow_id' => $ctx['flow_id'] ?? null,

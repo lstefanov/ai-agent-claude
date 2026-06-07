@@ -176,6 +176,8 @@
                 <button id="groupModalClose" class="text-gray-400 hover:text-gray-700 text-xl leading-none ml-4">&times;</button>
             </div>
             <div class="px-5 py-3">
+                {{-- Run details header (shown only for run sessions) --}}
+                <div id="gm-meta" class="hidden mb-4 grid grid-cols-2 md:grid-cols-4 gap-3"></div>
                 <p class="text-xs text-gray-400 mb-2">Кликни ред за да видиш пълния промпт и отговора на модела.</p>
                 <div id="subGridWrap">
                     <div id="subGridLoading" class="py-8 text-center text-gray-400 text-sm">Зареждане…</div>
@@ -329,8 +331,8 @@ const statusBadge = (st) => {
 };
 const typeBadge = (type) => {
     const [icon, label, s] = type === 'generation'
-        ? ['🤖', 'Генериране', 'background:#dbeafe;color:#1d4ed8']
-        : ['▶',  'Изпълнение',  'background:#dcfce7;color:#166534'];
+        ? ['🤖', 'Създаване на агенти', 'background:#dbeafe;color:#1d4ed8']
+        : ['▶',  'Изпълнение',          'background:#dcfce7;color:#166534'];
     return `<span style="${s};padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500;">${icon} ${label}</span>`;
 };
 
@@ -360,7 +362,7 @@ const mainGrid = new gridjs.Grid({
         { name: 'Модел' },
         { name: 'Фирма' },
         { name: 'Flow' },
-        { name: 'Заявки',     width: '65px' },
+        { name: 'Фази/Агенти', width: '95px' },
         { name: 'Вх. токени', width: '95px', formatter: c => c ? Number(c).toLocaleString() : '—' },
         { name: 'Изх. токени',width: '95px', formatter: c => c ? Number(c).toLocaleString() : '—' },
         { name: 'Цена',       width: '75px', formatter: c => '$' + Number(c || 0).toFixed(2) },
@@ -395,10 +397,13 @@ async function openGroup(groupKey, rowType, flowName) {
     const subGridEl   = document.getElementById('subGrid');
     const titleEl     = document.getElementById('gm-title');
     const badgeEl     = document.getElementById('gm-type-badge');
+    const metaEl      = document.getElementById('gm-meta');
 
     // Reset
     loading.classList.remove('hidden');
     subGridEl.innerHTML = '';
+    metaEl.innerHTML = '';
+    metaEl.classList.add('hidden');
     if (subGridInstance) { try { subGridInstance.destroy(); } catch(e) {} subGridInstance = null; }
     titleEl.textContent = flowName || groupKey;
     badgeEl.innerHTML   = typeBadge(rowType);
@@ -408,7 +413,11 @@ async function openGroup(groupKey, rowType, flowName) {
         const resp = await fetch(`${GROUP_DETAIL_URL}?key=${encodeURIComponent(groupKey)}`,
             { headers: { Accept: 'application/json' } });
         if (!resp.ok) { loading.textContent = 'Грешка при зареждане.'; return; }
-        const rows = await resp.json();
+        const data = await resp.json();
+        const rows = data.rows || [];
+
+        // Run-details header (only for run sessions)
+        if (data.meta) renderRunMeta(metaEl, data.meta);
 
         loading.classList.add('hidden');
 
@@ -444,6 +453,26 @@ async function openGroup(groupKey, rowType, flowName) {
         console.error(e);
         loading.textContent = 'Мрежова грешка.';
     }
+}
+
+// Run-details header cards (flow, status, timing, cost, agents)
+function renderRunMeta(el, meta) {
+    const card = (label, value) =>
+        `<div class="bg-gray-50 rounded-lg p-3">
+            <p class="text-xs text-gray-400">${label}</p>
+            <p class="font-semibold text-gray-900 text-sm">${value ?? '—'}</p>
+         </div>`;
+    const secs = meta.duration_ms ? (meta.duration_ms / 1000).toFixed(1) + ' сек.' : '—';
+    el.innerHTML =
+        card('Flow', meta.flow || ('run #' + meta.flow_run_id)) +
+        card('Статус', statusBadge(meta.status)) +
+        card('Агенти', meta.agents) +
+        card('Обща цена', '$' + Number(meta.cost_usd || 0).toFixed(2)) +
+        card('Токени', Number(meta.tokens || 0).toLocaleString()) +
+        card('Времетраене', secs) +
+        card('Начало', meta.started_at) +
+        card('Край', meta.completed_at);
+    el.classList.remove('hidden');
 }
 
 function closeGroupModal() {
