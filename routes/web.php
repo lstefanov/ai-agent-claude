@@ -102,6 +102,7 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     // Разходи — LLM usage + paid cost tracking (default admin landing page)
     Route::get('costs', [AdminCostController::class, 'index'])->name('costs.index');
     Route::get('costs/detail', [AdminCostController::class, 'show'])->name('costs.show');
+    Route::get('costs/group-detail', [AdminCostController::class, 'groupDetail'])->name('costs.group-detail');
 });
 
 // Home
