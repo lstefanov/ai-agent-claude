@@ -54,6 +54,10 @@
                class="hover:text-gray-300 {{ request()->routeIs('admin.agent-templates.*') ? 'text-white font-semibold' : 'text-gray-400' }}">
                 Системни агенти
             </a>
+            <a href="{{ route('admin.costs.index') }}"
+               class="hover:text-gray-300 {{ request()->routeIs('admin.costs.*') ? 'text-white font-semibold' : 'text-gray-400' }}">
+                Разходи
+            </a>
             <form action="{{ route('admin.logout') }}" method="POST">
                 @csrf
                 <button class="text-gray-400 hover:text-white">Изход</button>

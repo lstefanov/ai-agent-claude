@@ -1,4 +1,5 @@
 <?php
+
 // app/Http/Controllers/Admin/AdminAuthController.php
 
 namespace App\Http\Controllers\Admin;
@@ -11,7 +12,7 @@ class AdminAuthController extends Controller
     public function showLogin()
     {
         if (session('admin_authenticated')) {
-            return redirect()->route('admin.agent-templates.index');
+            return redirect()->route('admin.costs.index');
         }
 
         return view('admin.login');
@@ -27,7 +28,7 @@ class AdminAuthController extends Controller
 
         session(['admin_authenticated' => true]);
 
-        return redirect()->route('admin.agent-templates.index');
+        return redirect()->route('admin.costs.index');
     }
 
     public function logout()

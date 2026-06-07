@@ -22,7 +22,7 @@ class LlmUsage
     {
         self::$promptTokens += $promptTokens;
         self::$completionTokens += $completionTokens;
-        self::$costUsd += self::cost($provider, $model, $promptTokens, $completionTokens);
+        self::$costUsd += self::costFor($provider, $model, $promptTokens, $completionTokens);
     }
 
     /**
@@ -46,7 +46,7 @@ class LlmUsage
     }
 
     /** USD cost from the per-1M-token price table in config/services.php. */
-    private static function cost(string $provider, string $model, int $promptTokens, int $completionTokens): float
+    public static function costFor(string $provider, string $model, int $promptTokens, int $completionTokens): float
     {
         $pricing = config("services.{$provider}.pricing", []);
 

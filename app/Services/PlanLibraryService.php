@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Flow;
 use App\Models\FlowRun;
 use App\Models\PlanLibraryEntry;
+use App\Support\LlmContext;
 use App\Support\PaidModel;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -161,10 +162,13 @@ class PlanLibraryService
 
         $queryVector = null;
         if ($useVectors) {
+            LlmContext::set(['purpose' => 'embedding']);
             try {
                 $queryVector = app(OpenAiChatService::class)->embed($this->intentText($intent));
             } catch (\Throwable $e) {
                 Log::warning('[PlanLibrary] Query embedding failed, structural scoring used: '.$e->getMessage());
+            } finally {
+                LlmContext::clear();
             }
         }
 
@@ -262,12 +266,16 @@ class PlanLibraryService
             return null;
         }
 
+        LlmContext::set(['purpose' => 'embedding']);
+
         try {
             return app(OpenAiChatService::class)->embed($this->intentText($intent));
         } catch (\Throwable $e) {
             Log::warning('[PlanLibrary] Intent embedding failed: '.$e->getMessage());
 
             return null;
+        } finally {
+            LlmContext::clear();
         }
     }
 

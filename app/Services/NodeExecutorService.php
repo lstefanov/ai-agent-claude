@@ -12,6 +12,7 @@ use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\LlmModel;
 use App\Models\NodeRun;
+use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use App\Support\PaidModel;
 use App\Support\PricingOutputMetrics;
@@ -193,6 +194,17 @@ class NodeExecutorService
         $agentInstance = null;
         $startMs = now()->valueOf();
 
+        // Attribute every paid call this node makes (see LlmRequestRecorder).
+        LlmContext::set([
+            'purpose' => 'runtime',
+            'company_id' => $flowRun->flow?->company_id,
+            'flow_id' => $node->flow_id,
+            'flow_run_id' => $flowRun->id,
+            'node_run_id' => $nodeRun->id,
+            'agent_name' => $node->name,
+            'agent_type' => $node->type,
+        ]);
+
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
             try {
                 if ($attempt > 1) {
@@ -214,6 +226,7 @@ class NodeExecutorService
         // Collect paid-provider usage accumulated during this node execution
         // (openai/* chat calls + any planner revision calls it triggered).
         $usage = LlmUsage::take();
+        LlmContext::clear();
 
         if ($lastError !== null) {
             $message = "Node {$node->name} failed after ".self::MAX_ATTEMPTS.' attempts: '.$lastError->getMessage();
@@ -270,19 +283,33 @@ class NodeExecutorService
             return null;
         }
 
-        $revision = $this->planner->reviseAgent(
-            [
-                'name' => $node->name,
-                'type' => $node->type,
-                'system_prompt' => (string) $node->system_prompt,
-                'prompt_template' => (string) $node->prompt_template,
-                'model' => (string) $node->model,
-                'temperature' => isset($node->config['temperature']) ? (float) $node->config['temperature'] : null,
-            ],
-            (string) $nodeRun->input,
-            $badOutput,
-            $reason,
-        );
+        LlmContext::set([
+            'purpose' => 'agent_revision',
+            'company_id' => $flowRun->flow?->company_id,
+            'flow_id' => $node->flow_id,
+            'flow_run_id' => $flowRun->id,
+            'node_run_id' => $nodeRun->id,
+            'agent_name' => $node->name,
+            'agent_type' => $node->type,
+        ]);
+
+        try {
+            $revision = $this->planner->reviseAgent(
+                [
+                    'name' => $node->name,
+                    'type' => $node->type,
+                    'system_prompt' => (string) $node->system_prompt,
+                    'prompt_template' => (string) $node->prompt_template,
+                    'model' => (string) $node->model,
+                    'temperature' => isset($node->config['temperature']) ? (float) $node->config['temperature'] : null,
+                ],
+                (string) $nodeRun->input,
+                $badOutput,
+                $reason,
+            );
+        } finally {
+            LlmContext::clear();
+        }
 
         if ($revision === null) {
             return null;

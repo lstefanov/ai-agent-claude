@@ -6,6 +6,7 @@ use App\Models\AgentGenerationLog;
 use App\Models\AgentTemplate;
 use App\Models\Flow;
 use App\Models\LlmModel;
+use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use App\Support\PaidModel;
 use App\Support\UrlExtractor;
@@ -759,9 +760,16 @@ PROMPT;
         ]);
         $startMs = (int) (microtime(true) * 1000);
 
+        LlmContext::set([
+            'purpose' => 'planner:'.$phase,
+            'company_id' => $flow->company_id ?? $flow->company?->id,
+            'flow_id' => $flow->id,
+        ]);
+
         try {
             $result = $this->generator->chatJson($system, $user, $phase, $schema, $options);
         } catch (Throwable $e) {
+            LlmContext::clear();
             $log->update(array_merge(LlmUsage::take(), [
                 'status' => 'failed',
                 'error' => $e->getMessage(),
@@ -770,6 +778,8 @@ PROMPT;
 
             throw $e;
         }
+
+        LlmContext::clear();
 
         $log->update(array_merge(LlmUsage::take(), [
             'raw_response' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),

@@ -2,6 +2,9 @@
 
 namespace App\Services;
 
+use App\Support\LlmRequestRecorder;
+use App\Support\LlmUsage;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -69,7 +72,7 @@ class OpenAiChatService
             ],
         ];
 
-        $response = $this->post($payload, (int) ($options['http_timeout'] ?? 600));
+        $response = $this->post($payload, (int) ($options['http_timeout'] ?? 600), 'chat_json');
 
         // A safety refusal comes back as a separate field — surface it clearly.
         if ($refusal = $response->json('choices.0.message.refusal')) {
@@ -95,20 +98,26 @@ class OpenAiChatService
     public function embed(string $text): array
     {
         $model = (string) config('services.openai.embedding_model', 'text-embedding-3-small');
+        $input = mb_substr($text, 0, 8000);
+        $startMs = (int) (microtime(true) * 1000);
 
         $response = Http::withToken((string) config('services.openai.api_key'))
             ->timeout(60)
             ->post(rtrim((string) config('services.openai.base_url', 'https://api.openai.com'), '/').'/v1/embeddings', [
                 'model' => $model,
-                'input' => mb_substr($text, 0, 8000),
+                'input' => $input,
             ])
             ->throw();
 
-        \App\Support\LlmUsage::record(
-            'openai',
-            $model,
-            (int) ($response->json('usage.prompt_tokens') ?? 0),
-            0,
+        $promptTokens = (int) ($response->json('usage.prompt_tokens') ?? 0);
+
+        LlmUsage::record('openai', $model, $promptTokens, 0);
+
+        LlmRequestRecorder::record(
+            'openai', $model, 'embedding',
+            null, $input, null, [],
+            $promptTokens, 0,
+            (int) (microtime(true) * 1000) - $startMs,
         );
 
         $vector = $response->json('data.0.embedding');
@@ -147,18 +156,31 @@ class OpenAiChatService
         return $payload;
     }
 
-    private function post(array $payload, int $timeout): \Illuminate\Http\Client\Response
+    private function post(array $payload, int $timeout, string $kind = 'chat'): Response
     {
+        $startMs = (int) (microtime(true) * 1000);
+
         $response = Http::withToken((string) config('services.openai.api_key'))
             ->timeout($timeout)
             ->post(rtrim((string) config('services.openai.base_url', 'https://api.openai.com'), '/').'/v1/chat/completions', $payload)
             ->throw();
 
-        \App\Support\LlmUsage::record(
+        $promptTokens = (int) ($response->json('usage.prompt_tokens') ?? 0);
+        $completionTokens = (int) ($response->json('usage.completion_tokens') ?? 0);
+
+        LlmUsage::record('openai', (string) $payload['model'], $promptTokens, $completionTokens);
+
+        LlmRequestRecorder::record(
             'openai',
             (string) $payload['model'],
-            (int) ($response->json('usage.prompt_tokens') ?? 0),
-            (int) ($response->json('usage.completion_tokens') ?? 0),
+            $kind,
+            $payload['messages'][0]['content'] ?? null,
+            $payload['messages'][1]['content'] ?? null,
+            (string) ($response->json('choices.0.message.content') ?? ''),
+            array_intersect_key($payload, array_flip(['temperature', 'top_p', 'max_completion_tokens'])),
+            $promptTokens,
+            $completionTokens,
+            (int) (microtime(true) * 1000) - $startMs,
         );
 
         return $response;

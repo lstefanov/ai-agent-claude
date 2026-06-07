@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -71,7 +72,7 @@ class AnthropicChatService
                 'input_schema' => $schema,
             ]],
             'tool_choice' => ['type' => 'tool', 'name' => $schemaName],
-        ]);
+        ], 'chat_json');
 
         foreach ($response->json('content', []) as $block) {
             if (($block['type'] ?? '') === 'tool_use' && is_array($block['input'] ?? null)) {
@@ -83,8 +84,9 @@ class AnthropicChatService
     }
 
     /** @param array<string, mixed> $extra */
-    private function post(string $model, string $systemPrompt, string $userMessage, array $options, array $extra = []): Response
+    private function post(string $model, string $systemPrompt, string $userMessage, array $options, array $extra = [], string $kind = 'chat'): Response
     {
+        $startMs = (int) (microtime(true) * 1000);
         $numPredict = $options['num_predict'] ?? null;
         $maxTokens = (is_numeric($numPredict) && (int) $numPredict > 0)
             ? (int) $numPredict
@@ -112,11 +114,31 @@ class AnthropicChatService
             ->post(rtrim((string) config('services.anthropic.base_url', 'https://api.anthropic.com'), '/').'/v1/messages', $payload)
             ->throw();
 
-        LlmUsage::record(
+        $promptTokens = (int) ($response->json('usage.input_tokens') ?? 0);
+        $completionTokens = (int) ($response->json('usage.output_tokens') ?? 0);
+
+        LlmUsage::record('anthropic', $model, $promptTokens, $completionTokens);
+
+        $responseText = '';
+        foreach ($response->json('content', []) as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $responseText .= $block['text'] ?? '';
+            } elseif (($block['type'] ?? '') === 'tool_use' && is_array($block['input'] ?? null)) {
+                $responseText .= json_encode($block['input'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            }
+        }
+
+        LlmRequestRecorder::record(
             'anthropic',
             $model,
-            (int) ($response->json('usage.input_tokens') ?? 0),
-            (int) ($response->json('usage.output_tokens') ?? 0),
+            $kind,
+            $systemPrompt,
+            $userMessage,
+            $responseText,
+            array_intersect_key($payload, array_flip(['temperature', 'top_p', 'max_tokens'])),
+            $promptTokens,
+            $completionTokens,
+            (int) (microtime(true) * 1000) - $startMs,
         );
 
         return $response;

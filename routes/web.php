@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\AgentTemplateController as AdminAgentTemplateController;
+use App\Http\Controllers\Admin\CostController as AdminCostController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentTemplateController;
 use App\Http\Controllers\CompanyController;
@@ -83,6 +84,7 @@ Route::get('models/{model}/test/status', [LlmModelController::class, 'testStatus
 Route::post('models/{model}/toggle', [LlmModelController::class, 'toggle'])->name('models.toggle');
 
 // Admin auth
+Route::redirect('admin', 'admin/costs');
 Route::get('admin/login', [AdminAuthController::class, 'showLogin'])->name('admin.login');
 Route::post('admin/login', [AdminAuthController::class, 'login'])->name('admin.login.post');
 Route::post('admin/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
@@ -96,6 +98,10 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     Route::get('agent-templates/{agentTemplate}/edit', [AdminAgentTemplateController::class, 'edit'])->name('agent-templates.edit');
     Route::put('agent-templates/{agentTemplate}', [AdminAgentTemplateController::class, 'update'])->name('agent-templates.update');
     Route::delete('agent-templates/{agentTemplate}', [AdminAgentTemplateController::class, 'destroy'])->name('agent-templates.destroy');
+
+    // Разходи — LLM usage + paid cost tracking (default admin landing page)
+    Route::get('costs', [AdminCostController::class, 'index'])->name('costs.index');
+    Route::get('costs/detail', [AdminCostController::class, 'show'])->name('costs.show');
 });
 
 // Home
