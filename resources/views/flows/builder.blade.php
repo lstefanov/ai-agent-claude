@@ -385,7 +385,7 @@
                     <button @click="validate()" type="button" class="px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Валидирай</button>
                     <button @click="save()" type="button" class="px-3 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Запис</button>
                     <div class="relative" @click.outside="showRunInputs = false">
-                        <form :action="runUrl" method="POST" @submit="save()">
+                        <form :action="runUrl" method="POST" @submit.prevent="await save(); $el.submit()">
                             @csrf
                             <div class="flex items-center gap-1.5">
                                 <button type="button" @click="showRunInputs = !showRunInputs"
@@ -1276,6 +1276,7 @@ function flowBuilder(config) {
         // ── Run/view per-node data + modals ──
         runData: {},          // node_key → { status, output, raw_output, error, model, duration_ms, tokens_used, steps }
         runStatus: null,      // mirrors poll's data.status — null | 'pending' | 'running' | 'completed' | 'failed'
+        _lastProgress: null,  // latest poll progress payload — read by the run banner before the first poll lands
         stalledRun: false,    // true when run is 'running' but no NodeRun activity after 40s (worker not running)
         _pageLoadedAt: Date.now(),
         finalOutput: null,
