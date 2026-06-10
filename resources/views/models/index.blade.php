@@ -409,19 +409,25 @@ function modelRow(id, tag, initialStatus, initialProgress, initialAvailable, ini
                     return;
                 }
 
+                // Terminal state (completed / failed). A successful test can come
+                // back with an empty response, so fall back to a status line — never
+                // leave the box blank, since blank reads as "still testing".
                 this.testOk     = !!data.success;
-                this.testResult = data.response || data.error || '';
+                this.testResult = data.response
+                    || data.error
+                    || (data.success ? 'Празен отговор от модела.' : 'Тестът не успя.');
             } catch (e) {
                 this.testOk     = false;
                 this.testResult = e.message || 'Грешка при свързване.';
-            } finally {
-                if (this.testResult !== '') {
-                    this.testing = false;
-                    if (this.testPollTimer) {
-                        clearTimeout(this.testPollTimer);
-                        this.testPollTimer = null;
-                    }
-                }
+            }
+
+            // Reached only after a terminal status or an error (the 'testing'
+            // branch returns above). Stop the spinner based on STATUS, not on
+            // whether there is text to show.
+            this.testing = false;
+            if (this.testPollTimer) {
+                clearTimeout(this.testPollTimer);
+                this.testPollTimer = null;
             }
         },
     };

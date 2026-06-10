@@ -14,20 +14,23 @@ class ModelSelectorService
      */
     private array $profiles = [
         // Long-form Bulgarian writing (social posts, emails). Capable models first —
-        // the tiny todorov/bggpt:2.5b collapsed on long context (run 71: 53K input → "Благо").
-        'bg_writer' => ['s_emanuilov/BgGPT-v1.0:9b', 'qwen2.5:14b', 'gemma3:12b'],
-        // Detailed reports synthesised from large multi-agent input — needs a big context window.
-        'report' => ['qwen2.5:14b', 's_emanuilov/BgGPT-v1.0:27b', 's_emanuilov/BgGPT-v1.0:9b', 'gemma3:12b'],
-        'research' => ['mistral-nemo', 'qwen2.5:14b', 'qwen2.5:7b', 'mistral'],
-        'analysis' => ['gemma4', 'qwen2.5:14b', 'mistral-nemo', 'gemma3:12b', 'gemma2:9b'],
-        // QA must emit clean JSON reliably — the 2.6b model could not. Capable models first.
-        'qa' => ['qwen2.5:14b', 'gemma2:9b', 's_emanuilov/BgGPT-v1.0:9b'],
-        'en_writer' => ['gemma3:12b', 'mistral', 'llama3.1:8b'],
+        // BgGPT 3.0 12B (Gemma 3, 128K ctx) е най-добрият BG модел изобщо; the
+        // tiny todorov/bggpt:latest collapsed on long context (run 71: 53K input → "Благо").
+        'bg_writer' => ['todorov/bggpt:Gemma-3-12B-IT-Q5_K_M', 's_emanuilov/BgGPT-v1.0:9b', 'qwen3:14b', 'gemma4:12b'],
+        // Detailed reports synthesised from large multi-agent input — needs a big
+        // context window: BgGPT 3.0 12B държи 128K и пише най-естествения български.
+        'report' => ['todorov/bggpt:Gemma-3-12B-IT-Q5_K_M', 'qwen3:14b', 's_emanuilov/BgGPT-v1.0:27b', 's_emanuilov/BgGPT-v1.0:9b', 'gemma4:12b'],
+        'research' => ['qwen3:8b', 'mistral-nemo', 'qwen3:14b', 'qwen2.5:7b'],
+        'analysis' => ['qwen3:14b', 'gemma4:12b', 'qwen2.5:14b', 'mistral-nemo'],
+        // QA must emit clean JSON reliably — the 2.6b model could not. qwen3:4b
+        // is the first SMALL model that passes; capable fallbacks after it.
+        'qa' => ['qwen3:4b', 'qwen3:8b', 'qwen2.5:14b'],
+        'en_writer' => ['gemma4:12b', 'qwen3:8b', 'llama3.1:8b'],
         'image_prompt' => ['mistral', 'mistral-nemo'],
-        'translate' => ['aya-expanse:8b', 'qwen2:7b', 'qwen2.5:14b'],
-        'code' => ['qwen2.5-coder:7b', 'qwen2.5-coder:14b'],
-        'vision' => ['qwen2.5vl:7b', 'llava:7b'],
-        'utility' => ['gemma4', 'mistral', 'mistral-nemo', 'gemma2:9b'],
+        'translate' => ['aya-expanse:8b', 'todorov/bggpt:Gemma-3-12B-IT-Q5_K_M', 'qwen3:8b', 'qwen2.5:14b'],
+        'code' => ['qwen2.5-coder:14b', 'qwen2.5-coder:7b'],
+        'vision' => ['qwen2.5vl:7b', 'llama3.2-vision:11b'],
+        'utility' => ['qwen3:4b', 'gemma4:12b', 'mistral'],
     ];
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgentGenerationLog;
 use App\Models\Company;
 use App\Models\Flow;
 use App\Models\FlowRun;
@@ -200,8 +201,8 @@ class CostController extends Controller
                 MAX(flow_id) as flow_id,
                 MAX(company_id) as company_id,
                 COUNT(*) as call_count,
-                MAX(provider) as provider,
-                MAX(model) as model,
+                GROUP_CONCAT(DISTINCT provider ORDER BY provider SEPARATOR \', \') as provider,
+                GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR \', \') as model,
                 COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
                 COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                 ROUND(SUM(cost_usd), 6) as cost_usd,
@@ -212,14 +213,23 @@ class CostController extends Controller
             ->groupBy('session_id')
             ->get();
 
+        // Resolve agent_generation_logs IDs for generation sessions (token = session_id)
+        $sessionIds = $genRows->pluck('session_id')->filter()->values()->all();
+        $genLogIds = $sessionIds
+            ? AgentGenerationLog::whereIn('token', $sessionIds)
+                ->selectRaw('token, MIN(id) as log_id')
+                ->groupBy('token')
+                ->pluck('log_id', 'token')
+            : collect();
+
         // ── Run sessions (runtime agent calls — grouped by flow_run_id) ──
         $runRows = $this->filtered($r)
             ->whereNotNull('flow_run_id')
             ->selectRaw('
                 flow_run_id, flow_id, company_id,
                 COUNT(*) as call_count,
-                MAX(provider) as provider,
-                MAX(model) as model,
+                GROUP_CONCAT(DISTINCT provider ORDER BY provider SEPARATOR \', \') as provider,
+                GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR \', \') as model,
                 COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
                 COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                 ROUND(SUM(cost_usd), 6) as cost_usd,
@@ -241,7 +251,9 @@ class CostController extends Controller
         foreach ($genRows as $row) {
             $pt = (int) $row->prompt_tokens;
             $ct = (int) $row->completion_tokens;
+            $logId = $genLogIds[$row->session_id] ?? null;
             $combined[] = [
+                'ref_id' => $logId ? 'G'.$logId : null,
                 'row_type' => 'generation',
                 'group_key' => 'gen:'.$row->session_id,
                 'created_at' => $row->created_at ? Carbon::parse($row->created_at)->format('Y-m-d H:i:s') : null,
@@ -262,6 +274,7 @@ class CostController extends Controller
             $pt = (int) $row->prompt_tokens;
             $ct = (int) $row->completion_tokens;
             $combined[] = [
+                'ref_id' => 'R'.$row->flow_run_id,
                 'row_type' => 'run',
                 'group_key' => 'run:'.$row->flow_run_id,
                 'created_at' => $row->created_at ? Carbon::parse($row->created_at)->format('Y-m-d H:i:s') : null,

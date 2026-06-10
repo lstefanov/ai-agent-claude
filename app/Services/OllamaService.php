@@ -42,6 +42,12 @@ class OllamaService
         $format = $options['format'] ?? null;
         unset($options['format']);
 
+        // "think" is also TOP-LEVEL: thinking models (qwen3, deepseek-r1) emit a
+        // reasoning preamble unless it is explicitly disabled. The local planner
+        // sends think:false so constrained-JSON phases stay fast and clean.
+        $think = $options['think'] ?? null;
+        unset($options['think']);
+
         // Cost/usage audit (llm_requests): a structured (format) call is the
         // planner; a plain call is runtime. Token counts arrive in the final chunk.
         $kind = $format !== null ? 'chat_json' : 'chat';
@@ -62,6 +68,10 @@ class OllamaService
 
         if ($format !== null) {
             $payload['format'] = $format;
+        }
+
+        if ($think !== null) {
+            $payload['think'] = (bool) $think;
         }
 
         // Use stream:true so Ollama sends tokens immediately (NDJSON).
@@ -266,6 +276,9 @@ class OllamaService
         return match (PaidModel::provider($model)) {
             'openai' => app(OpenAiChatService::class),
             'anthropic' => app(AnthropicChatService::class),
+            'deepseek' => OpenAiChatService::for('deepseek'),
+            'xai' => OpenAiChatService::for('xai'),
+            'qwen' => OpenAiChatService::for('qwen'),
             default => null,
         };
     }

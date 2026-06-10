@@ -27,6 +27,7 @@ $initialRuns = (object) $flowRun->nodeRuns->sortBy('id')
     ->mapWithKeys(fn($r) => [
         (string) $r->flow_node_id => [
             'agent_id'     => $r->flow_node_id,
+            'node_key'     => $r->node_key,
             'status'       => $r->status,
             'model_used'   => $r->model_used,
             'input'        => $r->input,
@@ -38,6 +39,8 @@ $initialRuns = (object) $flowRun->nodeRuns->sortBy('id')
             'attempt_count'=> 1,
             'started_at'   => $r->started_at?->format('H:i:s'),
             'completed_at' => $r->completed_at?->format('H:i:s'),
+            // Server-embedded payloads are authoritative for the current status.
+            '_detailStatus'=> $r->status,
         ]
     ])->toArray();
 
@@ -78,6 +81,7 @@ window.__runData = {
     agents:       @json($initialAgents),
     runs:         @json($initialRuns),
     pollUrl:      @json(route('flow-runs.poll', $flowRun)),
+    nodeDetailUrlBase: @json(url("runs/{$flowRun->id}/nodes")),
     logUrl:       @json(route('flow-runs.log',  $flowRun)),
     qaThresholdOptions: @json($qaThresholdOptions),
     stepQaResults: @json($stepQaResults),
@@ -111,6 +115,11 @@ window.__runData = {
         </h1>
         <p class="text-gray-400 mt-1 text-sm flex items-center gap-2 flex-wrap">
             <span>{{ $flowRun->triggered_by === 'manual' ? '▶ Ръчно' : '⏰ Планиран' }}</span>
+            @if($flowRun->flowVersion)
+                <span>·</span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100"
+                      title="Шаблон, с който е изпълнен този run">{{ $flowRun->flowVersion->name }}</span>
+            @endif
             @if($flowRun->created_at)
                 <span>·</span><span>{{ $flowRun->created_at->format('d.m.Y H:i') }}</span>
             @endif
@@ -696,6 +705,7 @@ function flowRunMonitor() {
         logCopied:       false,
         logUrl:      d.logUrl,
         pollUrl:     d.pollUrl,
+        nodeDetailUrlBase: d.nodeDetailUrlBase,
         qaThresholdOptions: d.qaThresholdOptions || [],
         stepQaPolicies: d.stepQaPolicies || {},
         stepQaResults: d.stepQaResults || {},
@@ -781,19 +791,25 @@ function flowRunMonitor() {
 
                 const newRuns    = { ...this.runs };
                 const newExpanded = { ...this.expanded };
+                const toFetch    = [];
 
-                (data.agent_runs || []).forEach(r => {
+                // The poll is metadata-only: merge over the existing entry so the
+                // server-embedded / detail-fetched input/output/raw_output survive.
+                (data.node_runs || []).forEach(r => {
                     const key  = String(r.agent_id);
                     const prev = newRuns[key];
-                    newRuns[key] = r;
+                    newRuns[key] = Object.assign({}, prev, r);
                     const wasPending = !prev || ['pending', 'running'].includes(prev.status);
                     if (wasPending && ['completed', 'failed'].includes(r.status)) {
                         newExpanded[r.agent_id] = true;
+                        // Payload changed with the status — pull the full output.
+                        toFetch.push(key);
                     }
                 });
 
                 this.runs     = newRuns;
                 this.expanded = newExpanded;
+                toFetch.forEach(key => this.fetchDetail(key));
             } catch (e) {
                 console.error('[poll] processing error:', e);
             } finally {
@@ -805,8 +821,33 @@ function flowRunMonitor() {
 
         // ── Helpers ────────────────────────────────────────────────
 
+        // Full input/output/raw_output for one node — the poll ships metadata
+        // only. Cached until the node's status changes.
+        async fetchDetail(agentId) {
+            const key = String(agentId);
+            const run = this.runs[key];
+            if (!run || !run.node_key || !this.nodeDetailUrlBase) return;
+            if (run._detailStatus && run._detailStatus === run.status) return;
+            try {
+                const res = await fetch(this.nodeDetailUrlBase + '/' + encodeURIComponent(run.node_key), { headers: { Accept: 'application/json' } });
+                if (!res.ok) return;
+                const detail = await res.json();
+                this.runs = { ...this.runs, [key]: Object.assign({}, this.runs[key], {
+                    input: detail.input,
+                    output: detail.output,
+                    raw_output: detail.raw_output,
+                    params: detail.params,
+                    _detailStatus: (this.runs[key] || {}).status,
+                }) };
+            } catch (e) {
+                // network blip — next expand/poll transition retries
+            }
+        },
+
         toggleExpand(agentId) {
-            this.expanded = { ...this.expanded, [agentId]: !this.expanded[agentId] };
+            const next = !this.expanded[agentId];
+            this.expanded = { ...this.expanded, [agentId]: next };
+            if (next) this.fetchDetail(agentId);
         },
 
         getRun(agentId) {

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\GeneratorService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
@@ -13,42 +15,42 @@ use Illuminate\Http\Request;
  */
 class AgentController extends Controller
 {
-    public function __construct(private \App\Services\GeneratorService $llm) {}
+    public function __construct(private GeneratorService $llm) {}
 
-    public function generateAgentField(Request $request): \Illuminate\Http\JsonResponse
+    public function generateAgentField(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'field'            => 'required|in:role,system_prompt,prompt_template,qa_custom_prompt',
-            'agent_name'       => 'required|string|max:200',
-            'agent_type'       => 'required|string|max:100',
+            'field' => 'required|in:role,system_prompt,prompt_template,qa_custom_prompt',
+            'agent_name' => 'required|string|max:200',
+            'agent_type' => 'required|string|max:100',
             'flow_description' => 'nullable|string|max:1000',
-            'role'             => 'nullable|string|max:2000',
-            'system_prompt'    => 'nullable|string|max:5000',
-            'prompt_template'  => 'nullable|string|max:5000',
+            'role' => 'nullable|string|max:2000',
+            'system_prompt' => 'nullable|string|max:5000',
+            'prompt_template' => 'nullable|string|max:5000',
         ]);
 
-        $name        = $validated['agent_name'];
-        $type        = $validated['agent_type'];
-        $flowDesc    = $validated['flow_description'] ?? '';
-        $role        = $validated['role'] ?? '';
-        $sysPrompt   = $validated['system_prompt'] ?? '';
-        $promptTmpl  = $validated['prompt_template'] ?? '';
+        $name = $validated['agent_name'];
+        $type = $validated['agent_type'];
+        $flowDesc = $validated['flow_description'] ?? '';
+        $role = $validated['role'] ?? '';
+        $sysPrompt = $validated['system_prompt'] ?? '';
+        $promptTmpl = $validated['prompt_template'] ?? '';
 
         [$systemPrompt, $userMessage] = match ($validated['field']) {
-            'role'             => $this->buildRolePrompt($name, $type, $flowDesc),
-            'system_prompt'    => $this->buildSystemPromptPrompt($name, $type, $role, $flowDesc),
-            'prompt_template'  => $this->buildPromptTemplatePrompt($name, $type, $role, $sysPrompt),
+            'role' => $this->buildRolePrompt($name, $type, $flowDesc),
+            'system_prompt' => $this->buildSystemPromptPrompt($name, $type, $role, $flowDesc),
+            'prompt_template' => $this->buildPromptTemplatePrompt($name, $type, $role, $sysPrompt),
             'qa_custom_prompt' => $this->buildQaPrompt($name, $type, $sysPrompt, $promptTmpl),
         };
 
         try {
-            $generated = $this->llm->chat(
+            $generated = $this->llm->assist(
                 systemPrompt: $systemPrompt,
                 userMessage: $userMessage,
                 options: ['temperature' => 0.3, 'num_predict' => 800]
             );
         } catch (\Exception $e) {
-            return response()->json(['error' => 'AI услугата не е достъпна. Провери GENERATOR_PROVIDER и API ключа.'], 503);
+            return response()->json(['error' => 'AI услугата не е достъпна. Провери ASSIST_PROVIDER и API ключа.'], 503);
         }
 
         return response()->json(['generated' => trim($generated)]);
@@ -78,7 +80,7 @@ class AgentController extends Controller
     private function buildPromptTemplatePrompt(string $name, string $type, string $role, string $sysPrompt): array
     {
         $roleCtx = $role ? "Роля: {$role}" : '';
-        $sysCtx  = $sysPrompt ? 'System prompt: '.mb_substr($sysPrompt, 0, 500) : '';
+        $sysCtx = $sysPrompt ? 'System prompt: '.mb_substr($sysPrompt, 0, 500) : '';
 
         return [
             'Ти си експерт по писане на prompt шаблони за AI агенти. Създаваш детайлни шаблони с конкретни инструкции. Отговаряй САМО с текста на prompt шаблона — без въведение, без кавички.',
@@ -88,7 +90,7 @@ class AgentController extends Controller
 
     private function buildQaPrompt(string $name, string $type, string $sysPrompt, string $promptTmpl): array
     {
-        $sysCtx  = $sysPrompt ? 'System prompt: '.mb_substr($sysPrompt, 0, 400) : '';
+        $sysCtx = $sysPrompt ? 'System prompt: '.mb_substr($sysPrompt, 0, 400) : '';
         $tmplCtx = $promptTmpl ? 'Prompt шаблон: '.mb_substr($promptTmpl, 0, 400) : '';
 
         return [

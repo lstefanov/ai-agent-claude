@@ -10,6 +10,7 @@ use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowGraphController;
 use App\Http\Controllers\FlowRunController;
+use App\Http\Controllers\FlowVersionController;
 use App\Http\Controllers\LlmModelController;
 use App\Http\Controllers\PlanAbController;
 use Illuminate\Support\Facades\Route;
@@ -45,16 +46,27 @@ Route::get('flows/{flow}/builder', [FlowBuilderController::class, 'show'])->name
 Route::post('flows/{flow}/graph', [FlowGraphController::class, 'store'])->name('flows.graph.store');
 Route::post('flows/{flow}/graph/validate', [FlowGraphController::class, 'validateGraph'])->name('flows.graph.validate');
 
-// Фаза 4: A/B сравнение на planner провайдърите (OpenAI vs Anthropic)
+// Graph versions ("шаблони") на flow — builder save-диалог, A/B "Запази" и
+// dashboard секцията "Шаблони".
+Route::scopeBindings()->group(function () {
+    Route::post('flows/{flow}/versions', [FlowVersionController::class, 'store'])->name('flows.versions.store');
+    Route::post('flows/{flow}/versions/from-plan', [FlowVersionController::class, 'storeFromPlan'])->name('flows.versions.from-plan');
+    Route::put('flows/{flow}/versions/{version}', [FlowVersionController::class, 'update'])->name('flows.versions.update');
+    Route::post('flows/{flow}/versions/{version}/activate', [FlowVersionController::class, 'activate'])->name('flows.versions.activate');
+    Route::delete('flows/{flow}/versions/{version}', [FlowVersionController::class, 'destroy'])->name('flows.versions.destroy');
+});
+
+// Фаза 4: A/B сравнение на planner провайдърите (вкл. хибридни per-phase комбинации)
 Route::get('flows/{flow}/plan-ab', [PlanAbController::class, 'show'])->name('flows.plan-ab');
 Route::post('flows/{flow}/plan-ab/start', [PlanAbController::class, 'start'])->name('flows.plan-ab.start');
 Route::get('plan-ab-status/{token}', [PlanAbController::class, 'status'])->name('flows.plan-ab.status');
-Route::post('flows/{flow}/plan-ab/apply', [PlanAbController::class, 'apply'])->name('flows.plan-ab.apply');
 
 // Flow runs
 Route::post('flows/{flow}/run', [FlowRunController::class, 'store'])->name('flow-runs.store');
 Route::get('runs/{flowRun}', [FlowRunController::class, 'show'])->name('flow-runs.show');
 Route::get('runs/{flowRun}/poll', [FlowRunController::class, 'poll'])->name('flow-runs.poll');
+// Full input/output/raw_output for ONE node — fetched on demand (the poll ships metadata only).
+Route::get('runs/{flowRun}/nodes/{nodeKey}', [FlowRunController::class, 'nodeDetail'])->name('flow-runs.node-detail');
 Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-runs.log');
 // Фаза 3: persist a succeeded mid-run revision into the flow (user-confirmed).
 Route::post('runs/{flowRun}/apply-revision', [FlowRunController::class, 'applyRevision'])->name('flow-runs.apply-revision');

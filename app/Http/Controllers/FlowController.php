@@ -8,12 +8,20 @@ use App\Models\Flow;
 use App\Models\LlmModel;
 use App\Services\AgentGeneratorService;
 use App\Services\GeneratorService;
+use App\Support\PlannerPhases;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class FlowController extends Controller
 {
+    /**
+     * Model ids travel into shell-composed artisan args (plan-ab --variant) и
+     * в Config::set — само безопасни идентификаторни знаци (без , = интервал).
+     */
+    public const MODEL_PATTERN = '/^[A-Za-z0-9._\/:-]+$/';
+
     public function __construct(
         private AgentGeneratorService $generator,
         private GeneratorService $llm,
@@ -61,35 +69,10 @@ class FlowController extends Controller
     public function show(Flow $flow)
     {
         $flow->load('company');
-        $runs = $flow->flowRuns()->latest()->take(10)->get();
-        $models = LlmModel::where('is_available', true)
-            ->where('is_enabled', true)
-            ->orderBy('category')
-            ->orderBy('display_name')
-            ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for', 'is_available']);
+        $runs = $flow->flowRuns()->with('flowVersion')->latest()->take(10)->get();
+        $versions = $flow->versions()->latest()->get();
 
-        $agentTypes = collect(config('agent_types', []))
-            ->map(fn ($meta, $type) => [
-                'type' => $type,
-                'label' => $meta['label'] ?? $type,
-                'output_role' => $meta['output_role'] ?? 'body',
-            ])
-            ->values()
-            ->all();
-
-        $graphPreviewConfig = [
-            // Nodes sorted by horizontal position for a left-to-right preview.
-            // We load them from the DB (not graph_layout JSON) for reliability.
-            'nodes' => $flow->nodes()
-                ->orderBy('pos_x')
-                ->get(['node_key', 'name', 'type', 'icon', 'output_role', 'pos_x'])
-                ->toArray(),
-            'hasGraph' => $flow->nodes()->exists(),
-            'builderUrl' => route('flows.builder', $flow),
-            'agentTypes' => $agentTypes,
-        ];
-
-        return view('flows.show', compact('flow', 'runs', 'models', 'graphPreviewConfig'));
+        return view('flows.show', compact('flow', 'runs', 'versions'));
     }
 
     public function edit(Flow $flow)
@@ -209,13 +192,13 @@ class FlowController extends Controller
 MSG;
 
         try {
-            $improved = $this->llm->chat(
+            $improved = $this->llm->assist(
                 systemPrompt: $systemPrompt,
                 userMessage: $userMessage,
                 options: ['temperature' => 0.4, 'num_predict' => 600]
             );
         } catch (\Exception $e) {
-            return response()->json(['error' => 'AI услугата не е достъпна. Провери GENERATOR_PROVIDER и API ключа.'], 503);
+            return response()->json(['error' => 'AI услугата не е достъпна. Провери ASSIST_PROVIDER и API ключа.'], 503);
         }
 
         return response()->json(['improved' => trim($improved)]);
@@ -232,9 +215,34 @@ MSG;
             'flow_id' => 'required|exists:flows,id',
             'name' => 'required|string',
             'description' => 'required|string|min:10',
+            'phases' => 'nullable|array',
+            'phases.*.provider' => ['required_with:phases', Rule::in(GeneratorService::PROVIDERS)],
+            'phases.*.model' => ['nullable', 'string', 'max:120', 'regex:'.self::MODEL_PATTERN],
         ]);
 
-        if (! $this->llm->isAvailable()) {
+        // Per-phase provider/model from the builder's generation popup. Only
+        // the four known phases are honoured; missing ones run on the .env
+        // defaults (GENERATOR_PROVIDER / PLANNER_*_PROVIDER).
+        $phases = collect((array) $request->input('phases', []))
+            ->only(PlannerPhases::PHASES)
+            ->map(fn ($spec) => [
+                'provider' => (string) $spec['provider'],
+                'model' => isset($spec['model']) && $spec['model'] !== '' ? (string) $spec['model'] : null,
+            ])
+            ->all();
+
+        if ($phases !== []) {
+            $unavailable = collect($phases)
+                ->pluck('provider')
+                ->unique()
+                ->reject(fn ($p) => $this->llm->providerAvailable($p));
+
+            if ($unavailable->isNotEmpty()) {
+                return response()->json([
+                    'error' => 'Недостъпни провайдъри: '.$unavailable->implode(', ').' (липсва API ключ в .env или Ollama не отговаря).',
+                ], 503);
+            }
+        } elseif (! $this->llm->isAvailable()) {
             return response()->json([
                 'error' => 'AI planner-ът не е достъпен. Задай GENERATOR_PROVIDER=openai/anthropic (+API ключ) или ollama (работещ Ollama сървър) в .env.',
             ], 503);
@@ -248,6 +256,7 @@ MSG;
             'flow_id' => (int) $request->flow_id,
             'name' => $request->name,
             'description' => $request->description,
+            'phases' => $phases,
         ], now()->addMinutes(15));
 
         // Initialise status so the poller immediately sees 'pending'
@@ -283,8 +292,9 @@ MSG;
     }
 
     /**
-     * Recent agent-generation logs for this flow's company, with full detail
-     * (system/user prompt, options, raw response). Powers the builder's
+     * Recent agent-generation runs for this flow's company, grouped by token
+     * (one group per plan() invocation — its phases share the token), with
+     * full per-phase detail and summed cost. Powers the builder's
      * "Лог на генерирането" panel.
      */
     public function generationLogs(Flow $flow)
@@ -295,28 +305,62 @@ MSG;
                 ->orWhere('company_id', $flow->company_id)
             )
             ->latest()
-            ->limit(20)
+            ->limit(60)
             ->get([
-                'id', 'provider', 'model', 'system_prompt', 'user_message',
+                'id', 'token', 'provider', 'model', 'system_prompt', 'user_message',
                 'options', 'raw_response', 'parsed_count', 'status', 'error',
-                'duration_ms', 'created_at',
+                'duration_ms', 'prompt_tokens', 'completion_tokens', 'cost_usd', 'created_at',
             ]);
 
-        return response()->json([
-            'logs' => $logs->map(fn ($l) => [
-                'id' => $l->id,
-                'provider' => $l->provider,
-                'model' => $l->model,
-                'system_prompt' => $l->system_prompt,
-                'user_message' => $l->user_message,
-                'options' => $l->options,
-                'raw_response' => $l->raw_response,
-                'parsed_count' => $l->parsed_count,
-                'status' => $l->status,
-                'error' => $l->error,
-                'duration_ms' => $l->duration_ms,
-                'created_at' => $l->created_at?->format('Y-m-d H:i:s'),
-            ])->values(),
-        ]);
+        // LlmUsage::take() stores null for zero-cost calls; with tokens present
+        // that means "free tier", not "untracked" — surface it as $0.
+        $phaseCost = fn ($l) => $l->cost_usd !== null
+            ? (float) $l->cost_usd
+            : (($l->prompt_tokens || $l->completion_tokens) ? 0.0 : null);
+
+        $groups = $logs
+            ->groupBy(fn ($l) => $l->token ?: 'log-'.$l->id)
+            ->map(function ($phases) use ($phaseCost) {
+                $phases = $phases->sortBy('id')->values();
+                $statuses = $phases->pluck('status');
+                $costs = $phases->map($phaseCost)->filter(fn ($c) => $c !== null);
+                $final = $phases->last(fn ($l) => (int) $l->parsed_count > 0);
+
+                return [
+                    'id' => $phases->last()->id,
+                    'created_at' => $phases->first()->created_at?->format('Y-m-d H:i:s'),
+                    'status' => $statuses->contains('failed') ? 'failed'
+                        : ($statuses->contains('running') ? 'running' : 'completed'),
+                    'provider' => $phases
+                        ->map(fn ($l) => preg_replace('/\s*\([^)]*\)$/', '', (string) $l->provider))
+                        ->filter()->unique()->implode(' + '),
+                    'model' => $phases->pluck('model')->filter()->unique()->implode(' + '),
+                    'parsed_count' => $final?->parsed_count,
+                    'cost_usd' => $costs->isEmpty() ? null : round((float) $costs->sum(), 6),
+                    'duration_ms' => (int) $phases->sum('duration_ms'),
+                    'phases' => $phases->map(fn ($l) => [
+                        'id' => $l->id,
+                        'provider' => $l->provider,
+                        'model' => $l->model,
+                        'system_prompt' => $l->system_prompt,
+                        'user_message' => $l->user_message,
+                        'options' => $l->options,
+                        'raw_response' => $l->raw_response,
+                        'parsed_count' => $l->parsed_count,
+                        'status' => $l->status,
+                        'error' => $l->error,
+                        'duration_ms' => $l->duration_ms,
+                        'prompt_tokens' => $l->prompt_tokens,
+                        'completion_tokens' => $l->completion_tokens,
+                        'cost_usd' => $phaseCost($l),
+                        'created_at' => $l->created_at?->format('Y-m-d H:i:s'),
+                    ])->values(),
+                ];
+            })
+            ->sortByDesc('id')
+            ->take(20)
+            ->values();
+
+        return response()->json(['groups' => $groups]);
     }
 }

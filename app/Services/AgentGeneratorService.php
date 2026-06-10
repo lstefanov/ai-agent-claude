@@ -52,17 +52,20 @@ class AgentGeneratorService
             return [];
         }
 
-        // Pair the flow with its intent: when the user saves (= approves) the
-        // graph, the plan library snapshots intent + graph together (Фаза 2).
-        if ($flow->exists && is_array($this->planner->lastIntent())) {
-            $flow->update(['plan_intent' => $this->planner->lastIntent()]);
-        }
-
         if ($onProgress) {
             $onProgress('Финализиране на pipeline-а');
         }
 
         return $this->finalizePlannedAgents($planned);
+    }
+
+    /**
+     * Intent analysis of the last plan() call — versions store it so the plan
+     * library pairs intent + graph when a version is activated.
+     */
+    public function lastIntent(): ?array
+    {
+        return $this->planner->lastIntent();
     }
 
     /**
@@ -280,7 +283,14 @@ class AgentGeneratorService
      */
     private function enrichShallowPrompts(array $agents): array
     {
-        $model = (string) config('services.ollama.planner_model', 'qwen2.5:14b');
+        // Strong cloud planners (openai/anthropic/deepseek/gemini) already write
+        // detailed prompts — the batch expansion is a patch for weak LOCAL design
+        // models only. Skipping it saves 5-30 Ollama calls per generation.
+        if (app(GeneratorService::class)->resolve('pipeline_design')['provider'] !== 'ollama') {
+            return $agents;
+        }
+
+        $model = (string) config('services.ollama.planner_model', 'qwen3:14b');
         $system = 'You write detailed, production-grade instructions for ONE AI agent in an analysis '
             .'pipeline. Expand the brief task into a thorough prompt_template of 5-8 sentences specifying: '
             .'the exact output format/structure, precisely WHAT to extract or produce and what to EXCLUDE, '

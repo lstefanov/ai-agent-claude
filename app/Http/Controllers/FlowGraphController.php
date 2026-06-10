@@ -3,27 +3,31 @@
 namespace App\Http\Controllers;
 
 use App\Models\Flow;
+use App\Services\FlowVersionService;
+use App\Services\GeneratorService;
 use App\Services\GraphNormalizer;
-use App\Services\PlanLibraryService;
 use App\Support\GraphTopology;
+use App\Support\PlannerPhases;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class FlowGraphController extends Controller
 {
     public function __construct(
         private GraphNormalizer $normalizer,
-        private PlanLibraryService $planLibrary,
+        private FlowVersionService $versions,
     ) {}
 
     /**
-     * Persist a Drawflow export: raw layout in flows.graph_layout (for 1:1 reload)
-     * + normalized flow_nodes/flow_edges.
+     * Persist a Drawflow export into the flow's SELECTED version (version_id,
+     * default: the active one). Saving the active version materializes it into
+     * flows.graph_layout + flow_nodes/flow_edges and feeds the plan library
+     * (saving IS the plan approval).
      *
-     * Saving IS the plan approval: the snapshot lands in the plan library as a
-     * 'candidate' and becomes a few-shot example once a run succeeds.
+     * A flow with zero versions bootstraps a "Default" active version from
+     * this save — covers both the new-flow ?generate=1 auto-save and legacy
+     * flows on their first save.
      */
     public function store(Request $request, Flow $flow): JsonResponse
     {
@@ -33,25 +37,44 @@ class FlowGraphController extends Controller
             return response()->json(['ok' => false, 'error' => 'Невалиден граф.'], 422);
         }
 
+        $agents = is_array($request->input('agents')) ? $request->input('agents') : null;
+        $generator = is_array($request->input('generator')) ? $request->input('generator') : null;
+        $intent = is_array($request->input('intent')) ? $request->input('intent') : null;
+
         try {
-            DB::transaction(function () use ($graph, $flow) {
-                $flow->update(['graph_layout' => $graph]);
-                $this->normalizer->sync($flow, $graph);
-            });
+            if ($flow->versions()->doesntExist()) {
+                $version = $this->versions->createFromLayout($flow, $graph, 'Default', true, $agents, [
+                    'intent' => $intent ?? $flow->plan_intent,
+                    'generator' => $generator ?? ['label' => PlannerPhases::label(app(GeneratorService::class)->resolveAllPhases())],
+                ]);
+            } else {
+                $version = $request->filled('version_id')
+                    ? $flow->versions()->find($request->integer('version_id'))
+                    : $flow->activeVersion;
+
+                if (! $version) {
+                    return response()->json(['ok' => false, 'error' => 'Шаблонът не е намерен.'], 422);
+                }
+
+                $this->versions->updateLayout($version, $graph, [
+                    'agents' => $agents,
+                    'generator' => $generator,
+                    'plan_intent' => $intent,
+                ]);
+                $version->refresh();
+            }
         } catch (Throwable $e) {
             report($e);
 
             return response()->json(['ok' => false, 'error' => 'Грешка при запис на графа.'], 500);
         }
 
-        // Plan-library snapshot is best-effort — it must never fail the save.
-        try {
-            $this->planLibrary->captureApprovedPlan($flow->fresh());
-        } catch (Throwable $e) {
-            report($e);
-        }
-
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'version' => [
+            'id' => $version->id,
+            'name' => $version->name,
+            'is_active' => $version->is_active,
+            'generator_label' => $version->generatorLabel(),
+        ]]);
     }
 
     /**

@@ -8,18 +8,23 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FlowRun extends Model
 {
-    protected $fillable = ['flow_id', 'status', 'triggered_by', 'context', 'final_output', 'final_output_model', 'graph_snapshot', 'started_at', 'completed_at'];
+    protected $fillable = ['flow_id', 'flow_version_id', 'status', 'triggered_by', 'context', 'final_output', 'final_output_model', 'graph_snapshot', 'started_at', 'completed_at'];
 
     protected $casts = [
-        'context'        => 'array',
+        'context' => 'array',
         'graph_snapshot' => 'array',
-        'started_at'     => 'datetime',
-        'completed_at'   => 'datetime',
+        'started_at' => 'datetime',
+        'completed_at' => 'datetime',
     ];
 
     public function flow(): BelongsTo
     {
         return $this->belongsTo(Flow::class);
+    }
+
+    public function flowVersion(): BelongsTo
+    {
+        return $this->belongsTo(FlowVersion::class);
     }
 
     public function nodeRuns(): HasMany

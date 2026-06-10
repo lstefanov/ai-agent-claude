@@ -10,7 +10,7 @@ return [
     'competitor_profiler' => ['output_role' => 'hidden',    'label' => 'Профилиращ конкуренти',      'description' => 'Изгражда пълен профил на конкурент (услуги, цени, позициониране, слабости)'],
     'review_analyzer' => ['output_role' => 'hidden',    'label' => 'Анализатор на ревюта',       'description' => 'Scrape-ва и анализира ревюта — открива recurring patterns и sentiment'],
     'keyword_extractor' => ['output_role' => 'hidden',    'label' => 'Екстрактор на ключови думи', 'description' => 'Открива SEO ключови думи от SERP анализ с тип на намерение'],
-    'image_describer' => ['output_role' => 'hidden',    'label' => 'Описател на изображения',    'description' => 'Описва изображение с текст (изисква vision-capable Ollama модел като llava)'],
+    'image_describer' => ['output_role' => 'hidden',    'label' => 'Описател на изображения',    'description' => 'Описва изображение с текст (изисква vision-capable Ollama модел като qwen2.5vl)'],
     'scraper' => ['output_role' => 'hidden',    'label' => 'Скрейпър',                   'description' => 'Извлича суров текст и данни от уебстраници'],
     // Planner-composed "on the fly" agent: behaviour is defined entirely by its
     // config (tools whitelist + tool_params + prompts). See App\Agents\GenericAgent.

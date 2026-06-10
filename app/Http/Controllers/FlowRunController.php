@@ -4,14 +4,45 @@ namespace App\Http\Controllers;
 
 use App\Models\Flow;
 use App\Models\FlowRun;
+use App\Services\FlowVersionService;
 use App\Services\GraphFlowExecutor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class FlowRunController extends Controller
 {
-    public function store(Request $request, Flow $flow, GraphFlowExecutor $executor)
+    public function store(Request $request, Flow $flow, GraphFlowExecutor $executor, FlowVersionService $versions)
     {
+        // Run with a specific template (run-popup dropdown): a non-active
+        // choice is activated first, which materializes its graph. Forbidden
+        // while another run is in flight — execution reads the materialized
+        // flow_nodes, so swapping templates mid-run would corrupt it.
+        if ($request->filled('version_id')) {
+            $version = $flow->versions()->find($request->integer('version_id'));
+
+            if (! $version) {
+                return redirect()->route('flows.builder', $flow)
+                    ->with('error', 'Избраният шаблон не е намерен.');
+            }
+
+            if (! $version->is_active) {
+                $runInFlight = $flow->flowRuns()->whereIn('status', ['pending', 'running'])->exists();
+                if ($runInFlight) {
+                    return redirect()->route('flows.builder', $flow)
+                        ->with('error', 'Шаблонът не може да се сменя, докато тече изпълнение.');
+                }
+
+                try {
+                    $versions->activate($version);
+                } catch (ValidationException $e) {
+                    return redirect()->route('flows.builder', $flow)
+                        ->with('error', collect($e->errors())->flatten()->implode(' '));
+                }
+            }
+        }
+
         $activeNodes = $flow->nodes()->where('is_active', true)->count();
 
         if ($activeNodes === 0) {
@@ -32,6 +63,7 @@ class FlowRunController extends Controller
         // Queue workers process the waves in parallel — the request returns at once.
         $flowRun = FlowRun::create([
             'flow_id' => $flow->id,
+            'flow_version_id' => $flow->activeVersion()->value('id'),
             'status' => 'pending',
             'triggered_by' => 'manual',
             'context' => $inputs ? ['inputs' => $inputs] : [],
@@ -125,43 +157,45 @@ class FlowRunController extends Controller
 
     public function poll(FlowRun $flowRun): JsonResponse
     {
-        $flowRun->load('nodeRuns');
         $context = $flowRun->context ?? [];
 
-        // Per-node runs for the graph builder's live node coloring.
-        // sortBy('id') guarantees the same order as $agentRunsData below — the
-        // builder merges these two arrays by index.
-        $nodeRunsData = $flowRun->nodeRuns->sortBy('id')->map(fn ($r) => [
-            'node_key' => $r->node_key,
-            'status' => $r->status,
-            'duration_ms' => $r->duration_ms,
-            'started_at_iso' => $r->started_at?->toISOString(),
-            'completed_at_iso' => $r->completed_at?->toISOString(),
-            'error' => $r->error,
-        ])->values();
+        // METADATA ONLY: the longText payloads (input/output/raw_output/params)
+        // never hydrate here — at a 1-2s poll interval they are the whole
+        // payload. Both run views fetch full content on demand via nodeDetail().
+        // One array serves both keying schemes: node_key (builder) and
+        // agent_id (runs/show).
+        $lengthFn = $flowRun->nodeRuns()->getQuery()->getConnection()->getDriverName() === 'mysql'
+            ? 'CHAR_LENGTH'
+            : 'LENGTH';
 
-        // agent_runs: node_runs adapted to the unified shape the runs/show
-        // Alpine polling consumes.
-        $agentRunsData = $flowRun->nodeRuns->sortBy('id')->map(fn ($r) => [
-            'agent_id' => $r->flow_node_id,
-            'status' => $r->status,
-            'model_used' => $r->model_used,
-            'params' => $r->params_snapshot,
-            'input' => $r->input,
-            'output' => $r->output,
-            'raw_output' => $r->raw_output,
-            'error' => $r->error,
-            'duration_ms' => $r->duration_ms,
-            'tokens_used' => $r->tokens_used,
-            'attempt_count' => 1,
-            'started_at' => $r->started_at?->format('H:i:s'),
-            'completed_at' => $r->completed_at?->format('H:i:s'),
-            'started_at_iso' => $r->started_at?->toISOString(),
-            'completed_at_iso' => $r->completed_at?->toISOString(),
-        ])->values();
+        $nodeRunsData = $flowRun->nodeRuns()
+            ->orderBy('id')
+            ->get([
+                'id', 'flow_node_id', 'node_key', 'status', 'model_used', 'tokens_used',
+                'duration_ms', 'error', 'started_at', 'completed_at',
+                DB::raw('SUBSTR(output, 1, 300) as output_preview'),
+                DB::raw("{$lengthFn}(output) as output_chars"),
+            ])
+            ->map(fn ($r) => [
+                'node_key' => $r->node_key,
+                'agent_id' => $r->flow_node_id,
+                'status' => $r->status,
+                'model_used' => $r->model_used,
+                'tokens_used' => $r->tokens_used,
+                'duration_ms' => $r->duration_ms,
+                'error' => $r->error,
+                'output_preview' => $r->output_preview,
+                'output_chars' => (int) $r->output_chars,
+                'attempt_count' => 1,
+                'started_at' => $r->started_at?->format('H:i:s'),
+                'completed_at' => $r->completed_at?->format('H:i:s'),
+                'started_at_iso' => $r->started_at?->toISOString(),
+                'completed_at_iso' => $r->completed_at?->toISOString(),
+            ])
+            ->values();
 
         // Total paid-provider cost for this run (openai/* nodes + revisions).
-        $costUsd = (float) $flowRun->nodeRuns->sum('cost_usd');
+        $costUsd = (float) $flowRun->nodeRuns()->sum('cost_usd');
 
         return response()->json([
             'status' => $flowRun->status,
@@ -175,7 +209,31 @@ class FlowRunController extends Controller
             'cost_usd' => $costUsd > 0 ? round($costUsd, 4) : null,
             'progress' => $this->parseRunProgress($flowRun->id),
             'node_runs' => $nodeRunsData,
-            'agent_runs' => $agentRunsData,
+        ]);
+    }
+
+    /**
+     * Full payload for ONE node run — fetched on demand when the user opens a
+     * result/log panel, instead of shipping every longText field on every poll.
+     */
+    public function nodeDetail(FlowRun $flowRun, string $nodeKey): JsonResponse
+    {
+        $run = $flowRun->nodeRuns()->where('node_key', $nodeKey)->orderByDesc('id')->first();
+
+        if (! $run) {
+            return response()->json(['error' => 'Няма изпълнение за този възел.'], 404);
+        }
+
+        return response()->json([
+            'node_key' => $run->node_key,
+            'agent_id' => $run->flow_node_id,
+            'status' => $run->status,
+            'model_used' => $run->model_used,
+            'params' => $run->params_snapshot,
+            'input' => $run->input,
+            'output' => $run->output,
+            'raw_output' => $run->raw_output,
+            'error' => $run->error,
         ]);
     }
 

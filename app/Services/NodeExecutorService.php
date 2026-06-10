@@ -338,7 +338,7 @@ class NodeExecutorService
     {
         $provider = (string) config('services.planner.escalation_provider', 'openai');
 
-        if (! in_array($provider, ['openai', 'anthropic'], true)) {
+        if (! array_key_exists($provider, PaidModel::PREFIXES)) {
             $provider = 'openai';
         }
 

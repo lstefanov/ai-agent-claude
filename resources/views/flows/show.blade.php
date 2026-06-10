@@ -213,7 +213,122 @@ function copyWebhookUrl() {
 }
 </script>
 
-@include('flows.partials.graph-preview')
+{{-- Шаблони (граф версии) --}}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6"
+     x-data="flowVersionsPanel(@js(csrf_token()))">
+    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+        <div>
+            <h2 class="text-base font-semibold text-gray-900">Шаблони</h2>
+            <p class="text-xs text-gray-400 mt-0.5">Граф версии на този flow — активният (●) се изпълнява при Run.</p>
+        </div>
+        <a href="{{ route('flows.builder', $flow) }}?new_template=1"
+           class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3 py-1.5 rounded-lg transition">
+            ＋ Нов шаблон
+        </a>
+    </div>
+
+    <template x-if="error">
+        <div class="px-6 py-2 bg-red-50 text-red-700 text-sm border-b border-red-100" x-text="error"></div>
+    </template>
+
+    @if($versions->isEmpty())
+        <div class="px-6 py-8 text-center text-sm text-gray-400">
+            Все още няма шаблони — отвори граф редактора и запази графа, или генерирай нов план.
+        </div>
+    @else
+        <div class="divide-y divide-gray-50">
+            @foreach($versions as $version)
+                <div class="px-6 py-3 flex flex-wrap items-center justify-between gap-3 hover:bg-gray-50/60 transition">
+                    <div class="flex items-center gap-3 min-w-0">
+                        @if($version->is_active)
+                            <span class="shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">● активен</span>
+                        @else
+                            <span class="shrink-0 w-[64px]"></span>
+                        @endif
+                        <div class="min-w-0">
+                            <div class="text-sm font-semibold text-gray-900 truncate">{{ $version->name }}</div>
+                            <div class="text-xs text-gray-400 truncate">
+                                <span title="Провайдър/модел на генерацията">⚙ {{ $version->generatorLabel() }}</span>
+                                <span class="mx-1.5">·</span>
+                                <span title="Генериран на">{{ $version->created_at->format('d.m.Y H:i') }}</span>
+                                @if($version->cost_usd > 0)
+                                    <span class="mx-1.5">·</span>
+                                    <span class="text-amber-600">${{ number_format($version->cost_usd, 4) }}</span>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        @unless($version->is_active)
+                            <button type="button"
+                                    @click="activate(@js(route('flows.versions.activate', [$flow, $version])))"
+                                    class="px-2.5 py-1.5 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 font-medium">
+                                Активирай
+                            </button>
+                        @endunless
+                        <button type="button"
+                                @click="rename(@js(route('flows.versions.update', [$flow, $version])), @js($version->name))"
+                                class="px-2.5 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">
+                            Преименувай
+                        </button>
+                        <a href="{{ route('flows.builder', $flow) }}?version={{ $version->id }}"
+                           class="px-2.5 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-medium">
+                            ✎ Редактирай
+                        </a>
+                        @if($version->is_active)
+                            <button type="button" disabled title="Активният шаблон не може да бъде изтрит — първо активирай друг."
+                                    class="px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed">
+                                Изтрий
+                            </button>
+                        @else
+                            <button type="button"
+                                    @click="destroy(@js(route('flows.versions.destroy', [$flow, $version])), @js($version->name))"
+                                    class="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
+                                Изтрий
+                            </button>
+                        @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    @endif
+</div>
+
+<script>
+function flowVersionsPanel(csrf) {
+    const send = async (url, method, body = null) => {
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+            body: body ? JSON.stringify(body) : null,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+            throw new Error(data.error || Object.values(data.errors || {}).flat().join(' ') || 'Грешка при заявката.');
+        }
+        return data;
+    };
+
+    return {
+        error: null,
+        async activate(url) {
+            try { await send(url, 'POST'); window.location.reload(); }
+            catch (e) { this.error = e.message; }
+        },
+        async rename(url, current) {
+            const name = prompt('Ново име на шаблона:', current);
+            if (!name || name.trim() === '' || name === current) return;
+            try { await send(url, 'PUT', { name: name.trim() }); window.location.reload(); }
+            catch (e) { this.error = e.message; }
+        },
+        async destroy(url, name) {
+            if (!confirm('Изтриване на шаблона „' + name + '“? Действието е необратимо.')) return;
+            try { await send(url, 'DELETE'); window.location.reload(); }
+            catch (e) { this.error = e.message; }
+        },
+    };
+}
+</script>
 
 {{-- Run History --}}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -246,6 +361,12 @@ function copyWebhookUrl() {
                     <span class="text-xs text-gray-400">
                         {{ $triggeredByLabel[$run->triggered_by] ?? $run->triggered_by }}
                     </span>
+                    @if($run->flowVersion)
+                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100"
+                              title="Шаблон, с който е изпълнен този run">
+                            {{ $run->flowVersion->name }}
+                        </span>
+                    @endif
                 </div>
 
                 <div class="flex items-center gap-4">

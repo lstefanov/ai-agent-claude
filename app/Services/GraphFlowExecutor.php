@@ -31,6 +31,7 @@ class GraphFlowExecutor
     {
         $flowRun ??= FlowRun::create([
             'flow_id' => $flow->id,
+            'flow_version_id' => $flow->activeVersion()->value('id'),
             'status' => 'pending',
             'triggered_by' => $triggeredBy,
         ]);
@@ -80,6 +81,8 @@ class GraphFlowExecutor
             'status' => 'running',
             'context' => $context,
             'started_at' => now(),
+            // Which template was executed — webhook/scheduler runs get it here.
+            'flow_version_id' => $flowRun->flow_version_id ?? $flow->activeVersion()->value('id'),
             // Snapshot the Drawflow graph_layout at the moment the run starts so
             // the historical run viewer can show the exact graph that was executed
             // even if the user edits the flow afterwards.

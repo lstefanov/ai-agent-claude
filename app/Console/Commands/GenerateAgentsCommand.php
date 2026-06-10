@@ -2,16 +2,21 @@
 
 namespace App\Console\Commands;
 
+use App\Models\AgentGenerationLog;
 use App\Models\Company;
 use App\Models\Flow;
 use App\Services\AgentGeneratorService;
+use App\Services\GeneratorService;
+use App\Support\PlannerPhases;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 
 class GenerateAgentsCommand extends Command
 {
-    protected $signature   = 'flows:generate-agents {token : Cache token for this generation request}';
+    protected $signature = 'flows:generate-agents {token : Cache token for this generation request}';
+
     protected $description = 'Run agent generation in the background and store result in cache';
 
     public function handle(AgentGeneratorService $generator): int
@@ -21,8 +26,9 @@ class GenerateAgentsCommand extends Command
 
         // Read request data from cache
         $request = Cache::get("agent_gen_request_{$token}");
-        if (!$request) {
+        if (! $request) {
             Log::error("[GenerateAgents] Token not found in cache: {$token}");
+
             return Command::FAILURE;
         }
 
@@ -37,6 +43,21 @@ class GenerateAgentsCommand extends Command
             $flow = Flow::findOrFail($request['flow_id']);
             $flow->description = $request['description'];
             $flow->setRelation('company', $company);
+
+            // Per-phase provider/model from the builder's generation popup.
+            // Every phase is set EXPLICITLY (same rule as PlanAbCommand) so
+            // .env per-phase settings cannot leak into a user-chosen combo.
+            $requestedPhases = (array) ($request['phases'] ?? []);
+            if ($requestedPhases !== []) {
+                $default = (string) config('services.generator.provider', 'openai');
+                foreach (PlannerPhases::PHASES as $phase) {
+                    Config::set(
+                        "services.planner.phases.{$phase}",
+                        $requestedPhases[$phase] ?? ['provider' => $default, 'model' => null],
+                    );
+                }
+            }
+            $effectivePhases = app(GeneratorService::class)->resolveAllPhases();
 
             $lastHeartbeatAt = 0.0;
             $onProgress = function (?string $stage = null) use ($cacheKey, &$lastHeartbeatAt): void {
@@ -63,12 +84,13 @@ class GenerateAgentsCommand extends Command
 
             $onProgress('Подготовка на заявката');
 
+            $startMs = (int) (microtime(true) * 1000);
             $agents = $generator->generate($flow, $onProgress, $token);
 
             if (empty($agents)) {
                 Cache::put($cacheKey, [
                     'status' => 'failed',
-                    'error'  => 'AI не върна валидни агенти. Опитай с по-подробно описание.',
+                    'error' => 'AI не върна валидни агенти. Опитай с по-подробно описание.',
                     'agents' => [],
                     'stage' => 'Генерацията се провали',
                     'updated_at' => now()->timestamp,
@@ -77,24 +99,33 @@ class GenerateAgentsCommand extends Command
                 return Command::FAILURE;
             }
 
+            // The builder's save-as-template dialog needs the generation meta:
+            // intent (plan library pairing), generator label/phases, cost, time.
             Cache::put($cacheKey, [
                 'status' => 'completed',
                 'agents' => $agents,
-                'error'  => null,
+                'intent' => $generator->lastIntent(),
+                'generator' => [
+                    'label' => PlannerPhases::label($effectivePhases),
+                    'phases' => $effectivePhases,
+                ],
+                'cost_usd' => round((float) AgentGenerationLog::where('token', $token)->sum('cost_usd'), 4),
+                'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
+                'error' => null,
                 'stage' => 'Готово',
                 'updated_at' => now()->timestamp,
             ], now()->addMinutes(10));
 
-            Log::info("[GenerateAgents] Done — {$token}: " . count($agents) . " agents");
+            Log::info("[GenerateAgents] Done — {$token}: ".count($agents).' agents');
 
             return Command::SUCCESS;
 
         } catch (\Throwable $e) {
-            Log::error("[GenerateAgents] Failed {$token}: " . $e->getMessage());
+            Log::error("[GenerateAgents] Failed {$token}: ".$e->getMessage());
 
             Cache::put($cacheKey, [
                 'status' => 'failed',
-                'error'  => $e->getMessage(),
+                'error' => $e->getMessage(),
                 'agents' => [],
                 'stage' => 'Генерацията се провали',
                 'updated_at' => now()->timestamp,

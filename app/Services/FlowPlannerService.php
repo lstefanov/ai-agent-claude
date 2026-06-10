@@ -271,7 +271,7 @@ PROMPT;
 
         return $this->runPhase('pipeline_design', $system, $user, $this->planSchema(), [
             'temperature' => 0.3,
-            'num_predict' => 12000,
+            'num_predict' => $this->numPredictFor($intent, simple: 8000, medium: 10000, complex: 12000),
         ], $flow, $logToken);
     }
 
@@ -312,7 +312,7 @@ PROMPT;
                 'system_prompt' => ['type' => 'string'],
                 'prompt_template' => ['type' => 'string'],
                 'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
-                'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic']],
+                'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic', 'deepseek', 'xai', 'qwen']],
                 'temperature' => ['type' => 'number'],
                 'output_size' => ['type' => 'string', 'enum' => ['short', 'medium', 'long', 'unlimited']],
                 'qa_custom_prompt' => ['type' => ['string', 'null']],
@@ -372,7 +372,7 @@ PROMPT;
         try {
             $result = $this->runPhase('plan_critique', $system, $user, $schema, [
                 'temperature' => 0.1,
-                'num_predict' => 12000,
+                'num_predict' => $this->numPredictFor($intent, simple: 4000, medium: 6000, complex: 8000),
             ], $flow, $logToken);
         } catch (Throwable $e) {
             // Critique is an enhancement — never let it kill a valid plan.
@@ -565,10 +565,11 @@ PROMPT;
     }
 
     /**
-     * Replace hallucinated/foreign URLs in agent text with the {{url}} placeholder
-     * (resolved to the flow's real site at run time), keeping only URLs whose host
-     * matches the real site. Fixes models that fabricate a domain from the company
-     * name (e.g. "gamesportcenter-ruse.com" when the real site is primelaser.bg).
+     * Replace every absolute URL in agent text with the {{url}} placeholder
+     * (resolved to the flow's real site — or a per-run override — at run time).
+     * Covers both hallucinated/foreign domains (models that fabricate a domain
+     * from the company name) and the real site itself, so a proven plan stays
+     * portable: the same flow can be re-run against any target site.
      *
      * @param  array<int, array<string, mixed>>  $agents
      * @return array<int, array<string, mixed>>
@@ -587,11 +588,7 @@ PROMPT;
                 if (! is_string($agent[$f] ?? null) || $agent[$f] === '') {
                     continue;
                 }
-                $agent[$f] = preg_replace_callback(
-                    '#https?://[^\s"\'<>)\]}]+#i',
-                    fn ($m) => strcasecmp((string) parse_url($m[0], PHP_URL_HOST), $realHost) === 0 ? $m[0] : '{{url}}',
-                    $agent[$f],
-                );
+                $agent[$f] = preg_replace('#https?://[^\s"\'<>)\]}]+#i', '{{url}}', $agent[$f]);
             }
         }
         unset($agent);
@@ -618,7 +615,7 @@ PROMPT;
         foreach ($agents as $i => $spec) {
             $provider = (string) ($spec['provider'] ?? 'ollama');
 
-            if (in_array($provider, ['openai', 'anthropic'], true)
+            if (array_key_exists($provider, PaidModel::PREFIXES)
                 && PaidModel::available($provider)
                 && ! ($spec['is_verifier'] ?? false)) {
                 $key = trim((string) ($spec['uid'] ?? '')) ?: $i;
@@ -719,6 +716,15 @@ PROMPT;
         if (PaidModel::available('anthropic')) {
             $paidOptions[] = 'anthropic агентите ползват '.config('services.anthropic.runtime_model', 'claude-haiku-4-5');
         }
+        if (PaidModel::available('deepseek')) {
+            $paidOptions[] = 'deepseek агентите ползват '.config('services.deepseek.runtime_model', 'deepseek-v4-flash');
+        }
+        if (PaidModel::available('xai')) {
+            $paidOptions[] = 'xai агентите ползват '.config('services.xai.runtime_model', 'grok-4.1-fast');
+        }
+        if (PaidModel::available('qwen')) {
+            $paidOptions[] = 'qwen агентите ползват '.config('services.qwen.runtime_model', 'qwen3.5-flash');
+        }
 
         $lines[] = '';
         $lines[] = 'ИЗПЪЛНЕНИЕ: ollama агентите получават модел автоматично от кода (инсталирани: '
@@ -733,6 +739,22 @@ PROMPT;
     // ──────────────────────────────────────────────────────────────────────
 
     /**
+     * Output-token budget scaled by the intent complexity — a simple flow's
+     * plan/critique never needs the full budget, and on slow providers the
+     * cap is also the worst-case latency.
+     *
+     * @param  array<string, mixed>  $intent
+     */
+    private function numPredictFor(array $intent, int $simple, int $medium, int $complex): int
+    {
+        return match ($intent['complexity'] ?? 'medium') {
+            'simple' => $simple,
+            'complex' => $complex,
+            default => $medium,
+        };
+    }
+
+    /**
      * @param  array<string, mixed>  $schema
      * @return array<string, mixed>
      */
@@ -745,7 +767,7 @@ PROMPT;
         Flow $flow,
         ?string $logToken
     ): array {
-        $providerModel = $this->generator->providerModel();
+        $providerModel = $this->generator->providerModel($phase);
 
         $log = AgentGenerationLog::create([
             'flow_id' => $flow->id,

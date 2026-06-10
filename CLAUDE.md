@@ -12,7 +12,7 @@ Guidance for working in this repository.
 
 A Laravel 12 (PHP 8.2) web app for building and running **multi-agent AI workflows**. Users define a **Company**, create **Flows** described in free text, and an LLM planner (**FlowPlannerService**, the "agent that creates agents") designs the agent pipeline automatically as a **DAG** (graph of nodes + edges), shown for review in a visual Drawflow builder, then executed with real parallelism.
 
-Planning runs on a cloud LLM (**OpenAI** by default, Anthropic supported) via structured outputs. Agent execution runs on local **Ollama** models, except steps the planner pins to OpenAI (`openai/<model>`). Image generation via **ComfyUI**; web search via **Brave**; scraping/crawling via an internal crawl service.
+Planning runs on a cloud LLM (**OpenAI** by default; Anthropic, DeepSeek and Gemini supported) via structured outputs, with optional **per-phase hybrid** routing (`PLANNER_{INTENT,DESIGN,CRITIQUE,REVISION}_{PROVIDER,MODEL}` — e.g. Claude only for pipeline design, a cheap/free model for the rest). Agent execution runs on local **Ollama** models, except steps the planner pins to OpenAI (`openai/<model>`). Image generation via **ComfyUI**; web search via **Brave**; scraping/crawling via an internal crawl service.
 
 The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each execution recorded as `FlowRun → NodeRun[]`.
 
@@ -22,8 +22,8 @@ The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each ex
 - **Frontend:** Blade views + Vite + Tailwind CSS v4, Alpine.js, Drawflow (graph builder) — no SPA framework
 - **DB:** SQLite (default), database-backed queue, cache, and sessions
 - **Queue:** database driver — background jobs need a running worker
-- **LLM (planning):** `GENERATOR_PROVIDER=openai|anthropic` (cloud, API key) or `ollama` (free local planning via Ollama structured outputs on `OLLAMA_PLANNER_MODEL`) — `GeneratorService` picks
-- **LLM (runtime):** Ollama (`OLLAMA_URL`) with a model-selector layer; `openai/<model>` / `anthropic/<model>` prefixes route a node to that paid provider (`App\Support\PaidModel` owns the prefixes)
+- **LLM (planning):** `GENERATOR_PROVIDER=openai|anthropic|deepseek|gemini|xai|qwen` (cloud, API key) or `ollama` (free local planning via Ollama structured outputs on `OLLAMA_PLANNER_MODEL`) — `GeneratorService::resolve()` picks per phase (`services.planner.phases` overrides); OpenAI/DeepSeek/Gemini/xAI/Qwen share one OpenAI-compatible client (`OpenAiChatService::for($provider)`)
+- **LLM (runtime):** Ollama (`OLLAMA_URL`) with a model-selector layer; `openai/<model>` / `anthropic/<model>` / `deepseek/<model>` / `xai/<model>` / `qwen/<model>` prefixes route a node to that paid provider (`App\Support\PaidModel` owns the prefixes)
 - **External services:** Brave Search, ComfyUI, internal crawl service (`CRAWL_SERVICE_URL`), Google Places (reviews)
 
 ## Layout
@@ -31,7 +31,7 @@ The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each ex
 - `app/Services/` — the core:
   - `FlowPlannerService` — three-phase planner (intent analysis → pipeline design → critique), OpenAI Structured Outputs, capability registry; logs each phase to `agent_generation_logs`.
   - `AgentGeneratorService` — deterministic hardening of the plan: model selection, num_predict guard-rails, exactly one `bg_text_corrector` + `qa_verifier`, dedupe, cycle-free `depends_on` graph.
-  - `GraphFlowExecutor` — DAG execution: topological "waves", `Bus::batch` parallelism, fail_fast/best_effort policy.
+  - `GraphFlowExecutor` — DAG execution: topological "waves", `Bus::batch` parallelism, fail_fast/best_effort policy. Within a wave, cloud-pinned nodes run fully parallel; local nodes share `OLLAMA_MAX_CONCURRENT` global slots (`App\Support\OllamaSemaphore`).
   - `NodeExecutorService` — runs one node: input from direct predecessors (namespaced, no information loss), technical retries, inline step-QA gate; bridges FlowNode → transient `Agent` DTO.
   - `GraphNormalizer` — the ONLY place that understands the Drawflow export format.
   - `PlanLibraryService` — the planner's long-term memory: saving the graph (= approval) snapshots intent + pipeline into `plan_library`; a successful run marks it `proven`; the most similar proven plans are injected as few-shot examples at design time.

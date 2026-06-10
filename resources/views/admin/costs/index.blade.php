@@ -158,7 +158,7 @@
 </form>
 
 {{-- ── Main table: grouped sessions (Grid.js) ────────────────────────── --}}
-<div class="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+<div class="bg-white border border-gray-200 rounded-xl p-4 mb-4 overflow-x-auto">
     <p class="text-xs text-gray-400 mb-3">Кликни ред за да видиш отделните заявки в сесията.</p>
     <div id="costGrid"></div>
 </div>
@@ -241,6 +241,10 @@
 </div>
 
 <link href="https://cdn.jsdelivr.net/npm/gridjs@6.0.6/dist/theme/mermaid.min.css" rel="stylesheet">
+<style>
+.gridjs-th, .gridjs-td { padding: 10px 12px !important; }
+.gridjs-td             { white-space: normal !important; word-break: break-word !important; vertical-align: top; }
+</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/gridjs@6.0.6/dist/gridjs.umd.js"></script>
 <script>
@@ -319,11 +323,23 @@ new Chart(document.getElementById('chartVolume'), {
 });
 
 // ── Shared badge helpers ──────────────────────────────────────────────
+const PROVIDER_COLORS = {
+    openai:    'background:#d1fae5;color:#047857',
+    anthropic: 'background:#ede9fe;color:#6d28d9',
+    deepseek:  'background:#dbeafe;color:#1e40af',
+    gemini:    'background:#fef9c3;color:#854d0e',
+    xai:       'background:#e5e7eb;color:#111827',
+    qwen:      'background:#ffedd5;color:#9a3412',
+};
 const providerBadge = (p) => {
-    const s = p === 'openai'    ? 'background:#d1fae5;color:#047857'
-            : p === 'anthropic' ? 'background:#ede9fe;color:#6d28d9'
-            : 'background:#f3f4f6;color:#4b5563';
-    return `<span style="${s};padding:2px 8px;border-radius:9999px;font-size:11px;">${p ?? ''}</span>`;
+    if (!p) return '';
+    return p.split(', ')
+        .map(name => {
+            name = name.trim();
+            const s = PROVIDER_COLORS[name] || 'background:#f3f4f6;color:#4b5563';
+            return `<span style="${s};padding:2px 8px;border-radius:9999px;font-size:11px;display:inline-block;margin:1px 2px 1px 0;">${name}</span>`;
+        })
+        .join('');
 };
 const statusBadge = (st) => {
     const s = st === 'completed' ? 'background:#dcfce7;color:#15803d' : 'background:#fee2e2;color:#b91c1c';
@@ -341,33 +357,35 @@ const typeBadge = (type) => {
 const mainGrid = new gridjs.Grid({
     data: ROWS.map(r => [
         r.group_key,          // 0 hidden
-        r.row_type,           // 1
-        r.created_at,         // 2
-        r.provider,           // 3
-        r.model,              // 4
-        r.company,            // 5
-        r.flow,               // 6
-        r.call_count,         // 7
-        r.prompt_tokens,      // 8
-        r.completion_tokens,  // 9
-        r.cost_usd,           // 10
-        r.duration_ms,        // 11
-        r.status,             // 12
+        r.ref_id,             // 1 ID
+        r.row_type,           // 2
+        r.created_at,         // 3
+        r.provider,           // 4
+        r.model,              // 5
+        r.company,            // 6
+        r.flow,               // 7
+        r.call_count,         // 8
+        r.prompt_tokens,      // 9
+        r.completion_tokens,  // 10
+        r.cost_usd,           // 11
+        r.duration_ms,        // 12
+        r.status,             // 13
     ]),
     columns: [
         { name: 'Ключ', hidden: true },
-        { name: 'Тип',        width: '150px', formatter: c => gridjs.html(typeBadge(c)) },
-        { name: 'Дата/Час',   width: '140px' },
-        { name: 'Провайдър',  width: '110px', formatter: c => gridjs.html(providerBadge(c)) },
-        { name: 'Модел' },
-        { name: 'Фирма' },
-        { name: 'Flow' },
-        { name: 'Фази/Агенти', width: '95px' },
-        { name: 'Вх. токени', width: '95px', formatter: c => c ? Number(c).toLocaleString() : '—' },
-        { name: 'Изх. токени',width: '95px', formatter: c => c ? Number(c).toLocaleString() : '—' },
-        { name: 'Цена',       width: '75px', formatter: c => '$' + Number(c || 0).toFixed(2) },
-        { name: 'Сек.',       width: '65px', formatter: c => c ? (Number(c) / 1000).toFixed(1) : '—' },
-        { name: 'Статус',     width: '100px', formatter: c => gridjs.html(statusBadge(c)) },
+        { name: 'ID',          width: '72px' },
+        { name: 'Тип',         width: '180px', formatter: c => gridjs.html(typeBadge(c)) },
+        { name: 'Дата/Час',    width: '148px' },
+        { name: 'Провайдър',   width: '128px', formatter: c => gridjs.html(providerBadge(c)) },
+        { name: 'Модел',       width: '210px', formatter: c => c || '—' },
+        { name: 'Фирма',       width: '155px', formatter: c => c || '—' },
+        { name: 'Flow',        width: '210px', formatter: c => c || '—' },
+        { name: 'Агенти',      width: '95px' },
+        { name: 'Вх. ток.',    width: '108px', formatter: c => c ? Number(c).toLocaleString() : '—' },
+        { name: 'Изх. ток.',   width: '115px', formatter: c => c ? Number(c).toLocaleString() : '—' },
+        { name: 'Цена',        width: '80px',  formatter: c => '$' + Number(c || 0).toFixed(2) },
+        { name: 'Сек.',        width: '75px',  formatter: c => c ? (Number(c) / 1000).toFixed(1) : '—' },
+        { name: 'Статус',      width: '108px', formatter: c => gridjs.html(statusBadge(c)) },
     ],
     search: true,
     sort: true,
@@ -378,13 +396,13 @@ const mainGrid = new gridjs.Grid({
         noRecordsFound: 'Няма сесии за избраните филтри',
         error: 'Грешка при зареждане',
     },
-    style: { table: { 'font-size': '13px', 'white-space': 'nowrap' } },
+    style: { table: { 'font-size': '13px' }, th: { 'white-space': 'nowrap' } },
 });
 mainGrid.render(document.getElementById('costGrid'));
 mainGrid.on('rowClick', (event, row) => {
     const groupKey = row.cells[0].data;
-    const rowType  = row.cells[1].data;
-    const flowName = row.cells[6].data;
+    const rowType  = row.cells[2].data;
+    const flowName = row.cells[7].data;
     openGroup(groupKey, rowType, flowName);
 });
 
@@ -433,19 +451,19 @@ async function openGroup(groupKey, rowType, flowName) {
             ]),
             columns: [
                 { name: '#',           width: '50px' },
-                { name: 'Час',         width: '140px' },
-                { name: 'Провайдър',   width: '105px', formatter: c => gridjs.html(providerBadge(c)) },
-                { name: 'Модел' },
-                { name: 'Цел' },
-                { name: 'Агент' },
-                { name: 'Вх. токени', width: '90px', formatter: c => c ? Number(c).toLocaleString() : '—' },
-                { name: 'Изх. токени',width: '90px', formatter: c => c ? Number(c).toLocaleString() : '—' },
-                { name: 'Цена',        width: '70px', formatter: c => '$' + Number(c || 0).toFixed(2) },
-                { name: 'Сек.',        width: '60px', formatter: c => c ? (Number(c) / 1000).toFixed(1) : '—' },
-                { name: 'Статус',      width: '95px', formatter: c => gridjs.html(statusBadge(c)) },
+                { name: 'Час',         width: '148px' },
+                { name: 'Провайдър',   width: '120px', formatter: c => gridjs.html(providerBadge(c)) },
+                { name: 'Модел',       width: '170px', formatter: c => c || '—' },
+                { name: 'Цел',         width: '130px', formatter: c => c || '—' },
+                { name: 'Агент',       width: '150px', formatter: c => c || '—' },
+                { name: 'Вх. ток.',    width: '108px', formatter: c => c ? Number(c).toLocaleString() : '—' },
+                { name: 'Изх. ток.',   width: '115px', formatter: c => c ? Number(c).toLocaleString() : '—' },
+                { name: 'Цена',        width: '80px',  formatter: c => '$' + Number(c || 0).toFixed(2) },
+                { name: 'Сек.',        width: '75px',  formatter: c => c ? (Number(c) / 1000).toFixed(1) : '—' },
+                { name: 'Статус',      width: '100px', formatter: c => gridjs.html(statusBadge(c)) },
             ],
             sort: true,
-            style: { table: { 'font-size': '12px', 'white-space': 'nowrap' } },
+            style: { table: { 'font-size': '12px' }, th: { 'white-space': 'nowrap' } },
         });
         subGridInstance.render(subGridEl);
         subGridInstance.on('rowClick', (event, row) => { openCost(row.cells[0].data); });

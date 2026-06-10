@@ -6,18 +6,24 @@ namespace App\Support;
  * The single place that understands paid-provider model prefixes.
  *
  * An agent's `model` string decides where it executes:
- *   "mistral-nemo"              → local Ollama (default)
- *   "openai/gpt-4o-mini"        → OpenAI Chat Completions
- *   "anthropic/claude-haiku-4-5"→ Anthropic Messages
+ *   "mistral-nemo"                 → local Ollama (default)
+ *   "openai/gpt-4o-mini"           → OpenAI Chat Completions
+ *   "anthropic/claude-haiku-4-5"   → Anthropic Messages
+ *   "deepseek/deepseek-v4-flash"   → DeepSeek API (OpenAI-compatible)
+ *   "xai/grok-4.1-fast"            → xAI API (OpenAI-compatible)
+ *   "qwen/qwen3.5-flash"           → Alibaba Qwen API (OpenAI-compatible)
  */
 class PaidModel
 {
     public const PREFIXES = [
         'openai' => 'openai/',
         'anthropic' => 'anthropic/',
+        'deepseek' => 'deepseek/',
+        'xai' => 'xai/',
+        'qwen' => 'qwen/',
     ];
 
-    /** "openai" | "anthropic" | null (null = local Ollama model). */
+    /** Provider key from PREFIXES, or null (null = local Ollama model). */
     public static function provider(?string $model): ?string
     {
         if (! is_string($model)) {
@@ -55,6 +61,9 @@ class PaidModel
     {
         $runtime = match ($provider) {
             'anthropic' => (string) config('services.anthropic.runtime_model', 'claude-haiku-4-5'),
+            'deepseek' => (string) config('services.deepseek.runtime_model', 'deepseek-v4-flash'),
+            'xai' => (string) config('services.xai.runtime_model', 'grok-4.1-fast'),
+            'qwen' => (string) config('services.qwen.runtime_model', 'qwen3.5-flash'),
             default => (string) config('services.openai.runtime_model', 'gpt-4o-mini'),
         };
 

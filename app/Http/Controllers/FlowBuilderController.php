@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\AgentTemplate;
 use App\Models\Flow;
 use App\Models\LlmModel;
+use App\Services\GeneratorService;
+use App\Support\PlannerPhases;
+use App\Support\UrlExtractor;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class FlowBuilderController extends Controller
 {
-    public function show(Flow $flow, Request $request)
+    public function show(Flow $flow, Request $request, GeneratorService $generator)
     {
         $flow->load('company');
 
@@ -28,7 +30,7 @@ class FlowBuilderController extends Controller
             ->where('is_enabled', true)
             ->orderBy('category')
             ->orderBy('display_name')
-            ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for']);
+            ->get(['ollama_tag', 'display_name', 'category', 'description', 'is_default_for', 'strengths']);
 
         // Paid-provider options for the node "Модел" picker (☁) — an explicit
         // "openai/<model>" / "anthropic/<model>" pin executes that node on the
@@ -42,6 +44,9 @@ class FlowBuilderController extends Controller
         $paidModels = collect([
             'openai' => ['runtime' => config('services.openai.runtime_model'), 'generator' => config('services.openai.model')],
             'anthropic' => ['runtime' => config('services.anthropic.runtime_model'), 'generator' => config('services.anthropic.model')],
+            'deepseek' => ['runtime' => config('services.deepseek.runtime_model'), 'generator' => config('services.deepseek.model')],
+            'xai' => ['runtime' => config('services.xai.runtime_model'), 'generator' => config('services.xai.model')],
+            'qwen' => ['runtime' => config('services.qwen.runtime_model'), 'generator' => config('services.qwen.model')],
         ])
             ->filter(fn ($m, $provider) => ! empty(config("services.{$provider}.api_key")))
             ->flatMap(fn ($slots, $provider) => collect($slots)
@@ -105,11 +110,53 @@ class FlowBuilderController extends Controller
             $pollRun = null;
         }
 
+        // Graph versions ("шаблони"): the dropdown switches which version the
+        // editor edits; ?version= selects a non-active one.
+        $versions = $flow->versions()
+            ->latest()
+            ->get()
+            ->map(fn ($v) => [
+                'id' => $v->id,
+                'name' => $v->name,
+                'is_active' => $v->is_active,
+                'generator_label' => $v->generatorLabel(),
+            ])
+            ->values();
+
+        $activeVersion = $flow->activeVersion;
+        $selectedVersion = $request->filled('version')
+            ? $flow->versions()->find($request->integer('version'))
+            : null;
+        $selectedVersion ??= $activeVersion;
+
+        // Editing a non-active version loads ITS layout; the run/view snapshot
+        // logic below still wins in those modes.
+        $editLayout = $selectedVersion && ! $selectedVersion->is_active
+            ? $selectedVersion->graph_layout
+            : $flow->graph_layout;
+
         $config = [
             'saveUrl' => route('flows.graph.store', $flow),
             'validateUrl' => route('flows.graph.validate', $flow),
+            'builderUrl' => route('flows.builder', $flow),
+            'versionStoreUrl' => route('flows.versions.store', $flow),
+            'versions' => $versions,
+            'selectedVersionId' => $selectedVersion?->id,
+            'activeVersionId' => $activeVersion?->id,
+            // Generation config popup: per-phase defaults (.env resolved),
+            // provider availability + model lists + pricing for the estimate.
+            'plannerDefaults' => $generator->resolveAllPhases(),
+            'plannerProviders' => GeneratorService::PROVIDERS,
+            'plannerAvailability' => collect(GeneratorService::PROVIDERS)
+                ->mapWithKeys(fn ($p) => [$p => $generator->providerAvailable($p)])
+                ->all(),
+            'cloudModels' => PlannerPhases::cloudModels(),
+            'pricing' => PlannerPhases::pricing(),
+            'newTemplate' => (bool) $request->boolean('new_template'),
             'runUrl' => route('flow-runs.store', $flow),
             'pollUrl' => $pollRun ? route('flow-runs.poll', $pollRun) : null,
+            // Full node payloads are fetched on demand — the poll is metadata-only.
+            'nodeDetailUrlBase' => $pollRun ? url("runs/{$pollRun->id}/nodes") : null,
             'pickerUrl' => route('agent-templates.picker'),
             'generateFieldUrl' => route('agents.generate-field'),
             'generateUrl' => route('flows.generate-agents'),
@@ -122,16 +169,15 @@ class FlowBuilderController extends Controller
             'csrf' => csrf_token(),
             'companyId' => $flow->company_id,
             'flowId' => $flow->id,
-            // A/B page staged plan ("Използвай този план") — one-shot pull.
-            'stagedAgents' => $request->boolean('staged')
-                ? (Cache::pull('staged_plan_'.$flow->id) ?? [])
-                : [],
             'flowName' => $flow->name,
             'flowDescription' => $flow->description,
             // Per-run inputs: default {{topic}} + any custom placeholders the
             // flow declares in settings.inputs ([{key,label}]). Rendered as
             // fields on the run trigger so one flow serves many inputs.
             'flowTopic' => $flow->topic,
+            // Site flows get a "Сайт (URL)" run input that overrides the seed
+            // {{url}} (buildSeed falls back to this description URL when empty).
+            'flowTargetUrl' => UrlExtractor::first($flow->description ?? '') ?? '',
             'runInputs' => array_values((array) ($flow->settings['inputs'] ?? [])),
             'agentTypes' => $agentTypes,
             'templateIcons' => $templateIcons,
@@ -141,7 +187,7 @@ class FlowBuilderController extends Controller
             // viewer shows the graph exactly as it was when the run executed.
             'graphLayout' => $mode === 'view' && $viewRun?->graph_snapshot
                 ? $viewRun->graph_snapshot
-                : $flow->graph_layout,
+                : $editLayout,
             'outputPrefs' => config('output_preferences'),
         ];
 

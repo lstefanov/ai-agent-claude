@@ -360,59 +360,66 @@
      x-data="flowBuilder(@js($config))"
      @keydown.escape.window="propertiesOpen ? closeNodeModal() : (showPicker = false)"
      class="relative left-1/2 -translate-x-1/2 w-[calc(100vw-3rem)] h-[calc(100vh-6rem)] min-h-0 flex flex-col overflow-hidden">
-    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4 shrink-0">
-        <div>
+    {{-- Хедър, ред 1: навигация + име вляво; Run действието / статус банерите вдясно --}}
+    <div class="flex items-center justify-between gap-4 mb-2.5 shrink-0 min-w-0">
+        <div class="min-w-0">
             <a href="{{ route('flows.show', $flow) }}" class="text-indigo-600 hover:underline text-sm">← Обратно към flow</a>
-            <h1 class="text-2xl font-bold text-gray-900 mt-1">{{ $flow->name }} — граф</h1>
+            <h1 class="text-xl font-bold text-gray-900 truncate" title="{{ $flow->name }}">
+                {{ $flow->name }} <span class="text-gray-300 font-normal">· граф</span>
+            </h1>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-            {{-- Edit-mode controls --}}
+        <div class="shrink-0 flex items-center gap-2">
+            {{-- Edit: Run групата е основното действие горе вдясно --}}
             <template x-if="mode === 'edit'">
-                <div class="flex flex-wrap items-center gap-2">
-                    <span x-show="saving" class="text-sm text-gray-500" x-cloak>Запазване…</span>
-                    <span x-show="saveError" class="text-sm text-red-600" x-cloak x-text="saveError"></span>
-                    <span x-show="savedAt" class="text-sm text-green-600" x-cloak x-text="'Запазено ' + savedAt"></span>
-                    <button @click="startGeneration(true)" type="button" class="px-4 py-2.5 text-sm rounded-xl bg-violet-600 text-white hover:bg-violet-700 font-bold shadow-sm">
-                        ✨ Генериране на агенти
-                    </button>
-                    <button @click="openGenLog()" type="button" class="px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" title="Пълен лог на генерирането на агенти">
-                        📋 Лог на генерирането
-                    </button>
-                    <button @click="openAgentPicker()" type="button" class="px-5 py-3 text-sm rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 font-bold shadow-sm">
-                        ＋ Добави агент
-                    </button>
-                    <button @click="validate()" type="button" class="px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Валидирай</button>
-                    <button @click="save()" type="button" class="px-3 py-2 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800">Запис</button>
-                    <div class="relative" @click.outside="showRunInputs = false">
-                        <form :action="runUrl" method="POST" @submit.prevent="await save(); $el.submit()">
-                            @csrf
-                            <div class="flex items-center gap-1.5">
-                                <button type="button" @click="showRunInputs = !showRunInputs"
-                                        class="px-2 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-                                        title="Вход за този run (тема, параметри)">⚙</button>
-                                <button type="submit" class="px-3 py-2 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700">▶ Стартирай</button>
+                <div class="relative" @click.outside="showRunInputs = false">
+                    <form :action="runUrl" method="POST" @submit.prevent="await save(); $el.submit()">
+                        @csrf
+                        <div class="flex items-center gap-1.5">
+                            <button type="button" @click="showRunInputs = !showRunInputs"
+                                    class="px-2.5 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                                    title="Вход за този run (шаблон, тема, параметри)">⚙</button>
+                            <button type="submit" class="px-4 py-2 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 font-semibold shadow-sm">▶ Стартирай</button>
+                        </div>
+                        <div x-show="showRunInputs" x-cloak
+                             class="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-30 space-y-2 text-left">
+                            <div x-show="versions.length > 1">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Шаблон за този run</label>
+                                <select name="version_id" x-model="runVersionId"
+                                        class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                    <template x-for="v in versions" :key="'run-v' + v.id">
+                                        <option :value="String(v.id)" :selected="String(runVersionId) === String(v.id)"
+                                                x-text="(v.is_active ? '● ' : '') + v.name"></option>
+                                    </template>
+                                </select>
+                                <p x-show="String(runVersionId) !== String(activeVersionId)" class="text-[11px] text-amber-600 mt-1">
+                                    Изборът на друг шаблон ще го направи активен преди стартирането.
+                                </p>
                             </div>
-                            <div x-show="showRunInputs" x-cloak
-                                 class="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-30 space-y-2 text-left">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Тема на този run</label>
+                                <input type="text" name="inputs[topic]" x-model="runTopic"
+                                       placeholder="напр. лазерна епилация"
+                                       class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                            </div>
+                            {{-- Site flows only: per-run target site, overrides the seed {{url}} --}}
+                            <div x-show="flowTargetUrl" x-cloak>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Сайт (URL)</label>
+                                <input type="text" name="inputs[url]" x-model="runSiteUrl"
+                                       :placeholder="flowTargetUrl"
+                                       class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                            </div>
+                            <template x-for="f in runInputs" :key="f.key">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Тема на този run</label>
-                                    <input type="text" name="inputs[topic]" x-model="runTopic"
-                                           placeholder="напр. лазерна епилация"
+                                    <label class="block text-xs font-medium text-gray-600 mb-1" x-text="f.label || f.key"></label>
+                                    <input type="text" :name="'inputs[' + f.key + ']'" :value="f.default || ''"
+                                           :placeholder="f.placeholder || ''"
                                            class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                                 </div>
-                                <template x-for="f in runInputs" :key="f.key">
-                                    <div>
-                                        <label class="block text-xs font-medium text-gray-600 mb-1" x-text="f.label || f.key"></label>
-                                        <input type="text" :name="'inputs[' + f.key + ']'" :value="f.default || ''"
-                                               :placeholder="f.placeholder || ''"
-                                               class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                                    </div>
-                                </template>
-                                <p class="text-[11px] text-gray-400">Стойностите заместват placeholder-ите в промптите.</p>
-                            </div>
-                        </form>
-                    </div>
+                            </template>
+                            <p class="text-[11px] text-gray-400">Стойностите заместват placeholder-ите в промптите.</p>
+                        </div>
+                    </form>
                 </div>
             </template>
 
@@ -453,6 +460,45 @@
         </div>
     </div>
 
+    {{-- Хедър, ред 2 (само edit): toolbar — Шаблон | Изграждане | Лог ‖ Статус + Запис --}}
+    <template x-if="mode === 'edit'">
+        <div class="flex flex-wrap items-center gap-2 mb-3 shrink-0 bg-white border border-gray-200 rounded-xl px-2.5 py-2 shadow-sm">
+            {{-- Кой шаблон се редактира --}}
+            <div x-show="versions.length" class="flex items-center gap-1.5" title="Шаблон, който се редактира. Активният (●) е този, който се изпълнява при Run.">
+                <span class="text-xs text-gray-400 font-medium pl-1">Шаблон:</span>
+                <select x-model="selectedVersionId" @change="switchVersion()"
+                        class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[220px]">
+                    <template x-for="v in versions" :key="v.id">
+                        <option :value="String(v.id)" :selected="String(selectedVersionId) === String(v.id)"
+                                x-text="(v.is_active ? '● ' : '') + v.name"></option>
+                    </template>
+                </select>
+            </div>
+            <div x-show="versions.length" class="h-6 w-px bg-gray-200"></div>
+
+            {{-- Изграждане на графа --}}
+            <button @click="openGenConfig()" type="button" class="px-3 py-1.5 text-sm rounded-lg bg-violet-600 text-white hover:bg-violet-700 font-semibold">
+                ✨ Генериране на агенти
+            </button>
+            <button @click="openAgentPicker()" type="button" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-semibold">
+                ＋ Добави агент
+            </button>
+            <div class="h-6 w-px bg-gray-200"></div>
+            <button @click="openGenLog()" type="button" class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50" title="Пълен лог на генерирането на агенти">
+                📋 Лог
+            </button>
+
+            <div class="flex-1"></div>
+
+            {{-- Статус на записа + проверка/запис --}}
+            <span x-show="saving" class="text-xs text-gray-500" x-cloak>Запазване…</span>
+            <span x-show="saveError" class="text-xs text-red-600 max-w-[260px] truncate" x-cloak x-text="saveError" :title="saveError"></span>
+            <span x-show="savedAt && !saving && !saveError" class="text-xs text-green-600" x-cloak x-text="'✓ Запазено ' + savedAt"></span>
+            <button @click="validate()" type="button" class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Валидирай</button>
+            <button @click="save()" type="button" class="px-4 py-1.5 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800 font-semibold">💾 Запис</button>
+        </div>
+    </template>
+
     {{-- Stall warning: worker not running --}}
     <div x-show="stalledRun" x-cloak
          class="mb-3 shrink-0 bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-2.5 rounded-lg flex items-center gap-2">
@@ -486,6 +532,119 @@
         </div>
     </div>
 
+    {{-- Generation Config Modal: с кой провайдър/модел да се планира --}}
+    <div x-show="genCfg.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+         @keydown.escape.window="genCfg.open = false">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="genCfg.open = false"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-gray-100 shrink-0">
+                <h3 class="text-lg font-bold text-gray-900">✨ Генериране на агенти</h3>
+                <p class="text-xs text-gray-400 mt-0.5">Избери кой LLM да проектира pipeline-а — един провайдър за всичко или хибрид по фази.</p>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Провайдър</label>
+                        {{-- :selected — опциите от x-for се щамповат след x-model
+                             bind-а; без него селектът визуално пада на първата опция. --}}
+                        <select x-model="genCfg.provider" @change="genCfgProviderChanged()"
+                                class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                            <template x-for="p in plannerProviders" :key="p">
+                                <option :value="p" :selected="genCfg.provider === p" :disabled="!plannerAvailability[p]"
+                                        x-text="picker.providerLabel(p) + (plannerAvailability[p] ? '' : ' — недостъпен')"></option>
+                            </template>
+                            <option value="hybrid" :selected="genCfg.provider === 'hybrid'">🧪 Хибрид (различен модел за всяка фаза)</option>
+                        </select>
+                    </div>
+                    <div x-show="genCfg.provider !== 'hybrid'">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
+                        <select x-model="genCfg.model" @change="syncPickerFromSingle()"
+                                class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                            <template x-for="m in genCfgModels()" :key="m.value">
+                                <option :value="m.value" :selected="genCfg.model === m.value"
+                                        :title="m.title || ''" x-text="m.label"></option>
+                            </template>
+                        </select>
+                        <p class="text-[11px] text-gray-400 mt-1"
+                           x-show="picker.singleModelHint(genCfg.provider, genCfg.model)"
+                           x-text="picker.singleModelHint(genCfg.provider, genCfg.model)"></p>
+                    </div>
+                </div>
+
+                {{-- Един провайдър: компактна цена. Хибрид: пълният per-phase picker. --}}
+                <template x-if="genCfg.provider !== 'hybrid'">
+                    <div class="flex items-center justify-between rounded-xl bg-violet-50 border border-violet-200 px-4 py-3">
+                        <div class="text-sm font-semibold text-violet-900">Приблизителна цена на генерацията</div>
+                        <div class="text-sm font-bold tabular-nums"
+                             :class="picker.totalCost() > 0 ? 'text-amber-700' : 'text-green-700'"
+                             x-text="picker.totalCostLabel()"></div>
+                    </div>
+                </template>
+                <div x-show="genCfg.provider === 'hybrid'">
+                    @include('flows.partials.phase-picker')
+                </div>
+            </div>
+            <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 shrink-0">
+                <button type="button" @click="genCfg.open = false" class="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">Отказ</button>
+                <button type="button" @click="confirmGenConfig()" class="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-sm font-bold">
+                    ✨ Генерирай
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Save-as-template dialog (след успешна генерация) --}}
+    <div x-show="saveDlg.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md" @click.stop>
+            <div class="px-6 py-4 border-b border-gray-100">
+                <h3 class="text-lg font-bold text-gray-900">💾 Запазване на генерирания план</h3>
+                <p class="text-xs text-gray-400 mt-0.5">Агентите са изградени в графа. Как да ги запазим?</p>
+            </div>
+            <div class="p-6 space-y-3 text-sm">
+                <label class="flex items-start gap-2.5 border rounded-xl p-3 cursor-pointer"
+                       :class="saveDlg.mode === 'new' ? 'border-violet-400 bg-violet-50/60' : 'border-gray-200'">
+                    <input type="radio" value="new" x-model="saveDlg.mode" class="mt-0.5">
+                    <span>
+                        <span class="font-semibold text-gray-900 block">Запази като нов шаблон</span>
+                        <span class="text-xs text-gray-500">Текущият шаблон остава непокътнат.</span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-2.5 border rounded-xl p-3 cursor-pointer"
+                       :class="saveDlg.mode === 'overwrite' ? 'border-violet-400 bg-violet-50/60' : 'border-gray-200'"
+                       x-show="selectedVersionId">
+                    <input type="radio" value="overwrite" x-model="saveDlg.mode" class="mt-0.5">
+                    <span>
+                        <span class="font-semibold text-gray-900 block">Презапиши текущия шаблон</span>
+                        <span class="text-xs text-gray-500" x-text="'„' + (selectedVersionName() || '—') + '“ ще получи новия план.'"></span>
+                    </span>
+                </label>
+
+                <div x-show="saveDlg.mode === 'new'" class="space-y-2.5 pt-1">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Име на шаблона</label>
+                        <input type="text" x-model="saveDlg.name"
+                               class="w-full border border-gray-300 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500">
+                    </div>
+                    <label class="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" x-model="saveDlg.isActive" class="rounded">
+                        Направи го активен (този шаблон ще се изпълнява при Run)
+                    </label>
+                </div>
+
+                <p x-show="saveDlg.error" class="text-xs text-red-600" x-text="saveDlg.error"></p>
+            </div>
+            <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+                <button type="button" @click="saveDlg.open = false" class="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">По-късно</button>
+                <button type="button" @click="confirmSaveDialog()" :disabled="saveDlg.saving"
+                        class="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 text-sm font-bold">
+                    <span x-show="!saveDlg.saving">💾 Запази</span>
+                    <span x-show="saveDlg.saving" class="animate-pulse">Запазване…</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     {{-- Generation Modal (non-dismissable) --}}
     <div x-show="gen.active" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
@@ -505,7 +664,7 @@
                 <p x-text="gen.error"></p>
                 <div class="mt-3 flex gap-2 justify-end">
                     <button type="button" @click="gen.active = false" class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs">Затвори</button>
-                    <button type="button" @click="startGeneration(gen.autoSave)" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-xs">Опитай пак</button>
+                    <button type="button" @click="startGeneration(gen.autoSave, gen.phases)" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-xs">Опитай пак</button>
                 </div>
             </div>
         </div>
@@ -611,45 +770,68 @@
                 <p x-show="genLogModal.error" x-cloak class="text-sm text-red-600" x-text="genLogModal.error"></p>
                 <p x-show="!genLogModal.loading && !genLogModal.error && genLogModal.logs.length === 0" x-cloak class="text-sm text-gray-400">Все още няма записи за генериране.</p>
 
-                <template x-for="log in genLogModal.logs" :key="log.id">
+                <template x-for="group in genLogModal.logs" :key="group.id">
                     <div class="border border-gray-200 rounded-xl overflow-hidden">
-                        <div class="px-4 py-3 bg-gray-50 flex items-center justify-between cursor-pointer" @click="log._expanded = !log._expanded">
+                        <div class="px-4 py-3 bg-gray-50 flex items-center justify-between cursor-pointer" @click="group._expanded = !group._expanded">
                             <div class="flex items-center gap-3 text-sm">
-                                <span class="font-semibold text-gray-900" x-text="log.created_at"></span>
+                                <span class="font-semibold text-gray-900" x-text="group.created_at"></span>
                                 <span class="text-xs px-2 py-0.5 rounded-full"
-                                      :class="log.status === 'completed' ? 'bg-green-100 text-green-700' : (log.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')"
-                                      x-text="log.status"></span>
-                                <span class="text-xs text-gray-500" x-text="(log.provider || '—') + ' · ' + (log.model || '—')"></span>
-                                <span class="text-xs text-gray-400" x-text="(log.parsed_count ?? '—') + ' агента'"></span>
+                                      :class="group.status === 'completed' ? 'bg-green-100 text-green-700' : (group.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')"
+                                      x-text="group.status"></span>
+                                <span class="text-xs text-gray-500" x-text="(group.provider || '—') + ' · ' + (group.model || '—')"></span>
+                                <span class="text-xs text-gray-400" x-text="(group.parsed_count ?? '—') + ' агента'"></span>
+                                <span class="text-xs font-semibold text-emerald-700" x-text="group.cost_usd != null ? '$' + Number(group.cost_usd).toFixed(4) : '—'"></span>
+                                <span class="text-xs text-gray-400" x-text="group.duration_ms ? (Math.round(group.duration_ms/100)/10 + ' сек') : ''"></span>
                             </div>
-                            <span class="text-gray-400 text-xs" x-text="log._expanded ? '▲' : '▼'"></span>
+                            <span class="text-gray-400 text-xs" x-text="group._expanded ? '▲' : '▼'"></span>
                         </div>
-                        <div x-show="log._expanded" x-cloak class="p-4 space-y-3">
-                            <div class="grid grid-cols-3 gap-2 text-xs">
-                                <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Провайдър:</span> <span class="font-semibold" x-text="log.provider || '—'"></span></div>
-                                <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Модел:</span> <span class="font-semibold" x-text="log.model || '—'"></span></div>
-                                <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Времетраене:</span> <span class="font-semibold" x-text="log.duration_ms ? (Math.round(log.duration_ms/100)/10 + ' сек') : '—'"></span></div>
-                            </div>
-                            <div x-show="log.error" x-cloak>
-                                <p class="text-xs font-semibold text-red-600 mb-1">Грешка</p>
-                                <pre class="whitespace-pre-wrap break-words text-xs text-red-700 bg-red-50 rounded-lg p-3" x-text="log.error"></pre>
-                            </div>
-                            <div>
-                                <p class="text-xs font-semibold text-gray-500 mb-1">Опции (параметри към модела)</p>
-                                <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3" x-text="JSON.stringify(log.options, null, 2)"></pre>
-                            </div>
-                            <div>
-                                <p class="text-xs font-semibold text-gray-500 mb-1">Системен промпт</p>
-                                <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="log.system_prompt || '—'"></pre>
-                            </div>
-                            <div>
-                                <p class="text-xs font-semibold text-gray-500 mb-1">Потребителски промпт</p>
-                                <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="log.user_message || '—'"></pre>
-                            </div>
-                            <div>
-                                <p class="text-xs font-semibold text-gray-500 mb-1">Пълен суров отговор</p>
-                                <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-900/5 rounded-lg p-3 max-h-80 overflow-y-auto" x-text="log.raw_response || '—'"></pre>
-                            </div>
+                        <div x-show="group._expanded" x-cloak class="p-3 space-y-2">
+                            <template x-for="phase in group.phases" :key="phase.id">
+                                <div class="border border-gray-100 rounded-lg overflow-hidden">
+                                    <div class="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-50" @click="phase._expanded = !phase._expanded">
+                                        <div class="flex items-center gap-3 text-xs">
+                                            <span class="px-2 py-0.5 rounded-full"
+                                                  :class="phase.status === 'completed' ? 'bg-green-100 text-green-700' : (phase.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')"
+                                                  x-text="phase.status"></span>
+                                            <span class="text-gray-600 font-medium" x-text="(phase.provider || '—') + ' · ' + (phase.model || '—')"></span>
+                                            <span class="text-gray-400" x-text="(phase.parsed_count ?? '—') + ' агента'"></span>
+                                            <span class="font-semibold text-emerald-700" x-text="phase.cost_usd != null ? '$' + Number(phase.cost_usd).toFixed(4) : '—'"></span>
+                                            <span class="text-gray-400" x-text="phase.duration_ms ? (Math.round(phase.duration_ms/100)/10 + ' сек') : ''"></span>
+                                        </div>
+                                        <span class="text-gray-400 text-xs" x-text="phase._expanded ? '▲' : '▼'"></span>
+                                    </div>
+                                    <div x-show="phase._expanded" x-cloak class="p-4 space-y-3 border-t border-gray-100">
+                                        <div class="grid grid-cols-3 gap-2 text-xs">
+                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Провайдър:</span> <span class="font-semibold" x-text="phase.provider || '—'"></span></div>
+                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Модел:</span> <span class="font-semibold" x-text="phase.model || '—'"></span></div>
+                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Времетраене:</span> <span class="font-semibold" x-text="phase.duration_ms ? (Math.round(phase.duration_ms/100)/10 + ' сек') : '—'"></span></div>
+                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Цена:</span> <span class="font-semibold" x-text="phase.cost_usd != null ? '$' + Number(phase.cost_usd).toFixed(4) : '—'"></span></div>
+                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Токени (вход / изход):</span> <span class="font-semibold" x-text="(phase.prompt_tokens ?? '—') + ' / ' + (phase.completion_tokens ?? '—')"></span></div>
+                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Час:</span> <span class="font-semibold" x-text="phase.created_at || '—'"></span></div>
+                                        </div>
+                                        <div x-show="phase.error" x-cloak>
+                                            <p class="text-xs font-semibold text-red-600 mb-1">Грешка</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-red-700 bg-red-50 rounded-lg p-3" x-text="phase.error"></pre>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs font-semibold text-gray-500 mb-1">Опции (параметри към модела)</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3" x-text="JSON.stringify(phase.options, null, 2)"></pre>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs font-semibold text-gray-500 mb-1">Системен промпт</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="phase.system_prompt || '—'"></pre>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs font-semibold text-gray-500 mb-1">Потребителски промпт</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="phase.user_message || '—'"></pre>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs font-semibold text-gray-500 mb-1">Пълен суров отговор</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-900/5 rounded-lg p-3 max-h-80 overflow-y-auto" x-text="phase.raw_response || '—'"></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </template>
@@ -1261,6 +1443,10 @@ function flowBuilder(config) {
         runUrl: config.runUrl,
         // Per-run inputs: @{{topic}} default + declared custom placeholders.
         runTopic: config.flowTopic || '',
+        // Site flows: target URL from the flow description, editable per run
+        // (overrides the seed @{{url}}; empty falls back to the description URL).
+        flowTargetUrl: config.flowTargetUrl || '',
+        runSiteUrl: config.flowTargetUrl || '',
         runInputs: Array.isArray(config.runInputs) ? config.runInputs : [],
         showRunInputs: false,
         mode: config.mode || 'edit',
@@ -1270,8 +1456,29 @@ function flowBuilder(config) {
         validation: null,
         generating: {},
 
+        // ── Шаблони (граф версии) ──
+        versions: (config.versions || []).map(v => ({ ...v })),
+        selectedVersionId: config.selectedVersionId ? String(config.selectedVersionId) : '',
+        activeVersionId: config.activeVersionId ? String(config.activeVersionId) : '',
+        runVersionId: config.activeVersionId ? String(config.activeVersionId) : '',
+        _editingVersionId: config.selectedVersionId ? String(config.selectedVersionId) : '',
+        _baseline: null,
+
+        // ── Generation config (провайдър/модел/хибрид per фаза) ──
+        plannerProviders: config.plannerProviders || [],
+        plannerAvailability: config.plannerAvailability || {},
+        picker: window.plannerPhasePicker(config.plannerDefaults || {}, {
+            providers: config.plannerProviders || [],
+            availability: config.plannerAvailability || {},
+            cloudModels: config.cloudModels || {},
+            ollamaModels: config.models || [],
+            pricing: config.pricing || {},
+        }),
+        genCfg: { open: false, provider: 'openai', model: '' },
+        saveDlg: { open: false, mode: 'new', name: '', isActive: true, agents: null, meta: null, saving: false, error: '' },
+
         // ── Agent generation (DAG) ──
-        gen: { active: false, progress: 0, message: '', stage: '', error: null, token: null, autoSave: false, _timer: null, _rot: null, _stageChangedAt: 0, _narratorStage: '', _narratorIndex: 0, _steadyLineShown: false, _lastNarratorDelay: 0 },
+        gen: { active: false, progress: 0, message: '', stage: '', error: null, token: null, autoSave: false, phases: null, _timer: null, _rot: null, _stageChangedAt: 0, _narratorStage: '', _narratorIndex: 0, _steadyLineShown: false, _lastNarratorDelay: 0 },
 
         // ── Run/view per-node data + modals ──
         runData: {},          // node_key → { status, output, raw_output, error, model, duration_ms, tokens_used, steps }
@@ -1325,6 +1532,10 @@ function flowBuilder(config) {
 
             this.ensureBoundaryNodes();
 
+            // Dirty-снимка СЛЕД import + boundary възлите — switchVersion
+            // сравнява срещу нея, за да предупреди за незапазени промени.
+            this._baseline = JSON.stringify(this.editor.export());
+
             this.editor.on('nodeSelected', (id) => { this.selectedId = id; });
             this.editor.on('nodeUnselected', () => {
                 if (!this.propertiesOpen) this.selectedId = null;
@@ -1355,19 +1566,12 @@ function flowBuilder(config) {
                     if (config.autoOpenFinal) this.openFinal();
                 });
             } else if (config.generate) {
-                // Fresh flow created via "Запази и генерирай агенти".
+                // Fresh flow created via "Запази и генерирай агенти" — plan on
+                // the .env defaults; the save bootstraps the "Default" template.
                 this.$nextTick(() => this.startGeneration(true));
-            } else if (config.stagedAgents && config.stagedAgents.length) {
-                // Plan chosen on the A/B comparison page ("Използвай този план"):
-                // build it as a graph and auto-save (= одобрение + plan library).
-                this.$nextTick(async () => {
-                    try {
-                        this.applyGeneratedGraph(config.stagedAgents);
-                        await this.save();
-                    } catch (e) {
-                        console.error('staged plan apply failed', e);
-                    }
-                });
+            } else if (config.newTemplate) {
+                // Dashboard "+ Нов шаблон": first pick provider/model/hybrid.
+                this.$nextTick(() => this.openGenConfig());
             }
         },
 
@@ -2007,13 +2211,18 @@ function flowBuilder(config) {
             return this.editor.export();
         },
 
-        async save() {
+        // Записва редактора в ИЗБРАНИЯ шаблон (version_id). extra може да носи
+        // agents/generator/intent при презапис след прясна генерация.
+        async save(extra = {}) {
             // Never persist changes when in run or view mode — dragging nodes
             // around for visual clarity should not overwrite the saved graph.
             if (this.mode !== 'edit') return false;
             this.saving = true;
             this.saveError = null;
             try {
+                const body = { graph: this.export(), ...extra };
+                if (this.selectedVersionId) body.version_id = Number(this.selectedVersionId);
+
                 const res = await fetch(config.saveUrl, {
                     method: 'POST',
                     headers: {
@@ -2021,7 +2230,7 @@ function flowBuilder(config) {
                         'X-CSRF-TOKEN': config.csrf,
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify({ graph: this.export() }),
+                    body: JSON.stringify(body),
                 });
 
                 const data = await res.json().catch(() => ({}));
@@ -2030,6 +2239,8 @@ function flowBuilder(config) {
                     return false;
                 }
 
+                if (data.version) this.absorbVersion(data.version);
+                this._baseline = JSON.stringify(this.editor.export());
                 this.savedAt = new Date().toLocaleTimeString();
                 return true;
             } catch (e) {
@@ -2039,6 +2250,144 @@ function flowBuilder(config) {
             } finally {
                 this.saving = false;
             }
+        },
+
+        // ── Шаблони (граф версии) ─────────────────────────────────────────
+        selectedVersionName() {
+            const v = this.versions.find(v => String(v.id) === String(this.selectedVersionId));
+            return v ? v.name : '';
+        },
+
+        // Слива създадена/обновена версия в dropdown състоянието.
+        absorbVersion(v) {
+            if (v.is_active) {
+                this.versions.forEach(x => { x.is_active = String(x.id) === String(v.id); });
+                this.activeVersionId = String(v.id);
+                this.runVersionId = String(v.id);
+            }
+            const idx = this.versions.findIndex(x => String(x.id) === String(v.id));
+            if (idx >= 0) {
+                this.versions[idx] = { ...this.versions[idx], ...v };
+            } else {
+                this.versions.unshift({ ...v });
+            }
+            if (!this.selectedVersionId) {
+                this.selectedVersionId = String(v.id);
+                this._editingVersionId = String(v.id);
+            }
+        },
+
+        switchVersion() {
+            if (String(this.selectedVersionId) === String(this._editingVersionId)) return;
+            const dirty = JSON.stringify(this.editor.export()) !== this._baseline;
+            if (dirty && !confirm('Имаш незапазени промени по текущия шаблон. Превключване без запис?')) {
+                this.selectedVersionId = this._editingVersionId;
+                return;
+            }
+            window.location = config.builderUrl + '?version=' + this.selectedVersionId;
+        },
+
+        // ── Generation config popup ───────────────────────────────────────
+        openGenConfig() {
+            const defaults = config.plannerDefaults || {};
+            const specs = Object.values(defaults).map(s => (s.provider || '') + ':' + (s.model || ''));
+            const uniform = specs.length && specs.every(s => s === specs[0]);
+            if (uniform) {
+                this.genCfg.provider = defaults.pipeline_design?.provider || 'openai';
+                this.genCfg.model = defaults.pipeline_design?.model || '';
+                this.syncPickerFromSingle();
+            } else {
+                // .env вече описва хибрид → отваряме направо per-phase изгледа.
+                this.genCfg.provider = 'hybrid';
+            }
+            this.genCfg.open = true;
+        },
+
+        genCfgModels() {
+            return this.picker.singleModelOptions(this.genCfg.provider, this.genCfg.model);
+        },
+
+        genCfgProviderChanged() {
+            if (this.genCfg.provider === 'hybrid') return;
+            // Първо нулирай модела: singleModelOptions() unshift-ва текущия
+            // (вече стар) модел като custom опция и той би останал избран.
+            this.genCfg.model = '';
+            const first = this.genCfgModels()[0];
+            this.genCfg.model = first ? first.value : '';
+            this.syncPickerFromSingle();
+        },
+
+        // Единичен провайдър = всичките 4 фази на него (picker-ът смята цената).
+        syncPickerFromSingle() {
+            if (this.genCfg.provider === 'hybrid') return;
+            for (const phase of this.picker.phaseOrder) {
+                this.picker.phases[phase] = { provider: this.genCfg.provider, model: this.genCfg.model || '' };
+            }
+        },
+
+        confirmGenConfig() {
+            this.genCfg.open = false;
+            this.startGeneration(true, this.picker.payload());
+        },
+
+        confirmSaveDialog() {
+            this.saveDlg.error = '';
+
+            if (this.saveDlg.mode === 'overwrite') {
+                this.saveDlg.saving = true;
+                this.save({
+                    agents: this.saveDlg.agents,
+                    generator: this.saveDlg.meta?.generator || null,
+                    intent: this.saveDlg.meta?.intent || null,
+                    cost_usd: this.saveDlg.meta?.cost_usd ?? null,
+                    duration_ms: this.saveDlg.meta?.duration_ms ?? null,
+                }).then(ok => {
+                    this.saveDlg.saving = false;
+                    if (ok) this.saveDlg.open = false;
+                    else this.saveDlg.error = this.saveError || 'Грешка при запис.';
+                });
+                return;
+            }
+
+            if (!this.saveDlg.name.trim()) {
+                this.saveDlg.error = 'Въведи име на шаблона.';
+                return;
+            }
+
+            this.saveDlg.saving = true;
+            fetch(config.versionStoreUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    name: this.saveDlg.name.trim(),
+                    is_active: this.saveDlg.isActive,
+                    graph: this.export(),
+                    agents: this.saveDlg.agents,
+                    generator: this.saveDlg.meta?.generator || null,
+                    intent: this.saveDlg.meta?.intent || null,
+                    cost_usd: this.saveDlg.meta?.cost_usd ?? null,
+                    duration_ms: this.saveDlg.meta?.duration_ms ?? null,
+                }),
+            })
+            .then(res => res.json().then(data => ({ ok: res.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok || !data.ok) {
+                    this.saveDlg.error = data.error || 'Грешка при запис на шаблона.';
+                    return;
+                }
+                this.absorbVersion(data.version);
+                // Редакторът вече показва съдържанието на НОВИЯ шаблон.
+                this.selectedVersionId = String(data.version.id);
+                this._editingVersionId = String(data.version.id);
+                const url = new URL(window.location);
+                url.searchParams.set('version', data.version.id);
+                window.history.replaceState({}, '', url);
+                this._baseline = JSON.stringify(this.editor.export());
+                this.savedAt = new Date().toLocaleTimeString();
+                this.saveDlg.open = false;
+            })
+            .catch(e => { this.saveDlg.error = 'Мрежова грешка: ' + e.message; })
+            .finally(() => { this.saveDlg.saving = false; });
         },
 
         async validate() {
@@ -2100,10 +2449,10 @@ function flowBuilder(config) {
                 this.$nextTick(() => this.openFinal());
             }
 
-            // node_runs gives node_key+status; agent_runs (same order, graph mode) carries
-            // output/raw/model/tokens/input. Merge both by index into runData keyed by node_key.
-            (data.node_runs || []).forEach((nr, i) => {
-                const ar = (data.agent_runs || [])[i] || {};
+            // The poll is metadata-only (no input/output/raw_output/params — those
+            // are fetched on demand via fetchNodeDetail). Merge preserves any
+            // already-fetched detail; _detailStatus invalidates it on status change.
+            (data.node_runs || []).forEach((nr) => {
                 const key = String(nr.node_key);
                 this.runData[key] = Object.assign({}, this.runData[key], {
                     status: nr.status,
@@ -2111,12 +2460,10 @@ function flowBuilder(config) {
                     started_at_iso: nr.started_at_iso,
                     completed_at_iso: nr.completed_at_iso,
                     error: nr.error,
-                    output: ar.output,
-                    raw_output: ar.raw_output,
-                    input: ar.input,
-                    model: ar.model_used,
-                    params: ar.params,
-                    tokens_used: ar.tokens_used,
+                    model: nr.model_used,
+                    tokens_used: nr.tokens_used,
+                    output_preview: nr.output_preview,
+                    output_chars: nr.output_chars,
                 });
             });
 
@@ -2289,25 +2636,55 @@ function flowBuilder(config) {
             return marked.parse(String(text), { breaks: false, gfm: true });
         },
 
-        openResult(key) {
-            const d = this.runData[key] || {};
+        // On-demand fetch of the full node payload (input/output/raw_output/params)
+        // — the poll ships metadata only. Cached per node until its status changes.
+        async fetchNodeDetail(key) {
+            const cached = this.runData[key] || {};
+            if (cached._detailStatus && cached._detailStatus === cached.status) return cached;
+            if (!config.nodeDetailUrlBase) return cached;
+            try {
+                const res = await fetch(config.nodeDetailUrlBase + '/' + encodeURIComponent(key), { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) return cached;
+                const detail = await res.json();
+                const current = this.runData[key] || {};
+                this.runData[key] = Object.assign({}, current, {
+                    output: detail.output,
+                    raw_output: detail.raw_output,
+                    input: detail.input,
+                    params: detail.params,
+                    model: detail.model_used || current.model,
+                    _detailStatus: current.status,
+                });
+                return this.runData[key];
+            } catch (e) {
+                return cached;
+            }
+        },
+
+        async openResult(key) {
             const node = this.editor.getNodeFromId(key);
             const title = node?.data?.name || ('Възел ' + key);
+            let d = this.runData[key] || {};
             let body;
             if (!d.status || d.status === 'pending') {
                 body = 'Този агент още не е стартирал.';
             } else if (d.status === 'running') {
                 body = 'Агентът работи в момента — изходът ще се появи, когато приключи.';
             } else {
-                body = d.output || '(няма изход)';
+                this.resultModal = { open: true, title, body: d.output || d.output_preview || 'Зареждане…' };
+                d = await this.fetchNodeDetail(key);
+                if (this.resultModal.open && this.resultModal.title === title) {
+                    this.resultModal.body = d.output || '(няма изход)';
+                }
+                return;
             }
             this.resultModal = { open: true, title, body };
         },
 
-        openLog(key) {
-            const d = this.runData[key] || {};
+        async openLog(key) {
             const node = this.editor.getNodeFromId(key);
             const title = node?.data?.name || ('Възел ' + key);
+            let d = this.runData[key] || {};
             const status = d.status || (this.mode === 'edit' ? '—' : 'pending');
 
             // Friendly status label.
@@ -2328,6 +2705,9 @@ function flowBuilder(config) {
                 };
                 return;
             }
+
+            // The poll carries metadata only — pull input/output/params on demand.
+            d = await this.fetchNodeDetail(key);
 
             const dur = d.duration_ms ? (Math.round(d.duration_ms / 100) / 10) + ' сек'
                       : (status === 'running' && d.started_at_iso)
@@ -2381,7 +2761,10 @@ function flowBuilder(config) {
                 const res = await fetch(config.generationLogsUrl, { headers: { 'Accept': 'application/json' } });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                this.genLogModal.logs = (data.logs || []).map(l => Object.assign({ _expanded: false }, l));
+                this.genLogModal.logs = (data.groups || []).map(g => Object.assign({}, g, {
+                    _expanded: false,
+                    phases: (g.phases || []).map(p => Object.assign({ _expanded: false }, p)),
+                }));
             } catch (e) {
                 this.genLogModal.error = 'Неуспешно зареждане на логовете: ' + e.message;
             } finally {
@@ -2391,7 +2774,7 @@ function flowBuilder(config) {
 
         // ───────────────────────── Agent generation (DAG) ─────────────────────────
 
-        startGeneration(autoSave) {
+        startGeneration(autoSave, phases = null) {
             if (this.gen.active) return;
             const hasNodes = Object.values(this.editor.export().drawflow.Home.data || {})
                 .some(n => !this.isBoundaryData(n.data));
@@ -2407,6 +2790,7 @@ function flowBuilder(config) {
                 error: null,
                 token: null,
                 autoSave: !!autoSave,
+                phases,
                 _timer: null,
                 _rot: null,
                 _stageChangedAt: Date.now(),
@@ -2420,7 +2804,14 @@ function flowBuilder(config) {
             fetch(config.generateUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
-                body: JSON.stringify({ company_id: config.companyId, flow_id: config.flowId, name: config.flowName, description: config.flowDescription }),
+                body: JSON.stringify({
+                    company_id: config.companyId,
+                    flow_id: config.flowId,
+                    name: config.flowName,
+                    description: config.flowDescription,
+                    // null → планира на .env defaults; иначе per-phase изборът от попъпа.
+                    phases: phases || undefined,
+                }),
             })
             .then(r => r.json().then(d => ({ ok: r.ok, d })))
             .then(({ ok, d }) => {
@@ -2441,7 +2832,7 @@ function flowBuilder(config) {
                     if (data.stage) this.setGenerationStage(data.stage);
                     if (data.status === 'completed') {
                         this.gen.progress = 100;
-                        await this.finishGeneration(data.agents || []);
+                        await this.finishGeneration(data.agents || [], data);
                         return;
                     }
                     if (data.status === 'failed' || data.status === 'expired') {
@@ -2556,7 +2947,7 @@ function flowBuilder(config) {
             this.gen.message = '';
         },
 
-        async finishGeneration(agents) {
+        async finishGeneration(agents, meta = {}) {
             this.stopGenerationTimers();
             this.gen.message = 'Готово — изграждам графа…';
             try {
@@ -2566,10 +2957,33 @@ function flowBuilder(config) {
                 this.failGeneration('Грешка при изграждане на графа: ' + e.message);
                 return;
             }
-            if (this.gen.autoSave) {
-                await this.save();
+
+            // Първа генерация на flow-а (?generate=1) → авто-запис, който
+            // bootstrap-ва шаблона "Default" (активен) без диалози.
+            if (this.versions.length === 0) {
+                await this.save({
+                    agents,
+                    generator: meta.generator || null,
+                    intent: meta.intent || null,
+                    cost_usd: meta.cost_usd ?? null,
+                    duration_ms: meta.duration_ms ?? null,
+                });
+                this.gen.active = false;
+                return;
             }
+
+            // Иначе: потребителят решава — нов шаблон или презапис на текущия.
             this.gen.active = false;
+            this.saveDlg = {
+                open: true,
+                mode: 'new',
+                name: meta.generator?.label || 'Нов шаблон',
+                isActive: true,
+                agents,
+                meta,
+                saving: false,
+                error: '',
+            };
         },
 
         // Build Drawflow nodes + edges from generated agents (with depends_on → DAG).
