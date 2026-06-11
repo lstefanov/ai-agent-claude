@@ -113,7 +113,7 @@ abstract class BaseAgent
         );
         $this->lastRawOutput = $output;
 
-        return $this->sanitizeModelOutput($output);
+        return $this->sanitizeModelOutput($output, $systemPrompt, $userMessage, $options);
     }
 
     protected function buildOutputInstructions(Agent $agent): string
@@ -143,10 +143,14 @@ abstract class BaseAgent
         return "\n\n---\nOUTPUT REQUIREMENTS:\n".implode("\n", $lines);
     }
 
-    protected function sanitizeModelOutput(string $output): string
+    protected function sanitizeModelOutput(string $output, ?string $systemPrompt = null, ?string $userMessage = null, ?array $options = null): string
     {
         $cleaned = preg_replace('/<think\b[^>]*>.*?<\/think>/is', '', $output);
         $cleaned = trim($cleaned ?? $output);
+
+        if ($cleaned === '' && $this->promptLikelyExhaustedContext($systemPrompt, $userMessage, $options)) {
+            throw new RuntimeException('Context window exhausted (prompt too large for num_ctx). Truncate input or increase num_ctx.');
+        }
 
         if ($cleaned === '' || preg_match('/<\/?think\b/i', $cleaned)) {
             throw new RuntimeException('Model returned hidden reasoning instead of a user-facing response.');
@@ -166,7 +170,34 @@ abstract class BaseAgent
             }
         }
 
+        if (array_key_exists('think', $config) && $config['think'] !== '' && $config['think'] !== null) {
+            $options['think'] = filter_var($config['think'], FILTER_VALIDATE_BOOL);
+        }
+
+        if (! array_key_exists('think', $options) && preg_match('/^(qwen3|deepseek-r1)\b/i', $agent->model ?? '')) {
+            $options['think'] = false;
+        }
+
         return $options;
+    }
+
+    protected function promptLikelyExhaustedContext(?string $systemPrompt, ?string $userMessage, ?array $options): bool
+    {
+        if ($systemPrompt === null || $userMessage === null || ! is_array($options)) {
+            return false;
+        }
+
+        $numCtx = (int) ($options['num_ctx'] ?? 0);
+        if ($numCtx <= 0) {
+            return false;
+        }
+
+        $inputTokens = (int) ceil((mb_strlen($systemPrompt) + mb_strlen($userMessage)) / 2.5);
+        $replyTokens = isset($options['num_predict']) && (int) $options['num_predict'] > 0
+            ? (int) $options['num_predict']
+            : 4096;
+
+        return ($inputTokens + $replyTokens) >= ($numCtx - 256);
     }
 
     /**

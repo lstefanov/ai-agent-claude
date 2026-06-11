@@ -18,6 +18,23 @@ class GoogleReviewsTool implements AgentTool
         return 'google_reviews';
     }
 
+    public function description(): string
+    {
+        return 'Намира Google ревюта и рейтинг за бизнес по име/локация (Google Places API).';
+    }
+
+    public function parameters(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'query' => ['type' => 'string', 'description' => 'Име на бизнеса, по желание с град/адрес.'],
+                'region' => ['type' => 'string', 'description' => 'Двубуквен код на държава, напр. "bg" (по избор).'],
+            ],
+            'required' => ['query'],
+        ];
+    }
+
     /**
      * @param  array{query?: string, region?: string}  $params
      */
@@ -42,7 +59,7 @@ class GoogleReviewsTool implements AgentTool
             $lines[] = 'Google оценка: '.$data['rating'].' / 5 ('.($data['total'] ?? 0).' ревюта)';
         }
         foreach ($data['reviews'] as $i => $r) {
-            $n      = $i + 1;
+            $n = $i + 1;
             $rating = $r['rating'] !== null ? $r['rating'].'★' : '';
             $lines[] = "Ревю {$n} — {$r['author']} ({$rating} {$r['time']}): {$r['text']}";
         }

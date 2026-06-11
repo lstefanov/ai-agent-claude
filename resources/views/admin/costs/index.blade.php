@@ -35,7 +35,7 @@
 </div>
 
 {{-- ── Summary cards ─────────────────────────────────────────────────── --}}
-<div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
+<div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-4">
     <div class="bg-white border border-gray-200 rounded-xl p-4">
         <p class="text-xs text-gray-500 uppercase tracking-wide">Общо разход</p>
         <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsd($summary['total_cost']) }}</p>
@@ -49,14 +49,10 @@
         <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsd($summary['today_cost']) }}</p>
     </div>
     <div class="bg-white border border-gray-200 rounded-xl p-4">
-        <p class="text-xs text-gray-500 uppercase tracking-wide">Средно / платена заявка</p>
-        <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsd($summary['avg_cost']) }}</p>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
         <p class="text-xs text-gray-500 uppercase tracking-wide">Заявки</p>
         <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($summary['total_requests']) }}</p>
         <p class="text-xs text-gray-500 mt-1">
-            <span class="text-emerald-600 font-medium">{{ $fmtInt($summary['paid_requests']) }}</span> платени ·
+            <span class="text-emerald-600 font-medium">{{ $fmtInt($summary['paid_requests']) }}</span> платени<br>
             <span class="text-gray-600 font-medium">{{ $fmtInt($summary['ollama_requests']) }}</span> безпл.
         </p>
     </div>
@@ -64,7 +60,7 @@
         <p class="text-xs text-gray-500 uppercase tracking-wide">Токени</p>
         <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($summary['paid_tokens'] + $summary['free_tokens']) }}</p>
         <p class="text-xs text-gray-500 mt-1">
-            <span class="text-emerald-600 font-medium">{{ $fmtInt($summary['paid_tokens']) }}</span> платени ·
+            <span class="text-emerald-600 font-medium">{{ $fmtInt($summary['paid_tokens']) }}</span> платени<br>
             <span class="text-gray-600 font-medium">{{ $fmtInt($summary['free_tokens']) }}</span> безпл.
         </p>
     </div>
@@ -74,7 +70,12 @@
 @if(count($providers))
 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-8">
     @foreach($providers as $p)
-        @php [$border, $label, $value] = $providerStyles[$p['provider']] ?? $defaultStyle; @endphp
+        @php
+            [$border, $label, $value] = $providerStyles[$p['provider']] ?? $defaultStyle;
+            $isOllama = $p['provider'] === 'ollama';
+            $ollamaTop = 4;
+            $ollamaExtra = $isOllama ? max(0, count($p['models']) - $ollamaTop) : 0;
+        @endphp
         <div class="bg-white border {{ $border }} rounded-xl p-4">
             <div class="flex items-baseline justify-between">
                 <p class="text-xs {{ $label }} uppercase tracking-wide font-semibold">{{ $p['provider'] }}</p>
@@ -82,16 +83,31 @@
             </div>
             <p class="text-2xl font-bold {{ $value }} mt-1">{{ $fmtUsdSmart($p['total']) }}</p>
             <ul class="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-                @foreach($p['models'] as $m)
-                    <li class="flex items-baseline justify-between gap-2 text-xs">
-                        <span class="text-gray-600 truncate" title="{{ $m['model'] }}">{{ $m['model'] }}</span>
+                @foreach($p['models'] as $idx => $m)
+                    @php $unused = ($m['requests'] ?? 0) === 0; @endphp
+                    <li class="flex items-baseline justify-between gap-2 text-xs {{ $unused ? 'opacity-40' : '' }}"
+                        @if($isOllama && $ollamaExtra > 0 && $idx >= $ollamaTop)
+                            style="display:none;" data-ollama-extra
+                        @endif>
+                        <span class="{{ $unused ? 'text-gray-400' : 'text-gray-600' }} truncate" title="{{ $m['model'] }}">{{ $m['model'] }}</span>
                         <span class="shrink-0 text-right">
-                            <span class="font-semibold text-gray-800">{{ $fmtUsdSmart($m['cost']) }}</span>
-                            <span class="text-gray-400 ml-1">{{ $fmtInt($m['requests']) }}×</span>
+                            @if(!$unused)
+                                <span class="font-semibold text-gray-800">{{ $fmtUsdSmart($m['cost']) }}</span>
+                                <span class="text-gray-400 ml-1">{{ $fmtInt($m['requests']) }}×</span>
+                            @else
+                                <span class="text-gray-300 italic">—</span>
+                            @endif
                         </span>
                     </li>
                 @endforeach
             </ul>
+            @if($isOllama && $ollamaExtra > 0)
+                <button onclick="toggleOllamaModels(this)"
+                        data-extra="{{ $ollamaExtra }}"
+                        class="mt-2 text-xs text-gray-400 hover:text-gray-600 transition w-full text-left">
+                    покажи всички ({{ $ollamaExtra }} още) ↓
+                </button>
+            @endif
         </div>
     @endforeach
 </div>
@@ -406,7 +422,7 @@ const typeBadge = (type) => {
     const [icon, label, s] = type === 'generation'
         ? ['🤖', 'Създаване на агенти', 'background:#dbeafe;color:#1d4ed8']
         : ['▶',  'Изпълнение',          'background:#dcfce7;color:#166534'];
-    return `<span style="${s};padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500;">${icon} ${label}</span>`;
+    return `<span style="${s};padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500;white-space:nowrap;display:inline-block;">${icon} ${label}</span>`;
 };
 
 // ── Main grouped Grid.js ──────────────────────────────────────────────
@@ -612,5 +628,16 @@ document.addEventListener('keydown', (e) => {
         else { closeGroupModal(); }
     }
 });
+
+function toggleOllamaModels(btn) {
+    const ul = btn.previousElementSibling;
+    const extras = ul.querySelectorAll('[data-ollama-extra]');
+    const expanded = btn.dataset.expanded === '1';
+    extras.forEach(li => li.style.display = expanded ? 'none' : '');
+    btn.dataset.expanded = expanded ? '0' : '1';
+    btn.textContent = expanded
+        ? `покажи всички (${btn.dataset.extra} още) ↓`
+        : 'скрий ↑';
+}
 </script>
 @endsection

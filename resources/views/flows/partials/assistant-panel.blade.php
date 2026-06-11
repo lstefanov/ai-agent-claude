@@ -60,14 +60,22 @@
                         <span x-show="m.hasOps" class="text-violet-600 font-semibold">✏ предложени промени — прегледай и запази</span>
                         <span x-show="m.cost_usd" x-text="m.cost_usd ? ('$' + Number(m.cost_usd).toFixed(4)) : ''"></span>
                     </div>
+                    <button x-show="m.failed && !chat.sending && (m.retryText || chat.messages[i-1]?.role === 'user')"
+                            @click="sendChat(m.retryText || chat.messages[i-1].content)" type="button"
+                            class="mt-1.5 text-xs font-bold text-red-700 underline underline-offset-2 hover:text-red-900">↻ Опитай отново</button>
                 </div>
             </div>
         </template>
 
         <div x-show="chat.sending" x-cloak class="flex justify-start">
-            <div class="bg-gray-100 rounded-2xl rounded-bl-sm px-3 py-2 text-sm text-gray-500 flex items-center gap-2">
-                <span class="inline-block w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></span>
-                <span x-text="chat.stage || 'Мисля…'"></span>
+            <div class="bg-gray-100 rounded-2xl rounded-bl-sm px-3 py-2 text-sm max-w-[88%]">
+                {{-- Pseudo-streaming: частичният текст от стъпките на turn-а расте тук --}}
+                <div x-show="chat.partial" class="text-gray-800 break-words [&_code]:font-mono mb-1.5"
+                     x-html="chatMd(chat.partial)"></div>
+                <div class="text-gray-500 flex items-center gap-2">
+                    <span class="inline-block w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></span>
+                    <span x-text="chat.stage || 'Мисля…'"></span>
+                </div>
             </div>
         </div>
     </div>

@@ -201,6 +201,12 @@
     .df-status-completed .df-node-card { box-shadow: 0 0 0 2px #22c55e, 0 14px 32px rgba(34, 197, 94, 0.18); }
     .df-status-failed .df-node-card { box-shadow: 0 0 0 2px #ef4444, 0 14px 32px rgba(239, 68, 68, 0.18); }
     .df-status-skipped .df-node-card { opacity: 0.5; }
+    /* Human-in-the-loop: a node paused awaiting approval glows violet. */
+    @keyframes df-paused-pulse {
+        0%, 100% { box-shadow: 0 0 0 2px #8b5cf6, 0 14px 32px rgba(139, 92, 246, .20); }
+        50%       { box-shadow: 0 0 0 4px #8b5cf6, 0 14px 32px rgba(139, 92, 246, .40); }
+    }
+    .df-status-paused .df-node-card { animation: df-paused-pulse 1.6s ease-in-out infinite; }
 
     /* ── Boundary node (Старт / Край) status colours ──
        Must be at least as specific as the base rule
@@ -265,6 +271,7 @@
     .df-status-running .df-run-progress > span { background: #f59e0b; }
     .df-status-completed .df-run-progress > span { background: #22c55e; width: 100% !important; }
     .df-status-failed .df-run-progress > span { background: #ef4444; width: 100% !important; }
+    .df-status-paused .df-run-progress > span { background: #8b5cf6; width: 100% !important; }
     /* Pending nodes look dimmer so the running one stands out. */
     .df-status-pending .df-node-card { opacity: 0.70; }
 
@@ -279,6 +286,7 @@
     .df-status-running .df-run-status-label { color: #92400e; }
     .df-status-completed .df-run-status-label { color: #166534; }
     .df-status-failed .df-run-status-label { color: #991b1b; }
+    .df-status-paused .df-run-status-label { color: #5b21b6; }
 
     .df-run-actions { display: flex; gap: 6px; }
     .df-run-result, .df-run-log, .df-run-test {
@@ -477,27 +485,83 @@
                           x-text="_lastProgress && _lastProgress.agent_name ? '→ ' + _lastProgress.agent_name : ''"></span>
                 </div>
             </template>
+            {{-- Human-in-the-loop: a paused human_approval node awaits a decision --}}
+            <template x-if="mode === 'run' && runStatus === 'waiting_approval'">
+                <div class="flex items-center gap-2 text-sm flex-wrap">
+                    <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-50 border border-violet-200 text-violet-800 font-semibold">
+                        ✋ Чака одобрение<span x-show="pausedApprovalName()" x-text="': ' + pausedApprovalName()"></span>
+                    </span>
+                    <button type="button" @click="openApprovalInput()"
+                            class="px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-violet-700 hover:bg-violet-50 text-xs font-semibold">
+                        📄 Прегледай материала
+                    </button>
+                    <input type="text" x-model="approval.comment" placeholder="Коментар (по избор)…"
+                           class="w-56 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500">
+                    <button type="button" @click="sendApproval('approve')" :disabled="approval.sending"
+                            class="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white text-xs font-bold">
+                        ✅ Одобри
+                    </button>
+                    <button type="button" @click="sendApproval('reject')" :disabled="approval.sending"
+                            class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-xs font-bold">
+                        ⛔ Отхвърли
+                    </button>
+                </div>
+            </template>
             <template x-if="mode === 'run' && runStatus === 'completed'">
                 <div class="flex items-center gap-3 text-sm">
                     <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-800 font-semibold">
                         <span class="text-green-600">✓</span> Завършен
                     </span>
+                    <template x-if="runCompletedAt">
+                        <span class="text-xs text-gray-500"
+                              x-text="new Date(runCompletedAt).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' })"></span>
+                    </template>
+                    <template x-if="runCostUsd">
+                        <span class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium tabular-nums"
+                              title="Общ разход за платени API заявки в този run"
+                              x-text="'$' + Number(runCostUsd).toFixed(4)"></span>
+                    </template>
                     <button type="button" @click="openFinal()" class="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 font-semibold">🏁 Виж резултата</button>
                 </div>
             </template>
             <template x-if="mode === 'run' && runStatus === 'failed'">
-                <div class="flex items-center gap-2 text-sm">
+                <div class="flex items-center gap-2 text-sm flex-wrap">
                     <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-800 font-semibold">
                         <span class="text-red-600">✗</span> Неуспешен
                     </span>
+                    <template x-if="resumeUrl">
+                        <button type="button" @click="resumeRun()"
+                                :disabled="resuming"
+                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-semibold transition">
+                            <span x-show="resuming" class="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            <span x-text="resuming ? 'Подновява...' : '▶ Продължи от грешката'"></span>
+                        </button>
+                    </template>
                 </div>
             </template>
 
             {{-- Historical view banner --}}
             <template x-if="mode === 'view'">
-                <div class="flex items-center gap-3 text-sm">
+                <div class="flex items-center gap-3 text-sm flex-wrap">
                     <span class="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 font-semibold">🕓 Преглед на изпълнение (read-only)</span>
+                    <template x-if="runCompletedAt">
+                        <span class="text-xs text-gray-500"
+                              x-text="new Date(runCompletedAt).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' })"></span>
+                    </template>
+                    <template x-if="runCostUsd">
+                        <span class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium tabular-nums"
+                              title="Общ разход за платени API заявки в този run"
+                              x-text="'$' + Number(runCostUsd).toFixed(4)"></span>
+                    </template>
                     <button type="button" @click="openFinal()" class="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Финален резултат</button>
+                    <template x-if="resumeUrl">
+                        <button type="button" @click="resumeRun()"
+                                :disabled="resuming"
+                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-semibold transition">
+                            <span x-show="resuming" class="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            <span x-text="resuming ? 'Подновява...' : '▶ Продължи от грешката'"></span>
+                        </button>
+                    </template>
                     <a href="{{ route('flows.builder', $flow) }}" class="px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-gray-800">✎ Редактирай</a>
                 </div>
             </template>
@@ -528,6 +592,11 @@
                 ＋ Добави агент
             </button>
             <div class="h-6 w-px bg-gray-200"></div>
+
+            <button @click="openMemoryPanel()" type="button" class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50" title="Памет на flow-а — какво е създадено в предишни изпълнения + поуки per агент">
+                🧠 Памет
+            </button>
+
             <button @click="openGenLog()" type="button" class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50" title="Пълен лог на генерирането на агенти">
                 📋 Лог
             </button>
@@ -745,6 +814,13 @@
                     <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Модел:</span> <span class="font-semibold" x-text="logModal.meta.model || '—'"></span></div>
                     <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Времетраене:</span> <span class="font-semibold" x-text="logModal.meta.duration"></span></div>
                     <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Токени:</span> <span class="font-semibold" x-text="logModal.meta.tokens || '—'"></span></div>
+                    <template x-if="logModal.meta.cost">
+                        <div class="bg-gray-50 rounded-lg px-3 py-2">
+                            <span class="text-gray-400">Цена:</span>
+                            <span class="font-semibold text-emerald-700"
+                                  x-text="'$' + Number(logModal.meta.cost).toFixed(4)"></span>
+                        </div>
+                    </template>
                 </div>
                 <div x-show="logModal.error" x-cloak>
                     <p class="text-xs font-semibold text-red-600 mb-1">Грешка</p>
@@ -1082,6 +1158,9 @@
         </div>
     </div>
 
+    {{-- Памет на flow-а Modal --}}
+    @include('flows.partials.memory-panel')
+
     {{-- Agent Picker Modal --}}
     <div x-show="showPicker" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -1247,12 +1326,12 @@
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Име</label>
-                                    <input type="text" x-model="selected.name" :disabled="modalReadOnly"
+                                    <input type="text" x-model="selected.name" :disabled="modalReadOnly || resumeEditing"
                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500">
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Тип</label>
-                                    <select x-model="selected.type" @change="!modalReadOnly && onSelectedTypeChanged()" :disabled="modalReadOnly"
+                                    <select x-model="selected.type" @change="!modalReadOnly && !resumeEditing && onSelectedTypeChanged()" :disabled="modalReadOnly || resumeEditing"
                                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500">
                                         <template x-for="type in agentTypes" :key="type.type">
                                             <option :value="type.type" x-text="type.label"></option>
@@ -1264,14 +1343,14 @@
                             <div>
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="block text-sm font-medium text-gray-700">Роля / Описание</label>
-                                    <button x-show="!modalReadOnly" type="button" @click="generateField('role')"
+                                    <button x-show="!modalReadOnly && !resumeEditing" type="button" @click="generateField('role')"
                                             :disabled="generating.role || !selected.name"
                                             class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                                         <span x-text="generating.role ? '⏳' : '✨'"></span>
                                         <span x-text="generating.role ? 'Генерира...' : 'Генерирай с AI'"></span>
                                     </button>
                                 </div>
-                                <textarea x-model="selected.role" rows="3" :disabled="modalReadOnly"
+                                <textarea x-model="selected.role" rows="3" :disabled="modalReadOnly || resumeEditing"
                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500"></textarea>
                             </div>
 
@@ -1407,7 +1486,7 @@
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div x-show="selected.type !== 'qa_verifier'">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Роля в изхода</label>
-                                    <select x-model="selected.output_role" :disabled="modalReadOnly"
+                                    <select x-model="selected.output_role" :disabled="modalReadOnly || resumeEditing"
                                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                                         <option value="">(авто от тип)</option>
                                         <option value="body">Основно съдържание</option>
@@ -1418,7 +1497,7 @@
                                 </div>
 
                                 <div class="flex items-center gap-3 pt-7">
-                                    <input type="checkbox" x-model="selected.is_active" :disabled="modalReadOnly" id="node-is-active"
+                                    <input type="checkbox" x-model="selected.is_active" :disabled="modalReadOnly || resumeEditing" id="node-is-active"
                                            class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
                                     <label for="node-is-active" class="text-sm font-medium text-gray-700">Активен</label>
                                 </div>
@@ -1459,15 +1538,15 @@
                                 <template x-for="(br, i) in (selected.config.branches || [])" :key="i">
                                     <div class="flex items-center gap-2 mb-2">
                                         <span class="text-[11px] font-mono text-gray-400 w-16 shrink-0" x-text="'output_' + (i+1)"></span>
-                                        <input type="text" x-model="br.label" :disabled="modalReadOnly" placeholder="Етикет"
+                                        <input type="text" x-model="br.label" :disabled="modalReadOnly || resumeEditing" placeholder="Етикет"
                                                class="w-32 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                        <input type="text" x-model="br.when" :disabled="modalReadOnly" placeholder="Кога се избира този клон"
+                                        <input type="text" x-model="br.when" :disabled="modalReadOnly || resumeEditing" placeholder="Кога се избира този клон"
                                                class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                        <button type="button" x-show="!modalReadOnly" @click="removeBranch(i)"
+                                        <button type="button" x-show="!modalReadOnly && !resumeEditing" @click="removeBranch(i)"
                                                 class="text-red-500 hover:text-red-700 text-sm px-1 shrink-0" title="Премахни клон">✕</button>
                                     </div>
                                 </template>
-                                <button type="button" x-show="!modalReadOnly" @click="addBranch()"
+                                <button type="button" x-show="!modalReadOnly && !resumeEditing" @click="addBranch()"
                                         class="text-xs text-indigo-600 hover:text-indigo-800 font-medium mt-1">+ Добави клон</button>
                                 <p class="text-[11px] text-gray-400 mt-2">Изходните портове се синхронизират с клоновете при запазване на възела.</p>
                             </div>
@@ -1593,23 +1672,32 @@
 
                     <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-3 shrink-0">
                         {{-- Read-only: only Close; Edit: Delete + Cancel + Save --}}
-                        <template x-if="!modalReadOnly">
+                        <template x-if="!modalReadOnly && !resumeEditing">
                             <button type="button" @click="removeSelectedFromModal()"
                                     class="text-sm text-red-600 hover:text-red-700 font-medium">
                                 Изтрий възела
                             </button>
                         </template>
-                        <template x-if="modalReadOnly">
+                        <template x-if="modalReadOnly && !resumeEditing">
                             <span class="text-xs text-gray-400 italic">Настройките не могат да се редактират в режим на преглед.</span>
+                        </template>
+                        <template x-if="resumeEditing">
+                            <span class="text-xs text-orange-600 font-medium">Редактирай настройките на неуспешния агент, после натисни "Запази и продължи".</span>
                         </template>
                         <div class="flex items-center gap-2">
                             <button type="button" @click="closeNodeModal()"
                                     class="bg-white border border-gray-300 text-gray-600 text-sm px-4 py-2 rounded-lg hover:bg-gray-50 transition"
                                     x-text="modalReadOnly ? 'Затвори' : 'Отказ'">
                             </button>
-                            <button x-show="!modalReadOnly" type="button" @click="saveNodeModal()"
+                            <button x-show="!modalReadOnly && !resumeEditing" type="button" @click="saveNodeModal()"
                                     class="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition">
                                 Запази свойствата
+                            </button>
+                            <button x-show="resumeEditing" type="button" @click="saveAndResume()"
+                                    :disabled="resuming"
+                                    class="flex items-center gap-1.5 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white text-sm font-semibold px-5 py-2 rounded-lg transition">
+                                <span x-show="resuming" class="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                <span x-text="resuming ? 'Запазва...' : '💾 Запази и продължи'"></span>
                             </button>
                         </div>
                     </div>
@@ -1726,9 +1814,13 @@ function flowBuilder(config) {
 
         // ── Run/view per-node data + modals ──
         runData: {},          // node_key → { status, output, raw_output, error, model, duration_ms, tokens_used, steps }
-        runStatus: null,      // mirrors poll's data.status — null | 'pending' | 'running' | 'completed' | 'failed'
+        runStatus: null,      // mirrors poll's data.status — null | 'pending' | 'running' | 'waiting_approval' | 'completed' | 'failed'
+        approvals: {},        // context['approvals'] from the poll (human-in-the-loop)
+        approval: { comment: '', sending: false },
+        runCostUsd: null,     // total cost for the viewed run (from poll)
+        runCompletedAt: null, // ISO string of run completion (from poll)
         _lastProgress: null,  // latest poll progress payload — read by the run banner before the first poll lands
-        stalledRun: false,    // true when run is 'running' but no NodeRun activity after 40s (worker not running)
+        stalledRun: false,    // true when poll reports no live flows queue worker
         _pageLoadedAt: Date.now(),
         finalOutput: null,
         resultModal: { open: false, title: '', body: '' },
@@ -1750,9 +1842,10 @@ function flowBuilder(config) {
         testAttempts: {},
         finalModal: { open: false, body: '' },
         genLogModal: { open: false, loading: false, logs: [], error: '' },
+        memoryPanel: { open: false, loading: false, error: '', enabled: config.memoryEnabled ?? true, tab: 'outputs', outputs: [], lessons: [], clearing: false, toggling: false, search: '', sortCol: 'created_at', sortDir: 'desc', page: 1, pageSize: 15, preview: { open: false, nodeName: '', title: '', body: '' } },
 
         // ── Асистент (Builder Copilot) ──
-        chat: { open: false, loaded: false, messages: [], input: '', sending: false, stage: '', session: null },
+        chat: { open: false, loaded: false, messages: [], input: '', sending: false, stage: '', partial: '', session: null },
         chatSuggestions: [
             'Обясни ми какво прави този flow',
             'Оцени настройките на flow-а и кажи какво да подобря',
@@ -1760,6 +1853,11 @@ function flowBuilder(config) {
         ],
         _assistantIdMap: {},
         modalReadOnly: false, // true in run/view modes — makes the properties modal display-only
+        resumeEditing: false, // true when a failed node's modal is open for editing before resume
+        resumeUrl: config.resumeUrl || null,
+        failedNodeKeys: config.failedNodeKeys || [],
+        viewRunId: config.viewRunId || null,
+        resuming: false,
         qaThresholdOptions: Array.from({ length: 21 }, (_, i) => i * 5),
 
         showPicker: false,
@@ -2286,8 +2384,14 @@ function flowBuilder(config) {
             this.propsTab = 'basic';
             this.propertiesOpen = true;
             this.generating = {};
-            // In run or view mode open as read-only — settings are informational only.
-            this.modalReadOnly = this.mode !== 'edit';
+
+            // Failed nodes in a failed run can be edited before resume.
+            const nodeKey = node.data?.node_key || String(id);
+            const isFailed = this.resumeUrl && this.failedNodeKeys.includes(nodeKey);
+            this.resumeEditing = isFailed;
+            // In run or view mode open as read-only — UNLESS this is a failed
+            // node that can be edited and resumed.
+            this.modalReadOnly = (this.mode !== 'edit') && !isFailed;
         },
 
         closeNodeModal() {
@@ -2295,6 +2399,7 @@ function flowBuilder(config) {
             this.selected = null;
             this.generating = {};
             this.modalReadOnly = false;
+            this.resumeEditing = false;
         },
 
         saveNodeModal() {
@@ -2722,18 +2827,7 @@ function flowBuilder(config) {
                 const data = await res.json();
                 this.ingestPoll(data);
 
-                // Stall detection: run is marked 'running' but no NodeRun records
-                // after 40 seconds → likely the queue worker isn't running.
-                if (data.status === 'running') {
-                    const elapsed = Date.now() - this._pageLoadedAt;
-                    if ((data.node_runs || []).length === 0 && elapsed > 40000) {
-                        this.stalledRun = true;
-                    } else if ((data.node_runs || []).length > 0) {
-                        this.stalledRun = false;
-                    }
-                } else {
-                    this.stalledRun = false;
-                }
+                this.stalledRun = data.status === 'running' && data.worker_alive === false;
 
                 return ['completed', 'failed'].includes(data.status);
             } catch (e) {
@@ -2745,6 +2839,9 @@ function flowBuilder(config) {
         ingestPoll(data) {
             const prevStatus = this.runStatus;
             this.runStatus = data.status ?? this.runStatus;
+            this.approvals = data.approvals || this.approvals;
+            if (data.cost_usd != null) this.runCostUsd = data.cost_usd;
+            if (data.completed_at_iso) this.runCompletedAt = data.completed_at_iso;
 
             this.finalOutput = data.final_output ?? this.finalOutput;
             if (this.finalModal.open) this.finalModal.body = this.finalOutput || '';
@@ -2779,6 +2876,76 @@ function flowBuilder(config) {
             this.applyStatuses(data.node_runs || [], this._lastProgress, data.status);
         },
 
+        // Resume a failed run without any node edits (from the banner button).
+        async resumeRun() {
+            if (!this.resumeUrl || this.resuming) return;
+            this.resuming = true;
+            try {
+                const res = await fetch(this.resumeUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf },
+                    body: JSON.stringify({}),
+                });
+                const json = await res.json();
+                if (!res.ok || !json.ok) {
+                    alert(json.error || 'Неуспешно подновяване на изпълнението.');
+                    this.resuming = false;
+                    return;
+                }
+                // Redirect to the same run URL — it is now 'running' so the
+                // builder will enter live run mode with polling.
+                window.location.href = config.builderUrl + '?run=' + this.viewRunId;
+            } catch (e) {
+                alert('Грешка при подновяване: ' + e.message);
+                this.resuming = false;
+            }
+        },
+
+        // Save node edits and resume from the failed node (modal "Запази и продължи").
+        async saveAndResume() {
+            if (!this.resumeUrl || this.resuming || !this.selected) return;
+            this.resuming = true;
+
+            const node = this.editor.getNodeFromId(this.selectedId);
+            const nodeKey = node?.data?.node_key || String(this.selectedId);
+
+            const payload = {
+                node_key: nodeKey,
+                model: this.selected.model || null,
+                system_prompt: this.selected.system_prompt || null,
+                prompt_template: this.selected.prompt_template || null,
+                config: {
+                    temperature: this.selected.config?.temperature ?? null,
+                    num_predict: this.selected.config?.num_predict ?? null,
+                    num_ctx: this.selected.config?.num_ctx ?? null,
+                    top_p: this.selected.config?.top_p ?? null,
+                    top_k: this.selected.config?.top_k ?? null,
+                    repeat_penalty: this.selected.config?.repeat_penalty ?? null,
+                    seed: this.selected.config?.seed ?? null,
+                    qa: this.selected.config?.qa ?? null,
+                },
+            };
+
+            try {
+                const res = await fetch(this.resumeUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf },
+                    body: JSON.stringify(payload),
+                });
+                const json = await res.json();
+                if (!res.ok || !json.ok) {
+                    alert(json.error || 'Неуспешно запазване/подновяване.');
+                    this.resuming = false;
+                    return;
+                }
+                this.closeNodeModal();
+                window.location.href = config.builderUrl + '?run=' + this.viewRunId;
+            } catch (e) {
+                alert('Грешка: ' + e.message);
+                this.resuming = false;
+            }
+        },
+
         applyStatuses(nodeRuns, progress, runStatus) {
             const byKey = {};
             const startByKey = {};
@@ -2790,7 +2957,7 @@ function flowBuilder(config) {
             // Determine the boundary status from the overall run status.
             // Start = green when run is running or completed.
             // End   = green when run is completed, red when failed.
-            const startNodeStatus = (runStatus === 'running' || runStatus === 'completed')
+            const startNodeStatus = (runStatus === 'running' || runStatus === 'waiting_approval' || runStatus === 'completed')
                 ? 'running' : null;
             const endNodeStatus = runStatus === 'completed' ? 'completed'
                 : runStatus === 'failed' ? 'failed' : null;
@@ -2822,7 +2989,7 @@ function flowBuilder(config) {
                 // leave a stale animation from initial render.
                 const status = byKey[String(id)] || (this.mode === 'edit' ? null : 'pending');
 
-                el.classList.remove('df-status-running', 'df-status-completed', 'df-status-failed', 'df-status-skipped', 'df-status-pending');
+                el.classList.remove('df-status-running', 'df-status-completed', 'df-status-failed', 'df-status-skipped', 'df-status-pending', 'df-status-paused');
                 if (status) el.classList.add('df-status-' + status);
 
                 // Reveal the run UI once any status is applied. The card grows
@@ -2901,6 +3068,7 @@ function flowBuilder(config) {
                     const labelText = {
                         pending:   'Изчаква своя ред',
                         running:   'В момента работи…',
+                        paused:    'Чака одобрение',
                         completed: 'Завършен',
                         failed:    'Неуспешен',
                         skipped:   'Пропуснат',
@@ -2999,6 +3167,57 @@ function flowBuilder(config) {
             }
         },
 
+        // ── Human-in-the-loop ────────────────────────────────────────────────
+        pausedApprovalKey() {
+            for (const [k, v] of Object.entries(this.runData)) {
+                if (v.status === 'paused') return k;
+            }
+            return null;
+        },
+
+        pausedApprovalName() {
+            const key = this.pausedApprovalKey();
+            if (!key) return '';
+            return this.approvals[key]?.node_name
+                || this.editor?.getNodeFromId(key)?.data?.name
+                || key;
+        },
+
+        // The paused node's INPUT is the material being approved — show it in
+        // the result modal (its output is empty until the decision lands).
+        async openApprovalInput() {
+            const key = this.pausedApprovalKey();
+            if (!key) return;
+            this.resultModal = { open: true, title: 'Материал за одобрение — ' + this.pausedApprovalName(), body: 'Зареждане…' };
+            const d = await this.fetchNodeDetail(key);
+            if (this.resultModal.open) this.resultModal.body = d.input || '(няма материал)';
+        },
+
+        async sendApproval(decision) {
+            const key = this.pausedApprovalKey();
+            if (!key || this.approval.sending || !config.nodeDetailUrlBase) return;
+            if (decision === 'reject' && !confirm('Отхвърлянето прекратява изпълнението. Сигурен ли си?')) return;
+            this.approval.sending = true;
+            try {
+                const res = await fetch(`${config.nodeDetailUrlBase}/${encodeURIComponent(key)}/approval`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
+                    body: JSON.stringify({ decision, comment: this.approval.comment || null }),
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok || !json.ok) {
+                    alert(json.error || 'Неуспешно изпращане на решението.');
+                    return;
+                }
+                this.approval.comment = '';
+                await this.pollOnce();
+            } catch (e) {
+                alert('Грешка: ' + e.message);
+            } finally {
+                this.approval.sending = false;
+            }
+        },
+
         async openResult(key) {
             const node = this.editor.getNodeFromId(key);
             const title = node?.data?.name || ('Възел ' + key);
@@ -3079,7 +3298,7 @@ function flowBuilder(config) {
 
             this.logModal = {
                 open: true, title,
-                meta: { status: statusLabel, model: (p.model || d.model) || '—', duration: dur, tokens: d.tokens_used || '—' },
+                meta: { status: statusLabel, model: (p.model || d.model) || '—', duration: dur, tokens: d.tokens_used || '—', cost: d.cost_usd || null },
                 error: d.error || '',
                 steps,
                 params,
@@ -3439,16 +3658,20 @@ function flowBuilder(config) {
                 this.chat.session = data.session || this.chat.session;
                 await this.pollAssistant(data.token);
             } catch (e) {
-                this.chat.messages.push({ role: 'assistant', content: e.message || 'Мрежова грешка.', failed: true });
+                this.chat.messages.push({ role: 'assistant', content: e.message || 'Мрежова грешка.', failed: true, retryText: message });
             } finally {
                 this.chat.sending = false;
                 this.chat.stage = '';
+                this.chat.partial = '';
                 this.$nextTick(() => this.scrollChat());
             }
         },
 
         async pollAssistant(token) {
-            for (let i = 0; i < 240; i++) {
+            // Дълъг turn е ОК, докато job-ът дава признаци на живот (stage/partial
+            // опресняват updated_at); ~4 минути без промяна = умрял worker.
+            let lastSeen = null, stale = 0;
+            for (let i = 0; i < 1300; i++) {
                 await new Promise(r => setTimeout(r, 1200));
                 let res, data;
                 try {
@@ -3472,6 +3695,11 @@ function flowBuilder(config) {
                 }
                 if (data.status === 'failed') throw new Error(data.error || 'Асистентът се провали.');
                 if (data.stage) this.chat.stage = data.stage;
+                if (data.partial) { this.chat.partial = data.partial; this.$nextTick(() => this.scrollChat()); }
+
+                stale = (data.updated_at && data.updated_at !== lastSeen) ? 0 : stale + 1;
+                lastSeen = data.updated_at ?? lastSeen;
+                if (stale >= 200) throw new Error('Асистентът спря да отговаря (timeout) — провери дали queue worker-ът върви.');
             }
             throw new Error('Времето за отговор изтече.');
         },
@@ -3553,6 +3781,101 @@ function flowBuilder(config) {
             h = h.replace(/`([^`]+)`/g, '<code class="bg-gray-200/80 px-1 rounded text-[12px]">$1</code>');
             h = h.replace(/(^|<br>)\s*[-•]\s+/g, '$1• ');
             return h;
+        },
+
+        // ───────────────────────── Памет на flow-а ─────────────────────────
+
+        async openMemoryPanel() {
+            this.memoryPanel.open = true;
+            this.memoryPanel.loading = true;
+            this.memoryPanel.error = '';
+            try {
+                const res = await fetch(config.memoryUrl, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                this.memoryPanel.enabled = !!data.enabled;
+                this.memoryPanel.outputs = data.outputs || [];
+                this.memoryPanel.lessons = data.lessons || [];
+            } catch (e) {
+                this.memoryPanel.error = 'Неуспешно зареждане на паметта: ' + e.message;
+            } finally {
+                this.memoryPanel.loading = false;
+            }
+        },
+
+        async toggleMemory() {
+            if (this.memoryPanel.toggling) return;
+            this.memoryPanel.toggling = true;
+            try {
+                const res = await fetch(config.memoryToggleUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
+                });
+                if (res.ok) this.memoryPanel.enabled = !!(await res.json()).enabled;
+            } catch (e) {
+                // toggle failure is non-critical — the switch simply stays put
+            } finally {
+                this.memoryPanel.toggling = false;
+            }
+        },
+
+        memFilteredRows() {
+            const data = this.memoryPanel.tab === 'outputs' ? this.memoryPanel.outputs : this.memoryPanel.lessons;
+            const q = this.memoryPanel.search.toLowerCase().trim();
+            let rows = q ? data.filter(r =>
+                ['node_name', 'node_key', 'title', 'summary', 'created_at'].some(k => r[k] && String(r[k]).toLowerCase().includes(q))
+            ) : data;
+            const col = this.memoryPanel.sortCol;
+            const dir = this.memoryPanel.sortDir === 'asc' ? 1 : -1;
+            return [...rows].sort((a, b) =>
+                ((a[col] ?? '').toString()).localeCompare((b[col] ?? '').toString(), 'bg') * dir
+            );
+        },
+        memPagedRows() {
+            const rows = this.memFilteredRows();
+            const s = (this.memoryPanel.page - 1) * this.memoryPanel.pageSize;
+            return rows.slice(s, s + this.memoryPanel.pageSize);
+        },
+        memTotalPages() {
+            return Math.max(1, Math.ceil(this.memFilteredRows().length / this.memoryPanel.pageSize));
+        },
+        memPagingLabel() {
+            const total = this.memFilteredRows().length;
+            if (!total) return '0 записа';
+            const s = Math.min((this.memoryPanel.page - 1) * this.memoryPanel.pageSize + 1, total);
+            const e = Math.min(this.memoryPanel.page * this.memoryPanel.pageSize, total);
+            return s + '–' + e + ' от ' + total;
+        },
+        openMemoryPreview(nodeName, title, body) {
+            this.memoryPanel.preview = { open: true, nodeName, title, body };
+        },
+        memSort(col) {
+            if (this.memoryPanel.sortCol === col) {
+                this.memoryPanel.sortDir = this.memoryPanel.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.memoryPanel.sortCol = col;
+                this.memoryPanel.sortDir = 'asc';
+            }
+            this.memoryPanel.page = 1;
+        },
+
+        async clearMemory() {
+            if (!confirm('Изтриване на цялата памет на flow-а (съдържание + поуки)? Следващите изпълнения започват „на чисто”.')) return;
+            this.memoryPanel.clearing = true;
+            try {
+                const res = await fetch(config.memoryClearUrl, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
+                });
+                if (res.ok) {
+                    this.memoryPanel.outputs = [];
+                    this.memoryPanel.lessons = [];
+                }
+            } catch (e) {
+                this.memoryPanel.error = 'Неуспешно изчистване: ' + e.message;
+            } finally {
+                this.memoryPanel.clearing = false;
+            }
         },
 
         async openGenLog() {

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\ChatClientInterface;
 use App\Support\PlannerPhases;
 use App\Support\SchemaCoercion;
 use Illuminate\Support\Facades\Log;
@@ -46,30 +47,11 @@ class GeneratorService
     ): string {
         ['provider' => $provider, 'model' => $model] = $this->resolve();
 
-        return match (true) {
-            $provider === 'anthropic' => app(AnthropicChatService::class)->chat(
-                $model,
-                $systemPrompt,
-                $userMessage,
-                $options,
-                $onProgress,
-            ),
-            in_array($provider, self::OPENAI_COMPATIBLE, true) => OpenAiChatService::for($provider)->chat(
-                $model,
-                $systemPrompt,
-                $userMessage,
-                $options,
-                $onProgress,
-            ),
-            $provider === 'ollama' => app(OllamaService::class)->chat(
-                $model,
-                $systemPrompt,
-                $userMessage,
-                $options,
-                $onProgress,
-            ),
-            default => throw new \RuntimeException($this->badProviderMessage($provider)),
-        };
+        if ($provider === 'ollama') {
+            return app(OllamaService::class)->chat($model, $systemPrompt, $userMessage, $options, $onProgress);
+        }
+
+        return $this->client($provider)->chat($model, $systemPrompt, $userMessage, $options, $onProgress);
     }
 
     public function assist(
@@ -91,20 +73,17 @@ class GeneratorService
         ];
         $model = (string) config('services.assist.'.$modelKey, $defaults[$provider] ?? '');
 
-        return match (true) {
-            $provider === 'anthropic' => app(AnthropicChatService::class)->chat(
-                $model, $systemPrompt, $userMessage, $options, $onProgress,
-            ),
-            in_array($provider, self::OPENAI_COMPATIBLE, true) => OpenAiChatService::for($provider)->chat(
-                $model, $systemPrompt, $userMessage, $options, $onProgress,
-            ),
-            $provider === 'ollama' => app(OllamaService::class)->chat(
-                $model, $systemPrompt, $userMessage, $options, $onProgress,
-            ),
-            default => throw new \RuntimeException(
+        if ($provider === 'ollama') {
+            return app(OllamaService::class)->chat($model, $systemPrompt, $userMessage, $options, $onProgress);
+        }
+
+        if (! in_array($provider, [...self::OPENAI_COMPATIBLE, 'anthropic'], true)) {
+            throw new \RuntimeException(
                 'ASSIST_PROVIDER must be one of: '.implode(', ', self::PROVIDERS).' (got "'.$provider.'").'
-            ),
-        };
+            );
+        }
+
+        return $this->client($provider)->chat($model, $systemPrompt, $userMessage, $options, $onProgress);
     }
 
     /**
@@ -132,26 +111,9 @@ class GeneratorService
 
         ['provider' => $provider, 'model' => $model] = $this->resolve($schemaName);
 
-        $result = match (true) {
-            $provider === 'anthropic' => app(AnthropicChatService::class)->chatJson(
-                $model,
-                $systemPrompt,
-                $userMessage,
-                $schemaName,
-                $schema,
-                $options,
-            ),
-            in_array($provider, self::OPENAI_COMPATIBLE, true) => OpenAiChatService::for($provider)->chatJson(
-                $model,
-                $systemPrompt,
-                $userMessage,
-                $schemaName,
-                $schema,
-                $options,
-            ),
-            $provider === 'ollama' => $this->chatJsonOllama($model, $systemPrompt, $userMessage, $schemaName, $schema, $options),
-            default => throw new \RuntimeException($this->badProviderMessage($provider)),
-        };
+        $result = $provider === 'ollama'
+            ? $this->chatJsonOllama($model, $systemPrompt, $userMessage, $schemaName, $schema, $options)
+            : $this->client($provider)->chatJson($model, $systemPrompt, $userMessage, $schemaName, $schema, $options);
 
         // Models occasionally double-encode nested arrays as JSON strings;
         // repair against the schema so callers always get the declared shape.
@@ -168,15 +130,28 @@ class GeneratorService
      * @param  list<array{name: string, description: string, parameters: array<string, mixed>}>  $tools
      * @return array{content: string, tool_calls: list<array{id: string, name: string, arguments: array<string, mixed>}>}
      */
-    public function chatTurn(string $provider, string $model, array $messages, array $tools, array $options = []): array
+    public function chatTurn(string $provider, string $model, array $messages, array $tools, array $options = [], ?callable $onChunk = null): array
     {
-        return match (true) {
-            $provider === 'anthropic' => app(AnthropicChatService::class)->chatTurn($model, $messages, $tools, $options),
-            in_array($provider, self::OPENAI_COMPATIBLE, true) => OpenAiChatService::for($provider)->chatTurn($model, $messages, $tools, $options),
-            default => throw new \RuntimeException(
+        if (! in_array($provider, [...self::OPENAI_COMPATIBLE, 'anthropic'], true)) {
+            throw new \RuntimeException(
                 'BUILDER_ASSISTANT_PROVIDER must be a cloud provider with tool calling ('
                 .implode(', ', [...self::OPENAI_COMPATIBLE, 'anthropic']).') — got "'.$provider.'".'
-            ),
+            );
+        }
+
+        return $this->client($provider)->chatTurn($model, $messages, $tools, $options, $onChunk);
+    }
+
+    /**
+     * The paid-provider client for a cloud provider — Anthropic has its own
+     * implementation, everything else speaks the OpenAI dialect.
+     */
+    private function client(string $provider): ChatClientInterface
+    {
+        return match (true) {
+            $provider === 'anthropic' => app(AnthropicChatService::class),
+            in_array($provider, self::OPENAI_COMPATIBLE, true) => OpenAiChatService::for($provider),
+            default => throw new \RuntimeException($this->badProviderMessage($provider)),
         };
     }
 

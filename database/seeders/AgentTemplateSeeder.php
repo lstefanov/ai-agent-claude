@@ -514,6 +514,14 @@ class AgentTemplateSeeder extends Seeder
             ],
 
             [
+                'icon' => '✋', 'name' => 'Одобрение от човек', 'type' => 'human_approval', 'sort_order' => 60,
+                'description' => 'Спира изпълнението и чака човек да одобри или отхвърли междинния резултат, преди flow-ът да продължи.',
+                'role' => 'Контролна точка: показва резултата от предишните стъпки на човек и продължава само след изрично одобрение. Изходът е решението + коментарът на одобряващия.',
+                'system_prompt' => '',
+                'prompt_template' => '',
+                'config' => [],
+            ],
+            [
                 'icon' => '🌍', 'name' => 'Съдържание EN', 'type' => 'content_en', 'sort_order' => 33,
                 'description' => 'Създава качествено текстово съдържание на английски език.',
                 'role' => 'Генерира оригинално, качествено текстово съдържание на правилен английски.',
@@ -564,6 +572,7 @@ class AgentTemplateSeeder extends Seeder
             // New integration agents
             'airtable_writer' => 'qwen2.5:7b',
             'image_describer' => 'qwen2.5vl:7b',
+            'human_approval' => '', // pauses the run — no LLM involved
             default => 'gemma4:12b',
         };
     }

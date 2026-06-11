@@ -18,11 +18,17 @@ class LlmUsage
 
     private static float $costUsd = 0.0;
 
-    public static function record(string $provider, string $model, int $promptTokens, int $completionTokens): void
-    {
+    public static function record(
+        string $provider,
+        string $model,
+        int $promptTokens,
+        int $completionTokens,
+        int $cacheWriteTokens = 0,
+        int $cacheReadTokens = 0,
+    ): void {
         self::$promptTokens += $promptTokens;
         self::$completionTokens += $completionTokens;
-        self::$costUsd += self::costFor($provider, $model, $promptTokens, $completionTokens);
+        self::$costUsd += self::costFor($provider, $model, $promptTokens, $completionTokens, $cacheWriteTokens, $cacheReadTokens);
     }
 
     public static function addFlatCost(float $costUsd): void
@@ -52,9 +58,23 @@ class LlmUsage
         return $usage;
     }
 
-    /** USD cost from the per-1M-token price table in config/services.php. */
-    public static function costFor(string $provider, string $model, int $promptTokens, int $completionTokens): float
-    {
+    /**
+     * USD cost from the per-1M-token price table in config/services.php.
+     *
+     * When cacheWriteTokens / cacheReadTokens are provided (Anthropic prompt
+     * caching), the cost is computed with the correct multipliers:
+     *   - cache write tokens: 1.25 × base input price
+     *   - cache read tokens:  0.10 × base input price
+     *   - regular input tokens (input_tokens − write − read): 1 × base input price
+     */
+    public static function costFor(
+        string $provider,
+        string $model,
+        int $promptTokens,
+        int $completionTokens,
+        int $cacheWriteTokens = 0,
+        int $cacheReadTokens = 0,
+    ): float {
         $pricing = config("services.{$provider}.pricing", []);
 
         // Exact tag first, then prefix match (e.g. "gpt-4o-2024-11-20" → "gpt-4o").
@@ -72,7 +92,14 @@ class LlmUsage
             return 0.0;
         }
 
-        return ($promptTokens / 1_000_000) * (float) ($prices['in'] ?? 0)
-            + ($completionTokens / 1_000_000) * (float) ($prices['out'] ?? 0);
+        $baseIn = (float) ($prices['in'] ?? 0);
+        $baseOut = (float) ($prices['out'] ?? 0);
+
+        $regularIn = max(0, $promptTokens - $cacheWriteTokens - $cacheReadTokens);
+
+        return ($regularIn / 1_000_000) * $baseIn
+            + ($cacheWriteTokens / 1_000_000) * ($baseIn * 1.25)
+            + ($cacheReadTokens / 1_000_000) * ($baseIn * 0.10)
+            + ($completionTokens / 1_000_000) * $baseOut;
     }
 }

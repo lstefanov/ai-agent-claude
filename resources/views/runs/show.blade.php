@@ -70,6 +70,9 @@ $initialCostUsd = round((float) $flowRun->nodeRuns->sum('cost_usd'), 4) ?: null;
 $initialReplans = $flowRun->context['replan'] ?? [];
 $nodeNames = $versionNodes->pluck('name', 'node_key');
 
+// Памет: dedup решения per node_key (retry заради сходство / приет с флаг).
+$initialMemoryDedup = $flowRun->context['memory_dedup'] ?? [];
+
 // WS3: result delivery outcome (set after a successful run by DeliveryService).
 $initialDelivery = $flowRun->context['delivery'] ?? null;
 @endphp
@@ -90,6 +93,7 @@ window.__runData = {
     failureMessage: @json($failureMessage),
     costUsd:      @json($initialCostUsd),
     replans:      @json((object) $initialReplans),
+    memoryDedup:  @json((object) $initialMemoryDedup),
     nodeNames:    @json((object) $nodeNames->toArray()),
     applyRevisionUrl: @json(route('flow-runs.apply-revision', $flowRun)),
     csrf:         @json(csrf_token()),
@@ -161,6 +165,12 @@ window.__runData = {
             <template x-if="flowStatus === 'failed'">
                 <span class="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">✗ Грешка</span>
             </template>
+            <template x-if="flowStatus === 'waiting_approval'">
+                <span class="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium animate-pulse"
+                      title="Изпълнението е спряно на възел „Одобрение от човек“ — одобри/отхвърли от builder изгледа на run-а">
+                    ✋ Чака одобрение от човек
+                </span>
+            </template>
             <template x-if="flowStatus === 'pending'">
                 <span class="text-xs text-gray-400">подготовка…</span>
             </template>
@@ -216,6 +226,30 @@ window.__runData = {
                             </template>
                             <template x-if="entry.succeeded && !entry.applied_at && applyingRevision[nodeKey] === 'busy'">
                                 <span class="text-xs text-violet-400">прилагане…</span>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+    </template>
+
+    {{-- Памет: дедупликация — изходи, твърде подобни на вече създадено съдържание --}}
+    <template x-if="Object.keys(memoryDedup).length">
+        <div class="mt-3 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2 text-sm">
+            <div class="font-semibold text-sky-800 mb-1">🧠 Памет · дедупликация</div>
+            <template x-for="[nodeKey, entries] in Object.entries(memoryDedup)" :key="nodeKey">
+                <div class="py-1.5 border-t border-sky-100 first:border-t-0">
+                    <template x-for="(entry, idx) in entries" :key="idx">
+                        <div class="flex flex-wrap items-center gap-2 text-sky-900">
+                            <span class="font-medium" x-text="nodeNames[nodeKey] || nodeKey"></span>
+                            <span class="text-sky-600 text-xs"
+                                  x-text="Math.round(entry.similarity * 100) + '% сходство със „' + (entry.matched_title || 'предишно съдържание') + '“'"></span>
+                            <template x-if="entry.action === 'retry'">
+                                <span class="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full">↻ пренаписан</span>
+                            </template>
+                            <template x-if="entry.action === 'accepted_flagged'">
+                                <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">⚠ приет с предупреждение</span>
                             </template>
                         </div>
                     </template>
@@ -714,6 +748,7 @@ function flowRunMonitor() {
         failureMessage: d.failureMessage || null,
         costUsd:     d.costUsd || null,
         replans:     d.replans || {},
+        memoryDedup: d.memoryDedup || {},
         delivery:    d.delivery || null,
         nodeNames:   d.nodeNames || {},
         applyRevisionUrl: d.applyRevisionUrl,
@@ -782,6 +817,7 @@ function flowRunMonitor() {
                 this.stepQaResults = data.step_qa_results || this.stepQaResults;
                 this.costUsd = data.cost_usd || this.costUsd;
                 if (data.replan && Object.keys(data.replan).length) this.replans = data.replan;
+                if (data.memory_dedup && Object.keys(data.memory_dedup).length) this.memoryDedup = data.memory_dedup;
                 if (data.delivery) this.delivery = data.delivery;
                 this.progress = data.progress || {};
                 if (data.final_output) this.serverFinalOutput = data.final_output;

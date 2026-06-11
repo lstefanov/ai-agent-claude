@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\AgentTemplate;
 use App\Models\Flow;
 use App\Models\LlmModel;
+use App\Models\NodeRun;
+use App\Services\FlowMemoryService;
 use App\Services\GeneratorService;
 use App\Support\PlannerPhases;
 use App\Support\UrlExtractor;
@@ -116,14 +118,14 @@ class FlowBuilderController extends Controller
         // templates can run (and be watched) in parallel.
         $activeRun = $selectedVersion
             ? $flow->flowRuns()
-                ->whereIn('status', ['pending', 'running'])
+                ->whereIn('status', ['pending', 'running', 'waiting_approval'])
                 ->where('flow_version_id', $selectedVersion->id)
                 ->latest()
                 ->first()
             : null;
 
         // Mode: run (if ?run= points to a still-active run) > view (historical) > run (latest active) > edit.
-        if ($viewRun && in_array($viewRun->status, ['pending', 'running'])) {
+        if ($viewRun && in_array($viewRun->status, ['pending', 'running', 'waiting_approval'])) {
             $mode = 'run';
             $pollRun = $viewRun;
         } elseif ($viewRun) {
@@ -173,8 +175,26 @@ class FlowBuilderController extends Controller
             'assistantStatusUrlBase' => url('flows/assistant-status'),
             'assistantHistoryUrl' => route('flows.assistant.history', $flow),
             'generationLogsUrl' => route('flows.generation-logs', $flow),
+            // Памет на flow-а: панелът чете/toggle-ва/чисти през тези endpoints.
+            'memoryUrl' => route('flows.memory.show', $flow),
+            'memoryToggleUrl' => route('flows.memory.toggle', $flow),
+            'memoryClearUrl' => route('flows.memory.clear', $flow),
+            'memoryEnabled' => FlowMemoryService::enabled($flow),
+            // Resume: present when ?run= points to a failed run so the builder
+            // can offer inline editing + "Save and continue" for failed nodes.
+            'resumeUrl' => ($pollRun && $pollRun->status === 'failed')
+                ? route('flow-runs.resume', $pollRun)
+                : null,
+            'failedNodeKeys' => ($pollRun && $pollRun->status === 'failed')
+                ? NodeRun::where('flow_run_id', $pollRun->id)
+                    ->where('status', 'failed')
+                    ->pluck('node_key')
+                    ->values()
+                    ->all()
+                : [],
+            'viewRunId' => $pollRun?->id,
             'mode' => $mode,
-            'autoOpenFinal' => $mode === 'view',
+            'autoOpenFinal' => false,
             'generate' => (bool) $request->boolean('generate'),
             'csrf' => csrf_token(),
             'companyId' => $flow->company_id,

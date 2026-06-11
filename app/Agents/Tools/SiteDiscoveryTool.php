@@ -13,11 +13,28 @@ class SiteDiscoveryTool implements AgentTool
         return 'discover_urls';
     }
 
+    public function description(): string
+    {
+        return 'Открива списъка от вътрешни URL адреси на даден сайт (без да ги скрейпва).';
+    }
+
+    public function parameters(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'url' => ['type' => 'string', 'description' => 'URL на сайта.'],
+                'max' => ['type' => 'integer', 'description' => 'Максимален брой URL адреси (по избор).'],
+            ],
+            'required' => ['url'],
+        ];
+    }
+
     /**
      * Discover internal page URLs for a site (sitemap → internal links).
      * Returns a newline-separated list of URLs, or an empty string on failure.
      *
-     * @param array{url?: string, max?: int} $params
+     * @param  array{url?: string, max?: int}  $params
      */
     public function execute(array $params): string
     {
@@ -26,7 +43,7 @@ class SiteDiscoveryTool implements AgentTool
             return '';
         }
 
-        $max  = isset($params['max']) ? (int) $params['max'] : null;
+        $max = isset($params['max']) ? (int) $params['max'] : null;
         $urls = $this->service->discoverUrls($url, $max);
 
         return implode("\n", $urls);

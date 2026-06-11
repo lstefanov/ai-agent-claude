@@ -26,6 +26,7 @@ return [
     'sentiment_analyzer' => ['output_role' => 'hidden',    'label' => 'Анализатор на тон',          'description' => 'Анализира тон (позитивен/неутрален/негативен) с числена оценка'],
     'summarizer' => ['output_role' => 'hidden',    'label' => 'Резюматор',                  'description' => 'Кондензира дълго съдържание в ключови точки'],
     'decision' => ['output_role' => 'hidden',    'label' => 'Разпределител',              'description' => 'Взима routing/условни решения въз основа на входните данни'],
+    'human_approval' => ['output_role' => 'hidden',    'label' => 'Одобрение от човек',         'description' => 'Спира изпълнението и чака човек да одобри/отхвърли междинния резултат — изходът му е решението + коментарът на одобряващия'],
 
     // --- Content Writers (body) ---
     'content_bg' => ['output_role' => 'body',      'label' => 'Автор (BG)',                 'description' => 'Пише текстово съдържание на български език'],

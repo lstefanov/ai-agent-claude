@@ -13,9 +13,25 @@ class WebScraperTool implements AgentTool
         return 'scrape_page';
     }
 
+    public function description(): string
+    {
+        return 'Извлича пълното текстово съдържание на ЕДНА страница по URL.';
+    }
+
+    public function parameters(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'url' => ['type' => 'string', 'description' => 'URL на страницата.'],
+            ],
+            'required' => ['url'],
+        ];
+    }
+
     public function execute(array $params): string
     {
-        $url    = $params['url'] ?? '';
+        $url = $params['url'] ?? '';
         $result = $this->service->scrape($url);
 
         return $result ?? 'Scraping not available for this page.';

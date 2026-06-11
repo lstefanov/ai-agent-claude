@@ -13,6 +13,24 @@ class PerplexitySearchTool implements AgentTool
         return 'pro_search';
     }
 
+    public function description(): string
+    {
+        return 'Премиум търсене в интернет (Perplexity) — по-качествени резултати, domain филтри; за конкурентен анализ и дълбоко проучване.';
+    }
+
+    public function parameters(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'query' => ['type' => 'string', 'description' => 'Заявка за търсене.'],
+                'domains' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Ограничи търсенето до тези домейни (по избор).'],
+                'max_results' => ['type' => 'integer', 'description' => 'Максимален брой резултати (по избор).'],
+            ],
+            'required' => ['query'],
+        ];
+    }
+
     /**
      * @param  array{query?: string|array<int, string>, domains?: string|array<int, string>, max_results?: int}  $params
      */
@@ -30,7 +48,6 @@ class PerplexitySearchTool implements AgentTool
     }
 
     /**
-     * @param  mixed  $domains
      * @return array<int, string>
      */
     private function normalizeDomains(mixed $domains): array

@@ -298,9 +298,12 @@ class CostController extends Controller
     }
 
     /**
-     * One entry per provider present in llm_requests (filter-aware), with the
-     * per-model cost/request breakdown for the provider boxes. Paid providers
-     * sort first (by total cost); free Ollama lands last with $0.00.
+     * One entry per provider with per-model cost/request breakdown.
+     *
+     * Paid providers (anthropic, openai, deepseek, gemini, xai, qwen) are
+     * always shown, sorted by total spend. Each provider lists ALL models from
+     * its pricing config — used ones first (by cost), unused ones greyed out
+     * below. Ollama is appended last (only DB-used models, no static list).
      */
     private function providerBreakdown(Request $r): array
     {
@@ -310,20 +313,80 @@ class CostController extends Controller
             ->orderByDesc('cost')
             ->get();
 
-        return $rows->groupBy('provider')
-            ->map(fn ($group, $provider) => [
+        $dbByProvider = $rows->groupBy('provider');
+
+        $knownProviders = ['anthropic', 'openai', 'deepseek', 'gemini', 'xai', 'qwen'];
+
+        // Respect provider filter: if a specific provider is selected, show only that box.
+        $providerFilter = $r->input('provider');
+        if ($providerFilter) {
+            $knownProviders = in_array($providerFilter, $knownProviders) ? [$providerFilter] : [];
+        }
+
+        $result = [];
+
+        foreach ($knownProviders as $provider) {
+            $pricing = config("services.{$provider}.pricing", []);
+
+            $dbGroup = $dbByProvider->get($provider, collect());
+            $total = round((float) $dbGroup->sum('cost'), 6);
+            $requests = (int) $dbGroup->sum('cnt');
+
+            // Start with DB-used models
+            $modelMap = $dbGroup->keyBy('model')->map(fn ($m) => [
+                'model' => $m->model,
+                'cost' => (float) $m->cost,
+                'requests' => (int) $m->cnt,
+            ])->all();
+
+            // Merge all models defined in pricing config (unused → 0 cost, 0 requests)
+            foreach (array_keys($pricing) as $model) {
+                if (! isset($modelMap[$model])) {
+                    $modelMap[$model] = ['model' => $model, 'cost' => 0.0, 'requests' => 0];
+                }
+            }
+
+            // Used models first (by cost desc), then unused (preserve config order)
+            uasort($modelMap, function ($a, $b) {
+                $aUsed = $a['requests'] > 0;
+                $bUsed = $b['requests'] > 0;
+                if ($aUsed !== $bUsed) {
+                    return $bUsed <=> $aUsed;
+                }
+
+                return $b['cost'] <=> $a['cost'];
+            });
+
+            $result[] = [
                 'provider' => $provider,
-                'total' => round((float) $group->sum('cost'), 6),
-                'requests' => (int) $group->sum('cnt'),
-                'models' => $group->map(fn ($m) => [
-                    'model' => $m->model,
-                    'cost' => (float) $m->cost,
-                    'requests' => (int) $m->cnt,
-                ])->values()->all(),
-            ])
-            ->sortByDesc('total')
-            ->values()
-            ->all();
+                'total' => $total,
+                'requests' => $requests,
+                'models' => array_values($modelMap),
+            ];
+        }
+
+        // Sort paid providers by total spend descending
+        usort($result, fn ($a, $b) => $b['total'] <=> $a['total']);
+
+        // Ollama always last — only DB-used models (no static catalogue)
+        $showOllama = ! $providerFilter || $providerFilter === 'ollama';
+        if ($showOllama && $dbByProvider->has('ollama')) {
+            $ollamaGroup = $dbByProvider->get('ollama');
+            $ollamaModels = $ollamaGroup->map(fn ($m) => [
+                'model' => $m->model,
+                'cost' => (float) $m->cost,
+                'requests' => (int) $m->cnt,
+            ])->sortByDesc('cnt')->values()->all();
+
+            $result[] = [
+                'provider' => 'ollama',
+                'total' => round((float) $ollamaGroup->sum('cost'), 6),
+                'requests' => (int) $ollamaGroup->sum('cnt'),
+                'models' => $ollamaModels,
+            ];
+        }
+
+        return $result;
     }
 
     /** Cost + tokens per calendar day (defaults to the FULL period). */

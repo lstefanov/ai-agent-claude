@@ -57,6 +57,9 @@ return [
         // Strong model used by FinalComposerService to assemble the final result
         // from the individual agent outputs (posts + titles + hashtags).
         'composer_model' => env('OLLAMA_COMPOSER_MODEL', 'gemma4:12b'),
+        // Local embeddings model (flow memory dedup) — pull it on the Ollama
+        // host first: `ollama pull nomic-embed-text`.
+        'embedding_model' => env('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text'),
     ],
 
     // Which LLM provider plans the agents for a Flow: openai | anthropic | ollama.
@@ -92,13 +95,34 @@ return [
         'history_limit' => 20,
     ],
 
+    // Памет на flow-а: какво е произвеждал flow-ът в предишни run-ове (дедуп
+    // на съдържание) + поуки per агент от QA/replan събития.
+    'memory' => [
+        // Глобален ключ; всеки flow има и собствен toggle (settings.memory.enabled).
+        'enabled' => env('FLOW_MEMORY_ENABLED', true),
+        // Кой смята embeddings за сходството: openai | ollama (безплатно локално).
+        'embedding_provider' => env('MEMORY_EMBEDDING_PROVIDER', 'openai'),
+        // Cosine ≥ прага = "твърде подобно" → retry с feedback. Евристично
+        // съответствие на правилото "до 30-40% припокриване на съдържанието".
+        'similarity_threshold' => env('MEMORY_SIMILARITY_THRESHOLD', 0.80),
+        // Колко пъти нод се пренаписва заради дубликат, преди да бъде приет с флаг.
+        'dedup_max_retries' => env('MEMORY_DEDUP_MAX_RETRIES', 2),
+        // Пазени 'output' записа per flow (най-старите се изтриват).
+        'max_output_entries' => env('MEMORY_MAX_OUTPUT_ENTRIES', 200),
+        // Пазени 'lesson' записа per нод.
+        'max_lessons_per_node' => env('MEMORY_MAX_LESSONS_PER_NODE', 5),
+        // Колко дайджеста влизат в "ПАМЕТ" блока на prompt-а.
+        'prompt_entries' => env('MEMORY_PROMPT_ENTRIES', 10),
+    ],
+
     // FlowPlannerService tuning (the "agent that creates agents").
     'planner' => [
         // Phase C: a second LLM pass that reviews + repairs the generated plan.
         'critique' => env('PLANNER_CRITIQUE', true),
-        // Hard cap on how many agents in one plan may run on a PAID provider
-        // (openai/* + anthropic/* combined) at runtime.
-        'max_paid_agents' => env('PLANNER_MAX_PAID_AGENTS', 2),
+        // Hard cap on how many agents in one plan may run on a PREMIUM provider
+        // (openai/* + anthropic/* combined) at runtime. Cheap cloud providers
+        // (gemini/deepseek/xai/qwen) are not budgeted.
+        'max_premium_agents' => env('PLANNER_MAX_PREMIUM_AGENTS', 5),
         // Фаза 2: proven plans injected as few-shot examples at design time.
         'few_shots' => env('PLANNER_FEW_SHOTS', 2),
         // Фаза 3: revise failing agents mid-run (QA fail / degenerate output).

@@ -43,6 +43,11 @@ class Flow extends Model
         return $this->hasMany(FlowVersion::class);
     }
 
+    public function memories(): HasMany
+    {
+        return $this->hasMany(FlowMemory::class);
+    }
+
     public function activeVersion(): HasOne
     {
         return $this->hasOne(FlowVersion::class)->where('is_active', true);

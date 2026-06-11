@@ -13,6 +13,22 @@ class PeopleSearchTool implements AgentTool
         return 'people_search';
     }
 
+    public function description(): string
+    {
+        return 'Търсене на хора (Perplexity) — намира професионалисти по име, позиция, компания или локация, включително публични профили.';
+    }
+
+    public function parameters(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'query' => ['type' => 'string', 'description' => 'Име/позиция/компания/локация на търсения човек.'],
+            ],
+            'required' => ['query'],
+        ];
+    }
+
     /**
      * @param  array{query?: string}  $params
      */

@@ -13,8 +13,10 @@ use Illuminate\Support\Facades\Log;
  * via structured outputs). This service owns the DETERMINISTIC guarantees on
  * top of whatever the planner proposed:
  *
- *  - model selection per agent (planner-pinned "openai/<model>" respected,
- *    everything else resolved by ModelSelectorService against installed tags);
+ *  - model selection per agent (planner-pinned "gemini/<model>"/"openai/<model>"…
+ *    respected — except Bulgarian-prose agents, which always stay on local
+ *    BgGPT; everything else resolved by ModelSelectorService against installed
+ *    tags);
  *  - num_predict guard-rails per type (unlimited types stay unlimited);
  *  - exactly one bg_text_corrector (second to last) + one qa_verifier (last);
  *  - de-duplication and unknown-type remapping;
@@ -368,13 +370,20 @@ class AgentGeneratorService
         }
 
         // The model is chosen by code, not by the planning LLM — with one
-        // exception: a step pinned to a paid provider ("openai/<model>" or
-        // "anthropic/<model>") is hybrid execution by design and is preserved.
+        // exception: a step pinned to a paid provider ("gemini/<model>",
+        // "openai/<model>"…) is hybrid execution by design and is preserved.
+        // Counter-exception: Bulgarian prose always runs on the local BgGPT
+        // stack, so a paid pin on a BG-writing agent is dropped here — the
+        // guarantee holds for manual and library plans too, not just the
+        // planner path.
         $modelHint = trim(($agent['name'] ?? '').' '.($agent['role'] ?? '').' '.($agent['output_description'] ?? ''));
+        $tools = array_values(array_map('strval', (array) ($agent['config']['tools'] ?? $agent['capabilities'] ?? [])));
         $plannedModel = (string) ($agent['model'] ?? '');
-        $model = PaidModel::isPaid($plannedModel)
+        $writesBulgarian = ($agent['output_language'] ?? 'bg') === 'bg'
+            && $this->modelSelector->isBgWritingType($type);
+        $model = PaidModel::isPaid($plannedModel) && ! $writesBulgarian
             ? $plannedModel
-            : $this->modelSelector->selectModel($type, $modelHint);
+            : $this->modelSelector->selectModel($type, $modelHint, $tools);
 
         // A partial plan must never produce a node with empty prompts — the
         // executor would send empty messages to the model.
@@ -456,6 +465,15 @@ class AgentGeneratorService
      */
     private function normalizeAgentConfig(mixed $raw, string $type): array
     {
+        // human_approval pauses the run — no LLM call, no tools, no QA gate.
+        if ($type === 'human_approval') {
+            $config = is_array($raw) ? $raw : [];
+            unset($config['tools'], $config['tool_params']);
+            $config['qa'] = ['enabled' => false];
+
+            return $config;
+        }
+
         $config = is_array($raw) ? $raw : ['temperature' => 0.7];
 
         $typeDefault = $this->numPredictForType($type);

@@ -7,6 +7,22 @@ use App\Models\LlmModel;
 class ModelSelectorService
 {
     /**
+     * Profiles whose candidates are tuned for writing Bulgarian prose. Agents
+     * resolving to these profiles must stay on the local BgGPT stack — paid
+     * pins are stripped by AgentGeneratorService for bg-language output.
+     */
+    private const BG_WRITING_PROFILES = ['bg_writer', 'report'];
+
+    /**
+     * Data-gathering tools: a `custom` agent carrying any of these is a
+     * researcher, not a generic analyst, and gets the research profile.
+     */
+    private const RESEARCH_TOOLS = [
+        'web_search', 'pro_search', 'people_search', 'scrape_page',
+        'crawl_site', 'discover_urls', 'google_reviews',
+    ];
+
+    /**
      * Profile → ordered candidate Ollama tags (best first). Every tag must exist
      * in the LlmModel catalogue so pull progress can be tracked. Candidates may be
      * not-yet-installed: selectModel() returns the ideal one (pulled on demand),
@@ -112,9 +128,9 @@ class ModelSelectorService
      * expected to pull it on demand. Use resolveRunnable() when you need a tag that
      * is guaranteed to be installed right now.
      */
-    public function selectModel(string $agentType, ?string $hint = null): string
+    public function selectModel(string $agentType, ?string $hint = null, array $tools = []): string
     {
-        $candidates = $this->candidatesFor($agentType, $hint);
+        $candidates = $this->candidatesFor($agentType, $hint, $tools);
 
         return $candidates[0] ?? $this->globalFallback();
     }
@@ -124,11 +140,11 @@ class ModelSelectorService
      * installed. Falls back to a guaranteed-installed model so a run never points
      * at a missing tag.
      */
-    public function resolveRunnable(string $agentType, ?string $hint = null): string
+    public function resolveRunnable(string $agentType, ?string $hint = null, array $tools = []): string
     {
         $installed = $this->installedTags();
 
-        foreach ($this->candidatesFor($agentType, $hint) as $tag) {
+        foreach ($this->candidatesFor($agentType, $hint, $tools) as $tag) {
             if (in_array($tag, $installed, true)) {
                 return $tag;
             }
@@ -138,13 +154,26 @@ class ModelSelectorService
     }
 
     /**
+     * True when the agent type resolves to a Bulgarian-prose profile — these
+     * stay on local BgGPT regardless of what the planner asked for.
+     */
+    public function isBgWritingType(string $agentType): bool
+    {
+        return in_array($this->profileForType($agentType), self::BG_WRITING_PROFILES, true);
+    }
+
+    /**
      * Ordered candidate tags for an agent, honouring description/name heuristics.
      *
      * @return array<int, string>
      */
-    private function candidatesFor(string $agentType, ?string $hint): array
+    private function candidatesFor(string $agentType, ?string $hint, array $tools = []): array
     {
         $profile = $this->profileForType($agentType);
+
+        if ($agentType === 'custom' && array_intersect($tools, self::RESEARCH_TOOLS) !== []) {
+            $profile = 'research';
+        }
 
         // Description/name heuristics can override the type-based profile.
         if ($hint !== null && $hint !== '') {

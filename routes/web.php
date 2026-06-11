@@ -10,6 +10,7 @@ use App\Http\Controllers\FlowAssistantController;
 use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowGraphController;
+use App\Http\Controllers\FlowMemoryController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\FlowVersionController;
 use App\Http\Controllers\LlmModelController;
@@ -69,7 +70,13 @@ Route::get('flows/{flow}/plan-ab', [PlanAbController::class, 'show'])->name('flo
 Route::post('flows/{flow}/plan-ab/start', [PlanAbController::class, 'start'])->name('flows.plan-ab.start');
 Route::get('plan-ab-status/{token}', [PlanAbController::class, 'status'])->name('flows.plan-ab.status');
 
+// Памет на flow-а — builder панел (преглед/toggle/изчистване)
+Route::get('flows/{flow}/memory', [FlowMemoryController::class, 'show'])->name('flows.memory.show');
+Route::post('flows/{flow}/memory/toggle', [FlowMemoryController::class, 'toggle'])->name('flows.memory.toggle');
+Route::delete('flows/{flow}/memory', [FlowMemoryController::class, 'clear'])->name('flows.memory.clear');
+
 // Flow runs
+Route::get('flows/{flow}/runs-history', [FlowController::class, 'runsHistory'])->name('flows.runs-history');
 Route::post('flows/{flow}/run', [FlowRunController::class, 'store'])->name('flow-runs.store');
 Route::get('runs/{flowRun}', [FlowRunController::class, 'show'])->name('flow-runs.show');
 Route::get('runs/{flowRun}/poll', [FlowRunController::class, 'poll'])->name('flow-runs.poll');
@@ -83,6 +90,10 @@ Route::post('runs/{flowRun}/nodes/{nodeKey}/apply-test', [FlowRunController::cla
 Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-runs.log');
 // Фаза 3: persist a succeeded mid-run revision into the flow (user-confirmed).
 Route::post('runs/{flowRun}/apply-revision', [FlowRunController::class, 'applyRevision'])->name('flow-runs.apply-revision');
+// Resume a failed run (optionally after patching a node's model/prompts).
+Route::post('runs/{flowRun}/resume', [FlowRunController::class, 'resume'])->name('flow-runs.resume');
+// Human-in-the-loop: approve/reject a paused human_approval node (decision param).
+Route::post('runs/{flowRun}/nodes/{nodeKey}/approval', [FlowRunController::class, 'approval'])->name('flow-runs.approval');
 
 // AJAX: generate AI text for a single agent field
 Route::post('ai/generate-agent-field', [AgentController::class, 'generateAgentField'])->name('agents.generate-field');

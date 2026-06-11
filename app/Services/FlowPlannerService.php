@@ -249,9 +249,16 @@ qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. 
    формат на изхода, конкретните входове ({{url}}, {{node:Име}}, {{input}}), КАКВО точно да
    извлече/произведе и какво да изключи. Кратки/общи промпти са НЕприемливи — изравни
    детайла с примерите от библиотеката.
-9. provider: "ollama" (локален, безплатен — за масовата работа) или платен "openai" /
-   "anthropic" — САМО за най-критичните стъпки: сложен fan-in доклад/синтез или
-   стриктен JSON. Максимум 2 платени агента общо в плана.
+9. provider — избери осъзнато за ВСЕКИ агент според задачата му:
+   - "gemini" / "deepseek" / "qwen" / "xai" (евтини/безплатни cloud) — предпочитан избор за
+     research, анализ, екстракция, класификация, стриктен JSON и обработка на резултати от
+     tools: по-умни от локалните модели и работят паралелно (не делят локалния GPU).
+     Избирай само от изброените в каталога като налични.
+   - "openai" / "anthropic" (premium, скъпи) — САМО за най-критичните стъпки: сложен fan-in
+     синтез от много входове. Максимум {{max_premium}} premium агента общо в плана.
+   - "ollama" (локален, безплатен) — ЗАДЪЛЖИТЕЛЕН за всеки агент, който ПИШЕ български текст
+     за краен потребител (content_bg, report_writer, report_composer, caption_writer,
+     email_composer, bg_text_corrector и подобни) — кодът им закача специализиран BG модел.
 10. temperature: 0.1-0.3 за research/анализ/QA/корекция; 0.6-0.8 за креативно съдържание
     и image промптове.
 11. output_size: short (списъци, хаштагове, QA) | medium (постове, имейли) |
@@ -270,6 +277,10 @@ qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. 
   [content_bg, hashtag_generator, image_prompt] (fan-out) → caption_writer (fan-in от трите,
   с {{node:...}} референции) → bg_text_corrector → qa_verifier.
 PROMPT;
+
+        $system = strtr($system, [
+            '{{max_premium}}' => (string) max(0, (int) config('services.planner.max_premium_agents', 2)),
+        ]);
 
         $intentJson = json_encode($intent, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
@@ -327,7 +338,7 @@ PROMPT;
                 'system_prompt' => ['type' => 'string'],
                 'prompt_template' => ['type' => 'string'],
                 'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
-                'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic', 'deepseek', 'xai', 'qwen']],
+                'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen']],
                 'temperature' => ['type' => 'number'],
                 'output_size' => ['type' => 'string', 'enum' => ['short', 'medium', 'long', 'unlimited']],
                 'qa_custom_prompt' => ['type' => ['string', 'null']],
@@ -360,6 +371,9 @@ PROMPT;
 4. Fan-in агентите реферират ли правилните входове ({{node:Име}} съвпада с реално name)?
 5. Промптите конкретни ли са (формат, тон, какво се запазва дословно)?
 6. Има ли точно един bg_text_corrector (предпоследен) и един qa_verifier (uid qa_main, последен)?
+7. Провайдърите спазват ли правилата: агенти, пишещи български текст за краен потребител →
+   ollama; openai/anthropic САМО за най-критичния fan-in синтез; масовата research/анализ
+   работа → евтините cloud провайдъри от каталога?
 Ако планът е добър → approved=true, issues=[], revised_agents=[].
 Ако има дефекти → approved=false, опиши ги в issues и върни ЦЕЛИЯ поправен план в revised_agents
 (всички агенти, не само променените).
@@ -563,8 +577,9 @@ PROMPT;
      */
     private function materialize(array $agents, array $intent): array
     {
-        $maxPaid = max(0, (int) config('services.planner.max_paid_agents', 2));
-        $paidBudget = $this->pickPaidAgents($agents, $maxPaid);
+        $maxPremium = max(0, (int) config('services.planner.max_premium_agents', 2));
+        $language = $this->normalizeLanguage((string) ($intent['language'] ?? 'bg'));
+        $providerPins = $this->resolveProviderPins($agents, $maxPremium, $language);
 
         $out = [];
         $verifierSeen = false;
@@ -577,6 +592,9 @@ PROMPT;
             $type = trim((string) ($spec['type'] ?? 'content_bg'));
             $isVerifier = ($type === 'qa_verifier') || (bool) ($spec['is_verifier'] ?? false);
             $uid = trim((string) ($spec['uid'] ?? ''));
+            // The pins are keyed by the spec's original uid — capture it before
+            // the first verifier's uid is rewritten to qa_main.
+            $pinKey = $uid !== '' ? $uid : $i;
 
             // The first verifier always becomes qa_main — the uid every step-QA config references.
             if ($isVerifier && ! $verifierSeen) {
@@ -637,11 +655,10 @@ PROMPT;
                 'output_description' => trim((string) ($spec['rationale'] ?? '')),
                 'system_prompt' => trim((string) ($spec['system_prompt'] ?? '')),
                 'prompt_template' => trim((string) ($spec['prompt_template'] ?? '')),
-                // Paid prefixes (openai/…, anthropic/…) are preserved by
+                // Paid prefixes (gemini/…, openai/…) are preserved by
                 // normalizeAgent; '' lets the ModelSelector pick the best
                 // installed Ollama model.
-                'model' => $paidBudget[$uid !== '' ? $uid : $i]
-                    ?? '',
+                'model' => $providerPins[$pinKey] ?? '',
                 'model_reason' => trim((string) ($spec['rationale'] ?? '')),
                 'order' => $i + 1,
                 'is_verifier' => $isVerifier,
@@ -649,7 +666,7 @@ PROMPT;
                 'config' => $config,
                 'uid' => $uid !== '' ? $uid : null,
                 'depends_on' => array_values(array_filter(array_map('strval', (array) ($spec['depends_on'] ?? [])))),
-                'output_language' => $this->normalizeLanguage((string) ($intent['language'] ?? 'bg')),
+                'output_language' => $language,
             ];
         }
 
@@ -689,44 +706,61 @@ PROMPT;
     }
 
     /**
-     * Enforce the paid-agent budget: keep the N agents that asked for a paid
-     * provider (openai/anthropic) with the most inbound dependencies (fan-in
-     * synthesis steps benefit most), demote the rest to Ollama. Providers
-     * without an API key are demoted regardless.
+     * Resolve the planner's per-agent provider choices into "provider/model"
+     * pins. Cheap cloud providers (gemini/deepseek/xai/qwen) are pinned freely —
+     * they are the preferred tier for mass work. Premium providers (openai/
+     * anthropic) are budgeted: only the N agents with the most inbound
+     * dependencies keep their pin (fan-in synthesis steps benefit most), the
+     * rest fall back to local Ollama. Providers without an API key are demoted
+     * regardless, and Bulgarian-prose agents always stay local (BgGPT).
      *
      * @param  array<int, array<string, mixed>>  $agents
      * @return array<int|string, string> uid (or index fallback) → pinned "provider/model"
      */
-    private function pickPaidAgents(array $agents, int $max): array
+    private function resolveProviderPins(array $agents, int $maxPremium, string $language): array
     {
-        if ($max === 0) {
-            return [];
-        }
+        $pins = [];
+        $premiumCandidates = [];
 
-        $candidates = [];
         foreach ($agents as $i => $spec) {
             $provider = (string) ($spec['provider'] ?? 'ollama');
 
-            if (array_key_exists($provider, PaidModel::PREFIXES)
-                && PaidModel::available($provider)
-                && ! ($spec['is_verifier'] ?? false)) {
-                $key = trim((string) ($spec['uid'] ?? '')) ?: $i;
-                $candidates[] = [
-                    'key' => $key,
-                    'provider' => $provider,
-                    'fan_in' => count((array) ($spec['depends_on'] ?? [])),
-                ];
+            if (! array_key_exists($provider, PaidModel::PREFIXES) || ! PaidModel::available($provider)) {
+                continue;
             }
+
+            // Bulgarian prose runs on local BgGPT — a cloud pin here would be
+            // stripped by AgentGeneratorService anyway, so don't waste budget.
+            if ($language === 'bg' && $this->modelSelector->isBgWritingType(trim((string) ($spec['type'] ?? '')))) {
+                continue;
+            }
+
+            $key = trim((string) ($spec['uid'] ?? '')) ?: $i;
+
+            if (! PaidModel::isPremium($provider)) {
+                $pins[$key] = PaidModel::pin($provider);
+
+                continue;
+            }
+
+            if ($spec['is_verifier'] ?? false) {
+                continue;
+            }
+
+            $premiumCandidates[] = [
+                'key' => $key,
+                'provider' => $provider,
+                'fan_in' => count((array) ($spec['depends_on'] ?? [])),
+            ];
         }
 
-        usort($candidates, fn ($a, $b) => $b['fan_in'] <=> $a['fan_in']);
+        usort($premiumCandidates, fn ($a, $b) => $b['fan_in'] <=> $a['fan_in']);
 
-        $budget = [];
-        foreach (array_slice($candidates, 0, $max) as $c) {
-            $budget[$c['key']] = PaidModel::pin($c['provider']);
+        foreach (array_slice($premiumCandidates, 0, $maxPremium) as $c) {
+            $pins[$c['key']] = PaidModel::pin($c['provider']);
         }
 
-        return $budget;
+        return $pins;
     }
 
     private function clampTemperature(mixed $value, string $type): float
@@ -804,24 +838,29 @@ PROMPT;
             ->pluck('ollama_tag')
             ->all();
 
-        $paidOptions = ['openai агентите ползват '.config('services.openai.runtime_model', 'gpt-4o-mini')];
-        if (PaidModel::available('anthropic')) {
-            $paidOptions[] = 'anthropic агентите ползват '.config('services.anthropic.runtime_model', 'claude-haiku-4-5');
-        }
-        if (PaidModel::available('deepseek')) {
-            $paidOptions[] = 'deepseek агентите ползват '.config('services.deepseek.runtime_model', 'deepseek-v4-flash');
-        }
-        if (PaidModel::available('xai')) {
-            $paidOptions[] = 'xai агентите ползват '.config('services.xai.runtime_model', 'grok-4.1-fast');
-        }
-        if (PaidModel::available('qwen')) {
-            $paidOptions[] = 'qwen агентите ползват '.config('services.qwen.runtime_model', 'qwen3.5-flash');
+        $cheap = [];
+        $premium = [];
+        foreach (array_keys(PaidModel::PREFIXES) as $provider) {
+            if (! PaidModel::available($provider)) {
+                continue;
+            }
+            $option = $provider.' → '.PaidModel::strip(PaidModel::pin($provider));
+            PaidModel::isPremium($provider) ? $premium[] = $option : $cheap[] = $option;
         }
 
         $lines[] = '';
-        $lines[] = 'ИЗПЪЛНЕНИЕ: ollama агентите получават модел автоматично от кода (инсталирани: '
+        $lines[] = 'ИЗПЪЛНЕНИЕ (provider на всеки агент):';
+        $lines[] = '- ollama (локално, безплатно): моделът се избира автоматично от кода (инсталирани: '
             .(empty($models) ? 'стандартен набор' : implode(', ', $models)).'). '
-            .implode('; ', $paidOptions).'.';
+            .'Задължително за български текст към краен потребител.';
+        if ($cheap !== []) {
+            $lines[] = '- Евтини cloud — предпочитани за research/анализ/екстракция/стриктен JSON, работят паралелно: '
+                .implode('; ', $cheap).'.';
+        }
+        if ($premium !== []) {
+            $lines[] = '- Premium — само за най-критичния fan-in синтез (бюджетирани): '
+                .implode('; ', $premium).'.';
+        }
 
         return implode("\n", $lines);
     }

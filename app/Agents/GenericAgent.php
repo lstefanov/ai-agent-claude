@@ -4,6 +4,9 @@ namespace App\Agents;
 
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Services\AgentLoop;
+use App\Services\OllamaService;
+use App\Support\PaidModel;
 use App\Support\UrlExtractor;
 
 /**
@@ -17,23 +20,43 @@ use App\Support\UrlExtractor;
  *       search_query: "{{topic}} новини"              # optional, {{}} substituted
  *       max_results: 10
  *
- * Execution: every whitelisted tool runs deterministically (search → people →
- * discover → scrape/crawl → document OCR → reviews), the gathered material is appended to the rendered
- * prompt as named blocks, then a single LLM call produces the output. This is
- * what lets the planner invent single-responsibility agents that don't exist
- * as PHP classes ("Откривател на конкуренти", "Одитор на сайта", ...).
+ * Execution has two modes:
+ *  - LOCAL Ollama model → deterministic: every whitelisted tool runs in a fixed
+ *    order (search → people → discover → scrape/crawl → document OCR → reviews),
+ *    the gathered material is appended to the rendered prompt as named blocks,
+ *    then a single LLM call produces the output. Local models don't have
+ *    dependable function calling, so the code drives the tools.
+ *  - PAID model (openai/…, anthropic/…, …) → agentic: the model itself decides
+ *    which whitelisted tools to call, with what arguments and in what order,
+ *    via the shared AgentLoop (config.max_steps caps the rounds, default 6).
+ *
+ * This is what lets the planner invent single-responsibility agents that don't
+ * exist as PHP classes ("Откривател на конкуренти", "Одитор на сайта", ...).
  */
 class GenericAgent extends BaseAgent
 {
     private const MATERIAL_HEADER = "\n\n--- СЪБРАНИ ДАННИ (използвай ги като основен източник; цитирай URL където е уместно) ---\n";
 
+    public function __construct(
+        OllamaService $ollama,
+        array $tools = [],
+        private ?AgentLoop $loop = null,
+    ) {
+        parent::__construct($ollama, $tools);
+    }
+
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
         $enabled = $this->enabledTools($agent);
+
+        if ($this->loop && $enabled !== [] && PaidModel::isPaid($agent->model)) {
+            return $this->runAgentic($agent, $agentRun, $enabled);
+        }
         $params = (array) ($agent->config['tool_params'] ?? []);
 
         $url = $this->resolveUrl($agent, $agentRun, $context);
         $query = $this->resolveQuery($params, $agent, $agentRun, $context);
+        $reviewsQuery = $this->resolveGoogleReviewsQuery($params, $context, $query);
 
         $material = [];
 
@@ -65,9 +88,9 @@ class GenericAgent extends BaseAgent
             }
         }
 
-        if (in_array('google_reviews', $enabled, true) && $query !== '') {
+        if (in_array('google_reviews', $enabled, true) && $reviewsQuery !== '') {
             $result = $this->useTool('google_reviews', [
-                'query' => $query,
+                'query' => $reviewsQuery,
                 'region' => $params['region'] ?? null,
             ]);
             if ($this->usable($result)) {
@@ -125,6 +148,71 @@ class GenericAgent extends BaseAgent
         return $this->chat($agent, $agentRun->input, $extraContext);
     }
 
+    /**
+     * Agentic mode: the paid model drives the whitelisted tools itself through
+     * the shared AgentLoop instead of the deterministic order above.
+     *
+     * @param  array<int, string>  $enabled
+     */
+    private function runAgentic(Agent $agent, AgentRun $agentRun, array $enabled): string
+    {
+        $provider = (string) PaidModel::provider($agent->model);
+        $model = PaidModel::strip((string) $agent->model);
+
+        $tools = array_map(fn (string $name) => [
+            'name' => $this->tools[$name]->name(),
+            'description' => $this->tools[$name]->description(),
+            'parameters' => $this->tools[$name]->parameters(),
+        ], $enabled);
+
+        $base = ! empty($agent->system_prompt) ? $agent->system_prompt : ($agent->role ?? '');
+        $systemPrompt = $base.$this->buildOutputInstructions($agent);
+        $options = $this->buildOptions($agent);
+        $maxSteps = max(1, min(12, (int) ($agent->config['max_steps'] ?? 0) ?: 6));
+        $userMessage = (string) $agentRun->input;
+
+        $this->lastChatParams = [
+            'model' => $agent->model,
+            'system_prompt' => $systemPrompt,
+            'user_message' => $userMessage,
+            'options' => [...$options, 'agentic' => true, 'max_steps' => $maxSteps, 'tools' => $enabled],
+            'output_language' => $agent->output_language,
+            'output_tone' => $agent->output_tone,
+            'output_style' => $agent->output_style,
+            'output_format' => $agent->output_format,
+        ];
+
+        $result = $this->loop->run(
+            provider: $provider,
+            model: $model,
+            messages: [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => $userMessage],
+            ],
+            tools: $tools,
+            // Tool failures feed back as text — the loop continues and the
+            // model can try another tool or different arguments.
+            executor: function (string $name, array $args): string {
+                try {
+                    $output = $this->useTool($name, $args);
+
+                    return ($output === null || trim($output) === '')
+                        ? "(инструментът {$name} не върна данни)"
+                        : $output;
+                } catch (\Throwable $e) {
+                    return "Грешка от {$name}: {$e->getMessage()}";
+                }
+            },
+            maxSteps: $maxSteps,
+            options: $options,
+            wrapUpPrompt: '(Системно: лимитът на стъпки е изчерпан. Дай финалния резултат на базата на събраното дотук — без повече инструменти.)',
+        );
+
+        $this->lastRawOutput = $result['content'];
+
+        return $this->sanitizeModelOutput($result['content'], $systemPrompt, $userMessage, $options);
+    }
+
     /** @return array<int, string> */
     private function enabledTools(Agent $agent): array
     {
@@ -157,9 +245,29 @@ class GenericAgent extends BaseAgent
             }
         }
 
-        $fallback = $context['flow_topic'] ?? $context['topic'] ?? mb_substr((string) $agentRun->input, 0, 200);
+        foreach (['flow_topic', 'topic', 'company_name'] as $key) {
+            $fallback = trim((string) ($context[$key] ?? ''));
+            if ($fallback !== '') {
+                return mb_substr($fallback, 0, 300);
+            }
+        }
 
-        return trim((string) $fallback);
+        return trim(mb_substr((string) $agentRun->input, 0, 200));
+    }
+
+    private function resolveGoogleReviewsQuery(array $params, array $context, string $fallback): string
+    {
+        $template = $this->renderParamTemplate($params['search_query'] ?? '', $context);
+        if ($template !== '' && ! str_contains($template, '{{')) {
+            return mb_substr($template, 0, 300);
+        }
+
+        $companyName = trim((string) ($context['company_name'] ?? ''));
+        if ($companyName !== '') {
+            return mb_substr($companyName, 0, 300);
+        }
+
+        return mb_substr(trim($fallback), 0, 300);
     }
 
     private function resolvePeopleQuery(array $params, Agent $agent, AgentRun $agentRun, array $context, string $fallback): string

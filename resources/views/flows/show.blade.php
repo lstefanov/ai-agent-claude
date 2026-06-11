@@ -3,7 +3,6 @@
 @section('title', $flow->name)
 
 @php
-$triggeredByLabel = ['manual' => '▶ Ръчно', 'scheduler' => '⏰ Планиран'];
 $langFlag = ['bg' => '🇧🇬', 'en' => '🇬🇧', 'de' => '🇩🇪', 'fr' => '🇫🇷', 'es' => '🇪🇸', 'ru' => '🇷🇺'];
 $qaThresholdOptions = range(0, 100, 5);
 @endphp
@@ -65,6 +64,7 @@ $qaThresholdOptions = range(0, 100, 5);
 @endif
 
 {{-- Webhook / n8n Integration Panel --}}
+@if(false)
 <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
     <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
         <h2 class="text-base font-semibold text-gray-900 flex items-center gap-2">
@@ -150,8 +150,10 @@ $qaThresholdOptions = range(0, 100, 5);
         @endif
     </div>
 </div>
+@endif
 
 {{-- Result delivery panel --}}
+@if(false)
 @php $delivery = $flow->settings['delivery'] ?? []; @endphp
 <div class="bg-white rounded-xl border border-gray-200 p-6 mt-6"
      x-data="{ channel: '{{ $delivery['channel'] ?? 'none' }}' }">
@@ -194,6 +196,7 @@ $qaThresholdOptions = range(0, 100, 5);
         </button>
     </form>
 </div>
+@endif
 
 <script>
 function copyWebhookUrl() {
@@ -214,7 +217,7 @@ function copyWebhookUrl() {
 </script>
 
 {{-- Шаблони (граф версии) --}}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6"
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6 mb-6"
      x-data="flowVersionsPanel(@js(csrf_token()))">
     <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
         <div>
@@ -238,52 +241,64 @@ function copyWebhookUrl() {
     @else
         <div class="divide-y divide-gray-50">
             @foreach($versions as $version)
-                <div class="px-6 py-3 flex flex-wrap items-center justify-between gap-3 hover:bg-gray-50/60 transition">
-                    <div class="flex items-center gap-3 min-w-0">
+                <div class="px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50/60 transition">
+                    <div class="flex flex-1 items-start gap-3 min-w-0 overflow-hidden">
                         @if($version->is_active)
-                            <span class="shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">● активен</span>
+                            <span class="shrink-0 w-[80px] mt-0.5 inline-flex items-center justify-center text-[11px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">активен</span>
                         @else
-                            <span class="shrink-0 w-[64px]"></span>
+                            <span class="shrink-0 w-[80px]"></span>
                         @endif
-                        <div class="min-w-0">
+                        <div class="min-w-0 flex flex-col gap-0.5">
                             <div class="text-sm font-semibold text-gray-900 truncate">{{ $version->name }}</div>
-                            <div class="text-xs text-gray-400 truncate">
-                                <span title="Провайдър/модел на генерацията">⚙ {{ $version->generatorLabel() }}</span>
-                                <span class="mx-1.5">·</span>
-                                <span title="Генериран на">{{ $version->created_at->format('d.m.Y H:i') }}</span>
-                                @if($version->cost_usd > 0)
+                            <div class="text-xs text-gray-400 space-y-0.5">
+                                <div title="Създаден на">Създаден: {{ $version->created_at->format('d.m.Y H:i') }}</div>
+                                <div title="Последен run">Последен run: {{ $version->last_run_at ? $version->last_run_at->format('d.m.Y H:i') : 'няма' }}</div>
+                                <div title="Общ разход: генерация + run-ове" class="text-amber-600">Разход: ${{ number_format($version->total_cost_usd ?? 0, 6) }}</div>
+                                <div>
+                                    <span title="Успешни run-ове" class="text-green-600">Успешни: {{ $version->successful_runs_count }}</span>
                                     <span class="mx-1.5">·</span>
-                                    <span class="text-amber-600">${{ number_format($version->cost_usd, 4) }}</span>
-                                @endif
+                                    <span title="Неуспешни run-ове" class="text-red-500">Неуспешни: {{ $version->failed_runs_count }}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2 text-xs">
+                    <div class="flex shrink-0 items-center gap-2 text-xs">
+                        <form method="POST"
+                              action="{{ route('flow-runs.store', $flow) }}"
+                              target="_blank"
+                              class="contents">
+                            @csrf
+                            <input type="hidden" name="version_id" value="{{ $version->id }}">
+                            <button type="submit"
+                                    class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-medium leading-none">
+                                ▶ Стартирай
+                            </button>
+                        </form>
                         @unless($version->is_active)
                             <button type="button"
                                     @click="activate(@js(route('flows.versions.activate', [$flow, $version])))"
-                                    class="px-2.5 py-1.5 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 font-medium">
+                                    class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 font-medium leading-none">
                                 Активирай
                             </button>
                         @endunless
                         <button type="button"
                                 @click="rename(@js(route('flows.versions.update', [$flow, $version])), @js($version->name))"
-                                class="px-2.5 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">
+                                class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 leading-none">
                             Преименувай
                         </button>
                         <a href="{{ route('flows.builder', $flow) }}?version={{ $version->id }}"
-                           class="px-2.5 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-medium">
+                           class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-medium leading-none">
                             ✎ Редактирай
                         </a>
                         @if($version->is_active)
                             <button type="button" disabled title="Активният шаблон не може да бъде изтрит — първо активирай друг."
-                                    class="px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed">
+                                    class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed leading-none">
                                 Изтрий
                             </button>
                         @else
                             <button type="button"
                                     @click="destroy(@js(route('flows.versions.destroy', [$flow, $version])), @js($version->name))"
-                                    class="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50">
+                                    class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 leading-none">
                                 Изтрий
                             </button>
                         @endif
@@ -330,61 +345,261 @@ function flowVersionsPanel(csrf) {
 }
 </script>
 
-{{-- Run History --}}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+{{-- Run History DataTable --}}
+<div x-data="runsHistory(@js(route('flows.runs-history', $flow)), @js($versions->map(fn($v) => ['id' => $v->id, 'name' => $v->name])))"
+     x-init="load()"
+     class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+
+    {{-- Header --}}
+    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-4 flex-wrap">
         <h2 class="text-base font-semibold text-gray-900">История на изпълненията</h2>
-        @if($runs->isNotEmpty())
-            <span class="text-xs text-gray-400">Последни {{ $runs->count() }}</span>
-        @endif
+        <span x-show="meta.total !== null" class="text-xs text-gray-400" x-text="'Общо: ' + meta.total"></span>
     </div>
 
-    @if($runs->isEmpty())
-        <div class="px-6 py-10 text-center">
-            <p class="text-gray-400 text-sm mb-3">Все още няма изпълнения</p>
-            <p class="text-xs text-gray-300">Натисни ▶ Стартирай за първото изпълнение</p>
+    {{-- Filters --}}
+    <div class="px-6 py-3 border-b border-gray-100 flex flex-wrap items-end gap-3">
+        {{-- Status --}}
+        <div class="flex flex-col gap-1">
+            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Статус</label>
+            <select x-model="filters.status" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                <option value="">Всички</option>
+                <option value="completed">Успешен</option>
+                <option value="failed">Неуспешен</option>
+                <option value="running">В момента</option>
+                <option value="pending">Чакащ</option>
+            </select>
         </div>
-    @else
-        <div class="divide-y divide-gray-50">
-            @foreach($runs as $run)
-            <div class="px-6 py-3 flex items-center justify-between hover:bg-gray-50/60 transition">
-                <div class="flex items-center gap-3">
-                    {{-- Status dot --}}
-                    <span @class([
-                        'w-2 h-2 rounded-full shrink-0',
-                        'bg-green-500'                   => $run->status === 'completed',
-                        'bg-red-500'                     => $run->status === 'failed',
-                        'bg-blue-500 animate-pulse'      => $run->status === 'running',
-                        'bg-gray-300'                    => $run->status === 'pending',
-                    ])></span>
-                    @include('partials.status-badge', ['status' => $run->status])
-                    <span class="text-xs text-gray-400">
-                        {{ $triggeredByLabel[$run->triggered_by] ?? $run->triggered_by }}
-                    </span>
-                    @if($run->flowVersion)
-                        <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100"
-                              title="Шаблон, с който е изпълнен този run">
-                            {{ $run->flowVersion->name }}
-                        </span>
-                    @endif
-                </div>
 
-                <div class="flex items-center gap-4">
-                    @if($run->started_at)
-                        <span class="text-xs text-gray-400">{{ $run->started_at->format('d.m.Y H:i') }}</span>
-                    @endif
-                    @if($run->started_at && $run->completed_at)
-                        @php $secs = $run->started_at->diffInSeconds($run->completed_at); @endphp
-                        <span class="text-xs text-gray-400 tabular-nums">
-                            {{ $secs >= 60 ? floor($secs/60).'м '.($secs%60).'с' : $secs.'с' }}
-                        </span>
-                    @endif
-                    <a href="{{ route('flows.builder', ['flow' => $flow, 'run' => $run->id]) }}"
-                       class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Детайли →</a>
-                </div>
-            </div>
-            @endforeach
+        {{-- Triggered by --}}
+        <div class="flex flex-col gap-1">
+            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Задействан от</label>
+            <select x-model="filters.triggered_by" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                <option value="">Всички</option>
+                <option value="manual">▶ Ръчно</option>
+                <option value="scheduler">⏰ Планиран</option>
+            </select>
         </div>
-    @endif
+
+        {{-- Version --}}
+        <template x-if="versions.length > 0">
+            <div class="flex flex-col gap-1">
+                <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Шаблон</label>
+                <select x-model="filters.version_id" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                    <option value="">Всички</option>
+                    <template x-for="v in versions" :key="v.id">
+                        <option :value="v.id" x-text="v.name"></option>
+                    </template>
+                </select>
+            </div>
+        </template>
+
+        {{-- Date from --}}
+        <div class="flex flex-col gap-1">
+            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Дата от</label>
+            <input type="date" x-model="filters.date_from" @change="reset()"
+                   class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+        </div>
+
+        {{-- Date to --}}
+        <div class="flex flex-col gap-1">
+            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Дата до</label>
+            <input type="date" x-model="filters.date_to" @change="reset()"
+                   class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+        </div>
+
+        {{-- Per page --}}
+        <div class="flex flex-col gap-1">
+            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">На страница</label>
+            <select x-model.number="perPage" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                <option value="10">10</option>
+                <option value="15">15</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="0">Всички</option>
+            </select>
+        </div>
+
+        {{-- Reset --}}
+        <button type="button" @click="clearFilters()"
+                x-show="hasActiveFilters()"
+                class="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 bg-white hover:bg-gray-50 transition self-end">
+            ✕ Изчисти
+        </button>
+    </div>
+
+    {{-- Loading skeleton --}}
+    <template x-if="loading">
+        <div class="divide-y divide-gray-50">
+            <template x-for="i in [1,2,3,4,5]" :key="i">
+                <div class="px-6 py-3 flex items-center justify-between gap-3 animate-pulse">
+                    <div class="flex items-center gap-3">
+                        <div class="w-2 h-2 rounded-full bg-gray-200"></div>
+                        <div class="h-3 w-16 bg-gray-200 rounded"></div>
+                        <div class="h-3 w-12 bg-gray-200 rounded"></div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="h-3 w-24 bg-gray-200 rounded"></div>
+                        <div class="h-3 w-16 bg-gray-200 rounded"></div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </template>
+
+    {{-- Empty state --}}
+    <template x-if="!loading && rows.length === 0">
+        <div class="px-6 py-10 text-center">
+            <p class="text-gray-400 text-sm mb-3" x-text="hasActiveFilters() ? 'Няма резултати за избраните филтри' : 'Все още няма изпълнения'"></p>
+            <p x-show="!hasActiveFilters()" class="text-xs text-gray-300">Натисни ▶ Стартирай за първото изпълнение</p>
+        </div>
+    </template>
+
+    {{-- Rows --}}
+    <template x-if="!loading && rows.length > 0">
+        <div class="divide-y divide-gray-50">
+            <template x-for="run in rows" :key="run.id">
+                <div class="px-6 py-3 flex items-center justify-between hover:bg-gray-50/60 transition gap-3">
+                    <div class="flex items-center gap-3 min-w-0 flex-wrap">
+                        {{-- Status dot --}}
+                        <span :class="{
+                            'w-2 h-2 rounded-full shrink-0': true,
+                            'bg-green-500': run.status === 'completed',
+                            'bg-red-500':   run.status === 'failed',
+                            'bg-blue-500 animate-pulse': run.status === 'running',
+                            'bg-violet-500 animate-pulse': run.status === 'waiting_approval',
+                            'bg-gray-300':  run.status === 'pending',
+                        }"></span>
+                        {{-- Status badge --}}
+                        <span :class="{
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium': true,
+                            'bg-green-100 text-green-700': run.status === 'completed',
+                            'bg-red-100 text-red-700':     run.status === 'failed',
+                            'bg-blue-100 text-blue-700':   run.status === 'running',
+                            'bg-violet-100 text-violet-700': run.status === 'waiting_approval',
+                            'bg-gray-100 text-gray-500':   run.status === 'pending',
+                        }" x-text="{completed:'Завършен',failed:'Неуспешен',running:'Работи',pending:'Чакащ',waiting_approval:'✋ Чака одобрение'}[run.status] ?? run.status"></span>
+                        {{-- Triggered by --}}
+                        <span class="text-xs text-gray-400" x-text="{'manual':'▶ Ръчно','scheduler':'⏰ Планиран'}[run.triggered_by] ?? run.triggered_by"></span>
+                        {{-- Version pill --}}
+                        <template x-if="run.version_name">
+                            <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100"
+                                  x-text="run.version_name" title="Шаблон"></span>
+                        </template>
+                    </div>
+
+                    <div class="flex items-center gap-4 shrink-0">
+                        <template x-if="run.started_at">
+                            <span class="text-xs text-gray-400" x-text="run.started_at"></span>
+                        </template>
+                        <template x-if="run.duration_secs !== null">
+                            <span class="text-xs text-gray-400 tabular-nums"
+                                  x-text="run.duration_secs >= 60 ? Math.floor(run.duration_secs/60)+'м '+(run.duration_secs%60)+'с' : run.duration_secs+'с'"></span>
+                        </template>
+                        <template x-if="run.cost_usd">
+                            <span class="text-xs text-amber-600 tabular-nums font-medium" x-text="'$' + run.cost_usd"></span>
+                        </template>
+                        <a :href="run.builder_url" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Детайли →</a>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </template>
+
+    {{-- Pagination --}}
+    <template x-if="!loading && meta.last_page > 1">
+        <div class="px-6 py-3 border-t border-gray-100 flex items-center justify-between gap-4">
+            <span class="text-xs text-gray-400"
+                  x-text="'Страница ' + meta.current_page + ' от ' + meta.last_page + ' (' + meta.total + ' общо)'"></span>
+            <div class="flex items-center gap-1">
+                <button @click="goTo(meta.current_page - 1)" :disabled="meta.current_page <= 1"
+                        class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    ← Назад
+                </button>
+                <template x-for="p in pageNumbers()" :key="p">
+                    <button @click="p !== '…' && goTo(p)"
+                            :class="{
+                                'px-2.5 py-1 text-xs border rounded-lg transition': true,
+                                'bg-indigo-600 border-indigo-600 text-white': p === meta.current_page,
+                                'border-gray-200 text-gray-600 hover:bg-gray-50': p !== meta.current_page && p !== '…',
+                                'border-transparent text-gray-400 cursor-default': p === '…',
+                            }"
+                            x-text="p"></button>
+                </template>
+                <button @click="goTo(meta.current_page + 1)" :disabled="meta.current_page >= meta.last_page"
+                        class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    Напред →
+                </button>
+            </div>
+        </div>
+    </template>
 </div>
+
+<script>
+function runsHistory(url, versions) {
+    return {
+        url,
+        versions,
+        loading: true,
+        rows: [],
+        meta: { current_page: 1, last_page: 1, total: null, per_page: 15 },
+        perPage: 15,
+        filters: { status: '', triggered_by: '', version_id: '', date_from: '', date_to: '' },
+
+        async load() {
+            this.loading = true;
+            const params = new URLSearchParams({ page: this.meta.current_page, per_page: this.perPage });
+            Object.entries(this.filters).forEach(([k, v]) => v && params.set(k, v));
+            try {
+                const res = await fetch(this.url + '?' + params.toString(), {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const json = await res.json();
+                this.rows = json.data;
+                this.meta  = json.meta;
+            } catch (e) {
+                console.error('runsHistory fetch error', e);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        reset() {
+            this.meta.current_page = 1;
+            this.load();
+        },
+
+        goTo(page) {
+            if (page < 1 || page > this.meta.last_page) return;
+            this.meta.current_page = page;
+            this.load();
+        },
+
+        clearFilters() {
+            this.filters = { status: '', triggered_by: '', version_id: '', date_from: '', date_to: '' };
+            this.perPage = 15;
+            this.reset();
+        },
+
+        hasActiveFilters() {
+            return Object.values(this.filters).some(v => v !== '') || this.perPage !== 15;
+        },
+
+        pageNumbers() {
+            const { current_page: cur, last_page: last } = this.meta;
+            if (last <= 7) return Array.from({ length: last }, (_, i) => i + 1);
+            const pages = new Set([1, last, cur, cur - 1, cur + 1].filter(p => p >= 1 && p <= last));
+            const sorted = [...pages].sort((a, b) => a - b);
+            const result = [];
+            let prev = null;
+            for (const p of sorted) {
+                if (prev !== null && p - prev > 1) result.push('…');
+                result.push(p);
+                prev = p;
+            }
+            return result;
+        },
+    };
+}
+</script>
 @endsection

@@ -11,6 +11,7 @@ use App\Support\GraphTopology;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use App\Support\PaidModel;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -48,6 +49,7 @@ class BuilderAssistantService
         private GeneratorService $generator,
         private FlowPlannerService $planner,
         private GraphNormalizer $normalizer,
+        private AgentLoop $loop,
     ) {}
 
     /**
@@ -85,9 +87,11 @@ class BuilderAssistantService
      * @param  AssistantMessage  $userMessage  the persisted user message (history = everything before it)
      * @param  array|null  $export  raw Drawflow export of the CURRENT canvas (null → saved graph)
      * @param  string  $mode  edit | run | view — write tools only in edit
+     * @param  ?callable  $onStage  fired with a human-readable label before each tool call
+     * @param  ?callable  $onPartial  fired with each non-empty model text (pseudo-streaming)
      * @return array{content: string, ops: array, ui: array, cost_usd: float|null, steps: int}
      */
-    public function turn(Flow $flow, AssistantMessage $userMessage, ?array $export, string $mode, ?callable $onStage = null): array
+    public function turn(Flow $flow, AssistantMessage $userMessage, ?array $export, string $mode, ?callable $onStage = null, ?callable $onPartial = null): array
     {
         $flow->loadMissing('company');
 
@@ -113,56 +117,22 @@ class BuilderAssistantService
             'flow_id' => $flow->id,
         ]);
 
-        $final = null;
-        $steps = 0;
-
         try {
-            for ($step = 1; $step <= $maxSteps; $step++) {
-                $steps = $step;
-                $result = $this->generator->chatTurn($provider, $model, $messages, $tools, [
-                    'temperature' => 0.2,
-                    'num_predict' => 3000,
-                    'http_timeout' => 180,
-                ]);
-
-                if ($result['tool_calls'] === []) {
-                    $final = $result['content'];
-                    break;
-                }
-
-                $messages[] = [
-                    'role' => 'assistant',
-                    'content' => $result['content'],
-                    'tool_calls' => $result['tool_calls'],
-                ];
-
-                foreach ($result['tool_calls'] as $call) {
-                    if ($onStage) {
-                        $onStage($this->stageLabel($call['name'], $call['arguments']));
-                    }
-
-                    $messages[] = [
-                        'role' => 'tool',
-                        'tool_call_id' => $call['id'],
-                        'content' => $this->executeTool($flow, $call['name'], $call['arguments'], $mode),
-                    ];
-                }
-            }
-
-            // Step budget exhausted mid-investigation — ask for a wrap-up
-            // without tools so the user still gets a useful answer.
-            if ($final === null) {
-                $messages[] = [
-                    'role' => 'user',
-                    'content' => '(Системно: лимитът на стъпки е изчерпан. Обобщи накратко какво откри/направи дотук — без повече инструменти.)',
-                ];
-                $result = $this->generator->chatTurn($provider, $model, $messages, [], [
-                    'temperature' => 0.2,
-                    'num_predict' => 1500,
-                    'http_timeout' => 120,
-                ]);
-                $final = $result['content'];
-            }
+            $result = $this->loop->run(
+                provider: $provider,
+                model: $model,
+                messages: $messages,
+                tools: $tools,
+                executor: fn (string $name, array $args): string => $this->executeTool($flow, $name, $args, $mode),
+                maxSteps: $maxSteps,
+                options: ['temperature' => 0.2, 'num_predict' => 3000, 'http_timeout' => 180],
+                onToolCall: $onStage
+                    ? fn (string $name, array $args) => $onStage($this->stageLabel($name, $args))
+                    : null,
+                onContent: $onPartial,
+                wrapUpPrompt: '(Системно: лимитът на стъпки е изчерпан. Обобщи накратко какво откри/направи дотук — без повече инструменти.)',
+                wrapUpOptions: ['temperature' => 0.2, 'num_predict' => 1500, 'http_timeout' => 120],
+            );
         } finally {
             LlmContext::clear();
         }
@@ -170,11 +140,11 @@ class BuilderAssistantService
         $usage = LlmUsage::take();
 
         return [
-            'content' => trim((string) $final),
+            'content' => $result['content'],
             'ops' => $this->ops,
             'ui' => $this->ui,
             'cost_usd' => $usage['cost_usd'],
-            'steps' => $steps,
+            'steps' => $result['steps'],
         ];
     }
 
@@ -732,7 +702,15 @@ PROMPT;
             ];
         }
 
-        return $this->json($this->planner->critiqueExistingPlan($flow, $agents));
+        // The critique is a full LLM call — an unchanged graph gets the cached
+        // verdict instead of paying for it again within the conversation.
+        $critique = Cache::remember(
+            'assistant_eval_'.$flow->id.'_'.md5(json_encode($agents, JSON_UNESCAPED_UNICODE)),
+            now()->addMinutes(10),
+            fn () => $this->planner->critiqueExistingPlan($flow, $agents),
+        );
+
+        return $this->json($critique);
     }
 
     // ── write tools ───────────────────────────────────────────────────────

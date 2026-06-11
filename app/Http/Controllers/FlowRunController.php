@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Flow;
+use App\Models\FlowNode;
 use App\Models\FlowRun;
+use App\Models\FlowVersion;
 use App\Services\GraphFlowExecutor;
 use App\Support\PaidModel;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +16,8 @@ use Illuminate\Support\Str;
 
 class FlowRunController extends Controller
 {
+    private const FLOWS_QUEUE_HEARTBEAT_KEY = 'queue.heartbeat.flows';
+
     public function store(Request $request, Flow $flow, GraphFlowExecutor $executor)
     {
         // The run is PINNED to a template (run-popup dropdown, defaulting to the
@@ -32,6 +36,11 @@ class FlowRunController extends Controller
         if ($version->nodes()->where('is_active', true)->doesntExist()) {
             return redirect()->route('flows.builder', ['flow' => $flow, 'version' => $version->id])
                 ->with('error', 'Графът няма активни възли.');
+        }
+
+        if (! $this->flowsWorkerAlive()) {
+            return redirect()->route('flows.builder', ['flow' => $flow, 'version' => $version->id])
+                ->with('error', 'Няма активен queue worker за изпълнение на flow-ове. Стартирай composer dev или php artisan queue:work --queue=flows.');
         }
 
         // Per-run inputs ({{topic}} + arbitrary placeholders) — one flow can serve
@@ -153,7 +162,7 @@ class FlowRunController extends Controller
         // payload. Both run views fetch full content on demand via nodeDetail().
         // One array serves both keying schemes: node_key (builder) and
         // agent_id (runs/show).
-        $lengthFn = $flowRun->nodeRuns()->getQuery()->getConnection()->getDriverName() === 'mysql'
+        $lengthFn = DB::connection()->getDriverName() === 'mysql'
             ? 'CHAR_LENGTH'
             : 'LENGTH';
 
@@ -194,11 +203,77 @@ class FlowRunController extends Controller
             'final_output' => $flowRun->final_output,
             'step_qa_results' => $context['step_qa_results'] ?? [],
             'replan' => $context['replan'] ?? [],
+            'memory_dedup' => $context['memory_dedup'] ?? [],
             'delivery' => $context['delivery'] ?? null,
             'cost_usd' => $costUsd > 0 ? round($costUsd, 4) : null,
+            'worker_alive' => $this->flowsWorkerAlive(),
             'progress' => $this->parseRunProgress($flowRun->id),
+            'approvals' => $context['approvals'] ?? [],
             'node_runs' => $nodeRunsData,
         ]);
+    }
+
+    /**
+     * Human-in-the-loop: settle a paused human_approval node. Approve marks the
+     * NodeRun completed (output = решението + коментар, consumable by downstream
+     * nodes) and resumes the run; reject fails the run cleanly.
+     */
+    public function approval(Request $request, FlowRun $flowRun, string $nodeKey, GraphFlowExecutor $executor): JsonResponse
+    {
+        $validated = $request->validate([
+            'decision' => ['required', 'in:approve,reject'],
+            'comment' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        if ($flowRun->status !== 'waiting_approval') {
+            return response()->json(['ok' => false, 'error' => 'Изпълнението не чака одобрение.'], 422);
+        }
+
+        $nodeRun = $flowRun->nodeRuns()->where('node_key', $nodeKey)->where('status', 'paused')->first();
+
+        if (! $nodeRun) {
+            return response()->json(['ok' => false, 'error' => 'Този възел не чака одобрение.'], 404);
+        }
+
+        $comment = trim((string) ($validated['comment'] ?? ''));
+        $approved = $validated['decision'] === 'approve';
+
+        // Audit trail in the run context (the poll ships it to the UI).
+        $context = $flowRun->fresh()->context ?? [];
+        $context['approvals'][$nodeKey] = array_merge($context['approvals'][$nodeKey] ?? [], [
+            'status' => $approved ? 'approved' : 'rejected',
+            'comment' => $comment !== '' ? $comment : null,
+            'decided_at' => now()->toISOString(),
+        ]);
+        $flowRun->update(['context' => $context]);
+
+        if ($approved) {
+            $nodeRun->update([
+                'status' => 'completed',
+                'output' => 'Одобрено от потребителя.'.($comment !== '' ? "\nКоментар: {$comment}" : ''),
+                'completed_at' => now(),
+            ]);
+
+            $executor->resumeAfterApproval($flowRun, $nodeKey);
+        } else {
+            $message = "Отхвърлено от потребителя на стъпка „{$nodeRun->flowNode?->name}“."
+                .($comment !== '' ? " Причина: {$comment}" : '');
+
+            $nodeRun->update([
+                'status' => 'failed',
+                'error' => $message,
+                'completed_at' => now(),
+            ]);
+
+            $executor->fail($flowRun->fresh(), $message);
+        }
+
+        return response()->json(['ok' => true, 'status' => $flowRun->fresh()->status]);
+    }
+
+    private function flowsWorkerAlive(): bool
+    {
+        return Cache::has(self::FLOWS_QUEUE_HEARTBEAT_KEY);
     }
 
     /**
@@ -359,6 +434,158 @@ class FlowRunController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Resume a failed run, optionally persisting edits to one node first.
+     *
+     * POST runs/{flowRun}/resume
+     * Body (all optional):
+     *   node_key        – key of the node to patch before resuming
+     *   model           – new model string
+     *   system_prompt   – new system prompt
+     *   prompt_template – new prompt template
+     *   config          – associative array of sampler/qa overrides
+     */
+    public function resume(Request $request, FlowRun $flowRun, GraphFlowExecutor $executor): JsonResponse
+    {
+        if ($flowRun->status !== 'failed') {
+            return response()->json(['ok' => false, 'error' => 'Само неуспешни изпълнения могат да бъдат подновени.'], 422);
+        }
+
+        $validated = $request->validate([
+            'node_key' => ['nullable', 'string', 'max:200'],
+            'model' => ['nullable', 'string', 'max:200', 'regex:'.FlowController::MODEL_PATTERN],
+            'system_prompt' => ['nullable', 'string', 'max:60000'],
+            'prompt_template' => ['nullable', 'string', 'max:200000'],
+            'config' => ['nullable', 'array'],
+            'config.temperature' => ['nullable', 'numeric', 'between:0,2'],
+            'config.num_predict' => ['nullable', 'integer', 'min:-1', 'max:32768'],
+            'config.num_ctx' => ['nullable', 'integer', 'min:512', 'max:131072'],
+            'config.top_p' => ['nullable', 'numeric', 'between:0,1'],
+            'config.top_k' => ['nullable', 'integer', 'min:0', 'max:200'],
+            'config.repeat_penalty' => ['nullable', 'numeric', 'between:0,2'],
+            'config.seed' => ['nullable', 'integer'],
+            'config.qa' => ['nullable', 'array'],
+            'config.qa.enabled' => ['nullable', 'boolean'],
+            'config.qa.threshold' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'config.qa.max_retries' => ['nullable', 'integer', 'min:0', 'max:10'],
+            'config.qa.custom_prompt' => ['nullable', 'string', 'max:4000'],
+        ]);
+
+        // Persist node edits when a node_key is provided.
+        $nodeKey = $validated['node_key'] ?? null;
+        if ($nodeKey) {
+            $version = $flowRun->flowVersion;
+
+            if (! $version) {
+                return response()->json(['ok' => false, 'error' => 'Шаблонът на това изпълнение вече не съществува.'], 404);
+            }
+
+            $node = $version->nodes()->where('node_key', $nodeKey)->first();
+
+            if (! $node) {
+                return response()->json(['ok' => false, 'error' => 'Възелът вече не съществува в графа.'], 404);
+            }
+
+            // Validate paid provider availability when switching to a cloud model.
+            $newModel = $validated['model'] ?? null;
+            if ($newModel !== null) {
+                $provider = PaidModel::provider($newModel);
+                if ($provider && ! PaidModel::available($provider)) {
+                    return response()->json(['ok' => false, 'error' => "Провайдърът {$provider} няма конфигуриран API ключ."], 503);
+                }
+            }
+
+            $this->persistNodeEdits($node, $version, $nodeKey, $validated);
+        }
+
+        $executor->resume($flowRun);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Persist model/prompt/config edits onto a FlowNode row and keep the
+     * Drawflow graph_layout in sync.  Used by resume() — extracting the
+     * logic here avoids duplicating the layout-sync pattern from applyTest /
+     * applyRevision.
+     *
+     * @param  FlowNode  $node
+     * @param  FlowVersion  $version
+     * @param  array<string,mixed>  $validated
+     */
+    private function persistNodeEdits($node, $version, string $nodeKey, array $validated): void
+    {
+        $nodeUpdates = [];
+
+        if (isset($validated['model'])) {
+            $nodeUpdates['model'] = $validated['model'];
+        }
+
+        if (array_key_exists('system_prompt', $validated) && $validated['system_prompt'] !== null) {
+            // Strip the auto-appended OUTPUT REQUIREMENTS block added by BaseAgent.
+            $system = preg_replace('/\n\n---\nOUTPUT REQUIREMENTS:\n.*$/s', '', (string) $validated['system_prompt']);
+            if (trim($system) !== '') {
+                $nodeUpdates['system_prompt'] = $system;
+            }
+        }
+
+        if (array_key_exists('prompt_template', $validated) && $validated['prompt_template'] !== null) {
+            $nodeUpdates['prompt_template'] = $validated['prompt_template'];
+        }
+
+        // Merge sampler + qa overrides into the existing config.
+        if (! empty($validated['config'])) {
+            $config = $node->config ?? [];
+            $incoming = $validated['config'];
+
+            // Sampler keys live at top-level of config.
+            foreach (['temperature', 'num_predict', 'num_ctx', 'top_p', 'top_k', 'repeat_penalty', 'seed'] as $k) {
+                if (array_key_exists($k, $incoming) && $incoming[$k] !== null) {
+                    $config[$k] = $incoming[$k];
+                }
+            }
+
+            // QA sub-object.
+            if (isset($incoming['qa']) && is_array($incoming['qa'])) {
+                $config['qa'] = array_merge($config['qa'] ?? [], $incoming['qa']);
+            }
+
+            $nodeUpdates['config'] = $config;
+        }
+
+        if (! empty($nodeUpdates)) {
+            $node->update($nodeUpdates);
+        }
+
+        // Keep the Drawflow layout in sync — the builder loads from graph_layout.
+        $layout = $version->graph_layout;
+        if (is_array($layout)) {
+            $changed = false;
+            foreach ($layout['drawflow'] ?? [] as $moduleName => $module) {
+                if (isset($module['data'][$nodeKey]['data'])) {
+                    $data = $module['data'][$nodeKey]['data'];
+                    if (isset($nodeUpdates['model'])) {
+                        $data['model'] = $nodeUpdates['model'];
+                    }
+                    if (isset($nodeUpdates['system_prompt'])) {
+                        $data['system_prompt'] = $nodeUpdates['system_prompt'];
+                    }
+                    if (isset($nodeUpdates['prompt_template'])) {
+                        $data['prompt_template'] = $nodeUpdates['prompt_template'];
+                    }
+                    if (isset($nodeUpdates['config'])) {
+                        $data['config'] = array_merge((array) ($data['config'] ?? []), $nodeUpdates['config']);
+                    }
+                    $layout['drawflow'][$moduleName]['data'][$nodeKey]['data'] = $data;
+                    $changed = true;
+                }
+            }
+            if ($changed) {
+                $version->update(['graph_layout' => $layout]);
+            }
+        }
     }
 
     /**

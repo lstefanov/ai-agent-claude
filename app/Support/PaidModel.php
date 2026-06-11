@@ -25,6 +25,18 @@ class PaidModel
         'qwen' => 'qwen/',
     ];
 
+    /**
+     * Providers whose runtime models cost real money per node. Everything else
+     * in PREFIXES is the cheap tier (free tier or near-free flash models) and
+     * is exempt from the planner's premium-agent budget.
+     */
+    public const PREMIUM = ['openai', 'anthropic'];
+
+    public static function isPremium(?string $provider): bool
+    {
+        return in_array($provider, self::PREMIUM, true);
+    }
+
     /** Provider key from PREFIXES, or null (null = local Ollama model). */
     public static function provider(?string $model): ?string
     {

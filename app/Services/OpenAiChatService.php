@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\ChatClientInterface;
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
 use Illuminate\Http\Client\ConnectionException;
@@ -36,7 +37,7 @@ use Illuminate\Support\Facades\Log;
  *   num_predict (>0) → max_completion_tokens/max_tokens, num_predict -1 → no cap.
  * num_ctx / top_k / repeat_penalty / seed have no equivalent and are ignored.
  */
-class OpenAiChatService
+class OpenAiChatService implements ChatClientInterface
 {
     public function __construct(
         private readonly string $provider = 'openai',
@@ -156,7 +157,7 @@ class OpenAiChatService
      * @param  list<array{name: string, description: string, parameters: array<string, mixed>}>  $tools
      * @return array{content: string, tool_calls: list<array{id: string, name: string, arguments: array<string, mixed>}>}
      */
-    public function chatTurn(string $model, array $messages, array $tools, array $options = []): array
+    public function chatTurn(string $model, array $messages, array $tools, array $options = [], ?callable $onChunk = null): array
     {
         $payload = [
             'model' => $model,
@@ -204,8 +205,14 @@ class OpenAiChatService
             ];
         }
 
+        $content = (string) ($message['content'] ?? '');
+
+        if ($onChunk && $content !== '') {
+            $onChunk($content);
+        }
+
         return [
-            'content' => (string) ($message['content'] ?? ''),
+            'content' => $content,
             'tool_calls' => $toolCalls,
         ];
     }

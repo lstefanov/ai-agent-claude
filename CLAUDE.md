@@ -12,7 +12,7 @@ Guidance for working in this repository.
 
 A Laravel 12 (PHP 8.2) web app for building and running **multi-agent AI workflows**. Users define a **Company**, create **Flows** described in free text, and an LLM planner (**FlowPlannerService**, the "agent that creates agents") designs the agent pipeline automatically as a **DAG** (graph of nodes + edges), shown for review in a visual Drawflow builder, then executed with real parallelism.
 
-Planning runs on a cloud LLM (**OpenAI** by default; Anthropic, DeepSeek and Gemini supported) via structured outputs, with optional **per-phase hybrid** routing (`PLANNER_{INTENT,DESIGN,CRITIQUE,REVISION}_{PROVIDER,MODEL}` — e.g. Claude only for pipeline design, a cheap/free model for the rest). Agent execution runs on local **Ollama** models, except steps the planner pins to OpenAI (`openai/<model>`). Image generation via **ComfyUI**; web search via **Brave**; scraping/crawling via an internal crawl service.
+Planning runs on a cloud LLM (**OpenAI** by default; Anthropic, DeepSeek and Gemini supported) via structured outputs, with optional **per-phase hybrid** routing (`PLANNER_{INTENT,DESIGN,CRITIQUE,REVISION}_{PROVIDER,MODEL}` — e.g. Claude only for pipeline design, a cheap/free model for the rest). Agent execution mixes local **Ollama** models and cloud-pinned steps (`<provider>/<model>`): the planner freely assigns cheap cloud providers (Gemini/DeepSeek/xAI/Qwen) for mass research/analysis work, premium ones (OpenAI/Anthropic) under a budget (`PLANNER_MAX_PREMIUM_AGENTS`), while Bulgarian-prose agents always stay on local BgGPT. Image generation via **ComfyUI**; web search via **Brave**; scraping/crawling via an internal crawl service.
 
 The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each execution recorded as `FlowRun → NodeRun[]`.
 
@@ -23,7 +23,7 @@ The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each ex
 - **DB:** SQLite (default), database-backed queue, cache, and sessions
 - **Queue:** database driver — background jobs need a running worker
 - **LLM (planning):** `GENERATOR_PROVIDER=openai|anthropic|deepseek|gemini|xai|qwen` (cloud, API key) or `ollama` (free local planning via Ollama structured outputs on `OLLAMA_PLANNER_MODEL`) — `GeneratorService::resolve()` picks per phase (`services.planner.phases` overrides); OpenAI/DeepSeek/Gemini/xAI/Qwen share one OpenAI-compatible client (`OpenAiChatService::for($provider)`)
-- **LLM (runtime):** Ollama (`OLLAMA_URL`) with a model-selector layer; `openai/<model>` / `anthropic/<model>` / `deepseek/<model>` / `xai/<model>` / `qwen/<model>` prefixes route a node to that paid provider (`App\Support\PaidModel` owns the prefixes)
+- **LLM (runtime):** Ollama (`OLLAMA_URL`) with a model-selector layer; `openai/<model>` / `anthropic/<model>` / `deepseek/<model>` / `gemini/<model>` / `xai/<model>` / `qwen/<model>` prefixes route a node to that paid provider (`App\Support\PaidModel` owns the prefixes and the cheap/premium tier split)
 - **External services:** Brave Search, ComfyUI, internal crawl service (`CRAWL_SERVICE_URL`), Google Places (reviews)
 
 ## Layout
@@ -35,6 +35,7 @@ The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each ex
   - `NodeExecutorService` — runs one node: input from direct predecessors (namespaced, no information loss), technical retries, inline step-QA gate; bridges FlowNode → transient `Agent` DTO.
   - `GraphNormalizer` — the ONLY place that understands the Drawflow export format.
   - `PlanLibraryService` — the planner's long-term memory: saving the graph (= approval) snapshots intent + pipeline into `plan_library`; a successful run marks it `proven`; the most similar proven plans are injected as few-shot examples at design time.
+  - `FlowMemoryService` — the flow's run-to-run memory (`flow_memories`): after each successful run a queued `DistillFlowMemoryJob` stores digests + embeddings of content-node outputs and per-node "lessons" (from replan events). Next runs get a "ПАМЕТ/ПОУКИ" prompt block, and a post-generation dedup gate (cosine ≥ `MEMORY_SIMILARITY_THRESHOLD`, default 0.80) retries too-similar outputs with feedback (max `MEMORY_DEDUP_MAX_RETRIES`, then accept+flag — never fails the run). Embeddings via `EmbeddingService` (`MEMORY_EMBEDDING_PROVIDER=openai|ollama`); per-flow toggle in the builder "Памет" panel (settings.memory.enabled). Content node = `output_role` 'body' minus transformers (bg_text_corrector/translator).
   - `GeneratorService` (planning provider switch), `OpenAiChatService` / `AnthropicChatService` (paid-provider chat + structured outputs + embeddings/tool-call), `OllamaService` (local runtime; routes paid-prefixed models), `ModelSelectorService`, `BraveSearchService`, `CrawlService`, `ComfyUIService`, `GooglePlacesService`, `FinalComposerService`.
 - `app/Agents/` — agent implementations extending `BaseAgent` (e.g. `DeepResearcherAgent`, `ReportComposerAgent`, `QaVerifierAgent`, `GenericAgent` for planner-composed `custom` agents with config-driven tools). `AgentFactory` instantiates by node type; `Tools/` holds tool classes (`BraveSearchTool`, `WebScraperTool`, `SiteCrawlerTool`, `SiteDiscoveryTool`, `GoogleReviewsTool`).
 - `app/Jobs/` — `ExecuteFlowJob` (scheduler entry), `ExecuteNodeJob` (one node per queued job), `SyncOllamaModelsJob`.
@@ -52,7 +53,7 @@ The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each ex
 2. `FlowPlannerService.plan()`: intent analysis → pipeline design (DAG of single-responsibility agents with prompts, tools, provider, tuning) → critique/repair. `AgentGeneratorService.finalizePlannedAgents()` hardens the result.
 3. The builder renders the plan as a graph; the user reviews/edits and saves (`GraphNormalizer.sync` → `flow_nodes`/`flow_edges`).
 4. Run: `GraphFlowExecutor` computes waves and dispatches `ExecuteNodeJob` batches on the `flows` queue; `NodeExecutorService` executes each node (Ollama or OpenAI by model prefix), step-QA gates retry on low scores — from the second retry the planner revises the failing agent (adaptive replanning, run-scoped only; a degenerate-output watchdog triggers the same path). A per-run log lands in `storage/logs/run-{id}.log`; paid-provider cost is tracked per node (`node_runs.cost_usd`) and per planner phase (`agent_generation_logs.cost_usd`).
-5. A successful run promotes the flow's saved plan to `proven` in the plan library, feeding future planning as few-shot examples.
+5. A successful run promotes the flow's saved plan to `proven` in the plan library, feeding future planning as few-shot examples, and dispatches `DistillFlowMemoryJob` (default queue) to remember what was produced — future runs steer away from duplicating it (flow memory + dedup gate).
 
 ## Common commands
 

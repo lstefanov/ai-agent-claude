@@ -13,9 +13,25 @@ class BraveSearchTool implements AgentTool
         return 'web_search';
     }
 
+    public function description(): string
+    {
+        return 'Търсене в интернет (Brave) — връща топ резултати със заглавие, URL и описание.';
+    }
+
+    public function parameters(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'query' => ['type' => 'string', 'description' => 'Заявка за търсене.'],
+            ],
+            'required' => ['query'],
+        ];
+    }
+
     public function execute(array $params): string
     {
-        $query   = $params['query'] ?? '';
+        $query = $params['query'] ?? '';
         $results = $this->service->search($query);
 
         if (empty($results)) {
@@ -24,11 +40,11 @@ class BraveSearchTool implements AgentTool
 
         $lines = [];
         foreach ($results as $i => $result) {
-            $num     = $i + 1;
-            $title   = $result['title'] ?? 'No title';
-            $url     = $result['url'] ?? '';
+            $num = $i + 1;
+            $title = $result['title'] ?? 'No title';
+            $url = $result['url'] ?? '';
             $summary = $result['description'] ?? 'No description';
-            $age     = $result['age'] ?? null;
+            $age = $result['age'] ?? null;
 
             $entry = "[{$num}] Title: {$title}\n";
             $entry .= "    URL: {$url}\n";

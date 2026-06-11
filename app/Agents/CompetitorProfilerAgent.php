@@ -9,6 +9,10 @@ use Illuminate\Support\Facades\Http;
 
 class CompetitorProfilerAgent extends BaseAgent
 {
+    private const DEFAULT_SKIP_SEARCH_INPUT_CHARS = 8000;
+
+    private const DEFAULT_EXTRA_CONTEXT_MAX_CHARS = 30000;
+
     private const PRICING_KEYWORDS = [
         'цен', 'абон', 'карт',
         'ceni', 'tseni', 'cena', 'price', 'pricing', 'membership', 'member',
@@ -29,22 +33,28 @@ class CompetitorProfilerAgent extends BaseAgent
         $competitor = ! empty($context['flow_topic'])
             ? $context['flow_topic']
             : mb_substr($agentRun->input, 0, 300);
+        $skipSearchAt = (int) ($config['skip_search_when_input_chars'] ?? self::DEFAULT_SKIP_SEARCH_INPUT_CHARS);
+        $shouldSearch = $skipSearchAt <= 0 || mb_strlen($agentRun->input) < $skipSearchAt;
 
         // Phase 1: Search for competitor information
-        $searchQuery = "{$competitor} services pricing website";
-        $searchResults = $this->searchWeb($searchQuery);
-
         $allResults = '';
-        if ($searchResults !== null) {
-            $allResults = "\n\n=== SEARCH: \"{$searchQuery}\" ===\n{$searchResults}";
-            $allResults = PricingSourceQuality::filterSearchResults($allResults);
+        if ($shouldSearch) {
+            $searchQuery = "{$competitor} services pricing website";
+            $searchResults = $this->searchWeb($searchQuery);
+
+            if ($searchResults !== null) {
+                $allResults = "\n\n=== SEARCH: \"{$searchQuery}\" ===\n{$searchResults}";
+                $allResults = PricingSourceQuality::filterSearchResults($allResults);
+            }
         }
 
         // Phase 2: Try to find and scrape their website
         $scrapedContent = '';
         if ($allResults && $this->hasTool('scrape_page')) {
             $maxPages = (int) ($config['max_pages_to_scrape'] ?? config('services.crawl.max_pages', 6));
-            $scrapedContent = $this->scrapeTopPricingPages($allResults, $maxPages);
+            if ($maxPages > 0) {
+                $scrapedContent = $this->scrapeTopPricingPages($allResults, $maxPages);
+            }
         }
 
         // Phase 3: Synthesize competitor profile
@@ -56,6 +66,10 @@ class CompetitorProfilerAgent extends BaseAgent
             $extraContext .= "\n\n--- SCRAPED PRICING PAGES ---\n{$scrapedContent}";
         }
         if ($extraContext) {
+            $extraContext = $this->limitExtraContext(
+                $extraContext,
+                (int) ($config['extra_context_max_chars'] ?? self::DEFAULT_EXTRA_CONTEXT_MAX_CHARS),
+            );
             $extraContext .= "\n\nBased on the above data, build a structured competitor profile including:"
                 ."\n- Company name"
                 ."\n- Main services/products offered"
@@ -67,6 +81,16 @@ class CompetitorProfilerAgent extends BaseAgent
         }
 
         return $this->chat($agent, $agentRun->input, $extraContext);
+    }
+
+    private function limitExtraContext(string $extraContext, int $maxChars): string
+    {
+        if ($maxChars <= 0 || mb_strlen($extraContext) <= $maxChars) {
+            return $extraContext;
+        }
+
+        return mb_substr($extraContext, 0, $maxChars)
+            ."\n\n[Truncated extra competitor research context to {$maxChars} characters.]";
     }
 
     private function searchWeb(string $query): ?string

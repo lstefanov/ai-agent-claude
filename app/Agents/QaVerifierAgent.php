@@ -107,7 +107,7 @@ PROMPT;
 
     // ──────────────────────────────────────────────────────────────────────
     // The content under review always arrives as context['input']: the gated
-    // node's output for the inline step-QA gate (runVerifierInline), or the
+    // node's output for the inline step-QA gate (StepQaGate::verify), or the
     // union of upstream outputs for a dedicated verifier node (agentContext).
     // ──────────────────────────────────────────────────────────────────────
     private function buildContentForReview(array $context): string

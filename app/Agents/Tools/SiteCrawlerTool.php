@@ -22,8 +22,25 @@ class SiteCrawlerTool implements AgentTool
         return 'crawl_site';
     }
 
+    public function description(): string
+    {
+        return 'Обхожда цял сайт страница по страница и връща съдържанието им (изчистено от boilerplate).';
+    }
+
+    public function parameters(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'url' => ['type' => 'string', 'description' => 'Начален URL на сайта.'],
+                'max' => ['type' => 'integer', 'description' => 'Максимален брой страници (по избор).'],
+            ],
+            'required' => ['url'],
+        ];
+    }
+
     /**
-     * @param array{url?: string, max?: int} $params
+     * @param  array{url?: string, max?: int}  $params
      */
     public function execute(array $params): string
     {

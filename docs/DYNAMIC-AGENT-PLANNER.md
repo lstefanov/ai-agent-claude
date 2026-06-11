@@ -161,18 +161,30 @@ config:
 ### 3.6 Hybrid execution: cloud планира + опционално изпълнява
 
 Per-agent provider, кодиран в полето `model` с префикс
-(`App\Support\PaidModel` е единственото място, което разбира префиксите):
+(`App\Support\PaidModel` е единственото място, което разбира префиксите
+и разделението на евтини/premium провайдъри):
 
 - `mistral-nemo` → Ollama (както досега, безплатно, локално)
-- `openai/gpt-4o-mini` → OpenAI Chat Completions
-- `anthropic/claude-haiku-4-5` → Anthropic Messages (Claude)
+- `gemini/gemini-3.1-flash-lite` → Google Gemini (free tier / почти безплатно)
+- `deepseek/…`, `qwen/…`, `xai/…` → евтини cloud провайдъри
+- `openai/gpt-4o-mini` → OpenAI Chat Completions (premium)
+- `anthropic/claude-haiku-4-5` → Anthropic Messages (premium)
 
 Routing-ът е на едно място (`OllamaService::chat()` делегира префикснатите
-модели на `OpenAiChatService`), така че **нито един от 23-те агент класа не
-се променя**. Planner-ът назначава `openai` само на стъпки, където локалните
-модели исторически грешат (сложен fan-in доклад, структуриран JSON), а
-масовите research/scrape стъпки остават на Ollama. Контролираш това с
-`OPENAI_RUNTIME_MODEL` и с глобален лимит `PLANNER_MAX_OPENAI_AGENTS`.
+модели на `OpenAiChatService`/`AnthropicChatService`), така че **нито един
+агент клас не се променя**. Planner-ът избира провайдър per агент на три нива:
+
+- **Евтини cloud** (gemini/deepseek/qwen/xai) — предпочитани за масовата
+  research/анализ/екстракция работа и стриктен JSON; без лимит, вървят
+  паралелно (не делят локалния GPU слот).
+- **Premium** (openai/anthropic) — само за най-критичния fan-in синтез;
+  бюджетирани с `PLANNER_MAX_PREMIUM_AGENTS` (печелят стъпките с най-голям
+  fan-in, останалите се понижават).
+- **Ollama** (локално) — задължително за агенти, които пишат български текст
+  за краен потребител: кодът (`AgentGeneratorService`) маха платен pin от
+  BG-писащ агент и `ModelSelectorService` закача BgGPT.
+
+Моделът per провайдър се контролира с `<PROVIDER>_RUNTIME_MODEL`.
 
 ---
 
@@ -464,7 +476,7 @@ ANTHROPIC_API_KEY=sk-ant-…           # planner / A-B / runtime с Claude
 ANTHROPIC_GENERATOR_MODEL=claude-sonnet-4-6   # planner модел за Claude
 ANTHROPIC_RUNTIME_MODEL=claude-haiku-4-5      # модел за агенти с provider=anthropic
 PLANNER_CRITIQUE=true                # Фаза В вкл/изкл
-PLANNER_MAX_PAID_AGENTS=2            # таван на ПЛАТЕНИ агенти (openai+anthropic общо)
+PLANNER_MAX_PREMIUM_AGENTS=2         # таван на PREMIUM агенти (openai+anthropic общо); евтините cloud са без лимит
 PLANNER_FEW_SHOTS=2                  # Фаза 2: брой примери от plan library
 PLANNER_ADAPTIVE=true                # Фаза 3: ревизия при QA fail/watchdog
 PLANNER_ESCALATION_PROVIDER=openai   # Фаза 3: накъде ескалира провалена стъпка (openai|anthropic)

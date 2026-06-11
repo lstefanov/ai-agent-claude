@@ -11,6 +11,7 @@ use App\Agents\Tools\SiteCrawlerTool;
 use App\Agents\Tools\SiteDiscoveryTool;
 use App\Agents\Tools\WebScraperTool;
 use App\Models\Agent;
+use App\Services\AgentLoop;
 use App\Services\BraveSearchService;
 use App\Services\ComfyUIService;
 use App\Services\CrawlService;
@@ -77,8 +78,12 @@ class AgentFactory
             'slack_notifier' => new SlackNotifierAgent($this->ollama),
             'hashtag_generator' => new HashtagGeneratorAgent($this->ollama),
             'bg_text_corrector' => new BgTextCorrectorAgent($this->ollama),
+            // Pause nodes never reach the factory — NodeExecutorService pauses
+            // the run before instantiating an agent. Defensive guard only.
+            'human_approval' => throw new \RuntimeException('human_approval nodes pause the run — they are never executed as agents.'),
             // Planner-composed "on the fly" agent: gets the full tool belt, but only
             // runs the tools whitelisted in its config['tools'] (see GenericAgent).
+            // The AgentLoop powers its agentic mode on paid models.
             'custom' => new GenericAgent($this->ollama, [
                 new BraveSearchTool($this->braveSearch),
                 new PerplexitySearchTool(new PerplexitySearchService),
@@ -88,7 +93,7 @@ class AgentFactory
                 new SiteDiscoveryTool(new CrawlService),
                 new DocumentOcrTool(new MistralOcrService),
                 new GoogleReviewsTool(new GooglePlacesService),
-            ]),
+            ], app(AgentLoop::class)),
             // All remaining LLM-only types (swot_builder, report_writer, seo_writer, etc.) use ContentAgent intentionally
             default => new ContentAgent($this->ollama),
         };

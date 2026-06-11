@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\AssistantTurnJob;
 use App\Models\AssistantMessage;
 use App\Models\AssistantNote;
 use App\Models\Flow;
@@ -12,8 +13,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
- * Builder Copilot endpoints: send a chat message (spawns the background
- * flows:assistant-turn process), poll its token, load history, manage notes.
+ * Builder Copilot endpoints: send a chat message (dispatches AssistantTurnJob
+ * on the default queue), poll its token, load history, manage notes.
  */
 class FlowAssistantController extends Controller
 {
@@ -54,26 +55,20 @@ class FlowAssistantController extends Controller
 
         $token = Str::uuid()->toString();
 
-        Cache::put("assistant_request_{$token}", [
-            'flow_id' => $flow->id,
-            'user_message_id' => $userMessage->id,
-            'reply_message_id' => $reply->id,
-            'graph' => $request->input('graph'),
-            'mode' => (string) $request->input('mode', 'edit'),
-        ], now()->addMinutes(15));
-
         Cache::put("assistant_{$token}", [
             'status' => 'pending',
             'stage' => 'Мисля…',
             'updated_at' => now()->timestamp,
         ], now()->addMinutes(15));
 
-        // Background artisan command — the same survives-the-request pattern
-        // as flows:generate-agents (no queue worker dependency).
-        $php = env('PHP_CLI_BINARY', PHP_BINARY);
-        $artisan = base_path('artisan');
-        $tok = escapeshellarg($token);
-        exec("{$php} {$artisan} flows:assistant-turn {$tok} >> ".escapeshellarg(storage_path('logs/assistant.log')).' 2>&1 &');
+        AssistantTurnJob::dispatch(
+            $token,
+            $flow->id,
+            $userMessage->id,
+            $reply->id,
+            is_array($request->input('graph')) ? $request->input('graph') : null,
+            (string) $request->input('mode', 'edit'),
+        );
 
         return response()->json(['token' => $token, 'session' => $session, 'reply_id' => $reply->id]);
     }

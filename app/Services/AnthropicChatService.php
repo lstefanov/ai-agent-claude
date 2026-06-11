@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\ChatClientInterface;
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
 use Illuminate\Http\Client\ConnectionException;
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\Log;
  *   temperature → temperature, top_p → top_p,
  *   num_predict (>0) → max_tokens (×OUTPUT_HEADROOM), num_predict -1 → generous default.
  */
-class AnthropicChatService
+class AnthropicChatService implements ChatClientInterface
 {
     /**
      * num_predict бюджетите в планера/агентите са калибрирани по OpenAI/локални
@@ -123,13 +124,14 @@ class AnthropicChatService
      * @param  list<array{name: string, description: string, parameters: array<string, mixed>}>  $tools
      * @return array{content: string, tool_calls: list<array{id: string, name: string, arguments: array<string, mixed>}>}
      */
-    public function chatTurn(string $model, array $messages, array $tools, array $options = []): array
+    public function chatTurn(string $model, array $messages, array $tools, array $options = [], ?callable $onChunk = null): array
     {
         [$system, $anthropicMessages] = $this->toAnthropicMessages($messages);
 
         $numPredict = $options['num_predict'] ?? null;
         $payload = [
             'model' => $model,
+            'cache_control' => ['type' => 'ephemeral'],
             'system' => $system,
             'messages' => $anthropicMessages,
             'max_tokens' => (is_numeric($numPredict) && (int) $numPredict > 0) ? (int) $numPredict : self::DEFAULT_MAX_TOKENS,
@@ -164,6 +166,10 @@ class AnthropicChatService
                     'arguments' => is_array($block['input'] ?? null) ? $block['input'] : [],
                 ];
             }
+        }
+
+        if ($onChunk && $content !== '') {
+            $onChunk($content);
         }
 
         return ['content' => $content, 'tool_calls' => $toolCalls];
@@ -247,7 +253,9 @@ class AnthropicChatService
 
         $payload = array_merge([
             'model' => $model,
-            'system' => $systemPrompt,
+            'system' => [
+                ['type' => 'text', 'text' => $systemPrompt, 'cache_control' => ['type' => 'ephemeral']],
+            ],
             'messages' => [
                 ['role' => 'user', 'content' => $userMessage],
             ],
@@ -291,10 +299,16 @@ class AnthropicChatService
 
         $promptTokens = (int) ($response->json('usage.input_tokens') ?? 0);
         $completionTokens = (int) ($response->json('usage.output_tokens') ?? 0);
+        $cacheWriteTokens = (int) ($response->json('usage.cache_creation_input_tokens') ?? 0);
+        $cacheReadTokens = (int) ($response->json('usage.cache_read_input_tokens') ?? 0);
 
         $model = (string) ($payload['model'] ?? '');
 
-        LlmUsage::record('anthropic', $model, $promptTokens, $completionTokens);
+        LlmUsage::record('anthropic', $model, $promptTokens, $completionTokens, $cacheWriteTokens, $cacheReadTokens);
+
+        if ($cacheWriteTokens > 0 || $cacheReadTokens > 0) {
+            Log::info('[AnthropicChat] '.$model.' cache write='.$cacheWriteTokens.' read='.$cacheReadTokens);
+        }
 
         $responseText = '';
         foreach ($response->json('content', []) as $block) {

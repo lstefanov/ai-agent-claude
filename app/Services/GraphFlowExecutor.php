@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\DistillFlowMemoryJob;
 use App\Jobs\ExecuteNodeJob;
 use App\Models\Flow;
 use App\Models\FlowEdge;
@@ -13,6 +14,7 @@ use App\Support\GraphTopology;
 use App\Support\UrlExtractor;
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -114,8 +116,29 @@ class GraphFlowExecutor
      */
     public function dispatchWave(int $flowRunId, array $waves, int $index): void
     {
-        $flowRun = FlowRun::find($flowRunId);
-        if (! $flowRun || $flowRun->status !== 'running') {
+        // Idempotency lock: a finishing batch callback and an approval-resume
+        // can both try to dispatch the same wave — the first to record the
+        // index in context['dispatched_waves'] wins, the loser exits silently.
+        // (resume() clears the marker before re-dispatching a failed run.)
+        $flowRun = null;
+        DB::transaction(function () use ($flowRunId, $index, &$flowRun) {
+            $run = FlowRun::lockForUpdate()->find($flowRunId);
+            if (! $run || $run->status !== 'running') {
+                return;
+            }
+
+            $context = $run->context ?? [];
+            $dispatched = (array) ($context['dispatched_waves'] ?? []);
+            if (in_array($index, $dispatched, true)) {
+                return;
+            }
+
+            $context['dispatched_waves'] = [...$dispatched, $index];
+            $run->update(['context' => $context]);
+            $flowRun = $run;
+        });
+
+        if (! $flowRun) {
             return;
         }
 
@@ -220,6 +243,12 @@ class GraphFlowExecutor
         // Plan library (Фаза 2): a successful run proves the approved plan —
         // it becomes a few-shot example for future planning.
         app(PlanLibraryService::class)->recordRunOutcome($flowRun);
+
+        // Памет на flow-а: distill what this run produced (content digests +
+        // embeddings + lessons) so future runs avoid duplicating it.
+        if (FlowMemoryService::enabled($flowRun->flow)) {
+            DistillFlowMemoryJob::dispatch($flowRun->id);
+        }
 
         // Deliver the result to the flow's configured channel (email/Slack/
         // webhook/file). Best-effort — a delivery failure never fails the run.
@@ -338,6 +367,111 @@ class GraphFlowExecutor
                 ['node_key' => $node->node_key, 'status' => 'skipped', 'completed_at' => now()],
             );
         }
+    }
+
+    /**
+     * Resume a previously failed run from the first wave that still has
+     * un-completed nodes.  Completed/skipped nodes are untouched — the
+     * idempotency guard in NodeExecutorService skips them automatically.
+     * Failed (and any stuck-running) NodeRun rows are reset to 'pending'
+     * so they re-execute when their wave is dispatched again.
+     */
+    public function resume(FlowRun $flowRun): void
+    {
+        if ($flowRun->status !== 'failed') {
+            return;
+        }
+
+        $waves = $flowRun->context['waves'] ?? [];
+        if (empty($waves)) {
+            return;
+        }
+
+        // Reset failed/stuck/paused node runs so they will be re-executed —
+        // a paused approval node re-pauses cleanly when its wave re-runs.
+        NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('status', ['failed', 'running', 'paused'])
+            ->update([
+                'status' => 'pending',
+                'output' => null,
+                'raw_output' => null,
+                'error' => null,
+                'started_at' => null,
+                'completed_at' => null,
+            ]);
+
+        // Find the first wave that contains a node without a completed/skipped run.
+        $doneKeys = NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('status', ['completed', 'skipped'])
+            ->pluck('status', 'node_key')
+            ->keys()
+            ->all();
+
+        $resumeIndex = count($waves) - 1; // fallback: last wave
+        foreach ($waves as $i => $waveKeys) {
+            $pending = array_diff($waveKeys, $doneKeys);
+            if (! empty($pending)) {
+                $resumeIndex = $i;
+                break;
+            }
+        }
+
+        $context = $flowRun->context ?? [];
+        unset($context['failure_message']);
+        // Re-dispatching waves the failed run already saw — drop the
+        // idempotency marker so dispatchWave doesn't refuse them.
+        unset($context['dispatched_waves']);
+
+        $flowRun->update([
+            'status' => 'running',
+            'context' => $context,
+            'completed_at' => null,
+        ]);
+
+        $this->dispatchWave($flowRun->id, $waves, $resumeIndex);
+    }
+
+    /**
+     * Continue a run paused on a human_approval node, after the approval
+     * endpoint marked that NodeRun completed. Advances to the next wave only
+     * when the whole wave is settled; otherwise the still-running batch's
+     * ->then() advances on its own once the status is back to 'running'
+     * (double dispatch is absorbed by the dispatched_waves guard).
+     */
+    public function resumeAfterApproval(FlowRun $flowRun, string $nodeKey): void
+    {
+        // Another node still awaiting approval keeps the run paused.
+        if (NodeRun::where('flow_run_id', $flowRun->id)->where('status', 'paused')->exists()) {
+            return;
+        }
+
+        $updated = FlowRun::whereKey($flowRun->id)
+            ->where('status', 'waiting_approval')
+            ->update(['status' => 'running']);
+
+        if (! $updated) {
+            return;
+        }
+
+        $flowRun = $flowRun->fresh();
+        $waves = $flowRun->context['waves'] ?? [];
+        $index = $flowRun->context['approvals'][$nodeKey]['wave_index'] ?? null;
+
+        if ($index === null || empty($waves)) {
+            return;
+        }
+
+        $statuses = NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('node_key', (array) ($waves[$index] ?? []))
+            ->pluck('status', 'node_key');
+
+        foreach ((array) ($waves[$index] ?? []) as $key) {
+            if (! in_array($statuses[$key] ?? null, ['completed', 'failed', 'skipped'], true)) {
+                return; // a sibling is still running — its batch will advance
+            }
+        }
+
+        $this->dispatchWave($flowRun->id, $waves, $index + 1);
     }
 
     public function fail(FlowRun $flowRun, string $message): void

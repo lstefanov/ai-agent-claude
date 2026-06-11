@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\ChatClientInterface;
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
 use App\Support\PaidModel;
@@ -33,6 +34,7 @@ class OllamaService
             );
         }
 
+        $options = $this->withThinkingDefault($model, $options);
         $keepAlive = $options['keep_alive'] ?? '10m';
         $httpTimeout = $options['http_timeout'] ?? 600; // caller can set a shorter timeout
         unset($options['keep_alive'], $options['http_timeout']);
@@ -215,19 +217,28 @@ class OllamaService
             $responses = Http::pool(function ($pool) use ($wave, $httpTimeout) {
                 $calls = [];
                 foreach ($wave as $key => $req) {
-                    $options = array_merge(['temperature' => 0.7], $req['options'] ?? []);
+                    $options = $this->withThinkingDefault((string) $req['model'], $req['options'] ?? []);
+                    $think = $options['think'] ?? null;
+                    unset($options['think']);
+
+                    $payload = [
+                        'model' => $req['model'],
+                        'messages' => [
+                            ['role' => 'system', 'content' => $req['system'] ?? ''],
+                            ['role' => 'user',   'content' => $req['user'] ?? ''],
+                        ],
+                        'stream' => false,
+                        'keep_alive' => '10m',
+                        'options' => array_merge(['temperature' => 0.7], $options),
+                    ];
+
+                    if ($think !== null) {
+                        $payload['think'] = (bool) $think;
+                    }
+
                     $calls[] = $pool->as((string) $key)
                         ->timeout($httpTimeout)
-                        ->post($this->baseUrl.'/api/chat', [
-                            'model' => $req['model'],
-                            'messages' => [
-                                ['role' => 'system', 'content' => $req['system'] ?? ''],
-                                ['role' => 'user',   'content' => $req['user'] ?? ''],
-                            ],
-                            'stream' => false,
-                            'keep_alive' => '10m',
-                            'options' => $options,
-                        ]);
+                        ->post($this->baseUrl.'/api/chat', $payload);
                 }
 
                 return $calls;
@@ -270,18 +281,62 @@ class OllamaService
         return $results;
     }
 
-    /** The paid-provider chat service for a prefixed model, or null for local models. */
-    private function paidService(?string $model): OpenAiChatService|AnthropicChatService|null
+    private function withThinkingDefault(string $model, array $options): array
     {
-        return match (PaidModel::provider($model)) {
-            'openai' => app(OpenAiChatService::class),
+        if (! array_key_exists('think', $options) && preg_match('/^(qwen3|deepseek-r1)\b/i', $model)) {
+            $options['think'] = false;
+        }
+
+        return $options;
+    }
+
+    /** The paid-provider chat service for a prefixed model, or null for local models. */
+    private function paidService(?string $model): ?ChatClientInterface
+    {
+        return match ($provider = PaidModel::provider($model)) {
             'anthropic' => app(AnthropicChatService::class),
-            'deepseek' => OpenAiChatService::for('deepseek'),
-            'gemini' => OpenAiChatService::for('gemini'),
-            'xai' => OpenAiChatService::for('xai'),
-            'qwen' => OpenAiChatService::for('qwen'),
-            default => null,
+            null => null,
+            default => OpenAiChatService::for($provider),
         };
+    }
+
+    /**
+     * Embedding vector for a text via the local Ollama host (flow-memory
+     * similarity). Free, but the embedding model must be pulled on the host.
+     *
+     * @return array<int, float>
+     */
+    public function embed(string $text): array
+    {
+        $model = (string) config('services.ollama.embedding_model', 'nomic-embed-text');
+        $input = mb_substr($text, 0, 8000);
+        $startMs = (int) (microtime(true) * 1000);
+
+        $response = Http::timeout(60)
+            ->post($this->baseUrl.'/api/embed', [
+                'model' => $model,
+                'input' => $input,
+            ])
+            ->throw();
+
+        $promptTokens = (int) ($response->json('prompt_eval_count') ?? 0);
+
+        LlmUsage::record('ollama', $model, $promptTokens, 0);
+
+        LlmRequestRecorder::record(
+            'ollama', $model, 'embedding',
+            null, $input, null, [],
+            $promptTokens, 0,
+            (int) (microtime(true) * 1000) - $startMs,
+        );
+
+        $vector = $response->json('embeddings.0');
+
+        if (! is_array($vector) || $vector === []) {
+            throw new \RuntimeException("Ollama embeddings response had no vector (is '{$model}' pulled on the host?).");
+        }
+
+        return array_map('floatval', $vector);
     }
 
     public function listModels(): array

@@ -45,9 +45,11 @@ class ExecuteNodeJob implements ShouldQueue
             return;
         }
 
-        $model = (string) FlowNode::whereKey($this->flowNodeId)->value('model');
+        $node = FlowNode::whereKey($this->flowNodeId)->first(['type', 'model']);
 
-        if (PaidModel::isPaid($model)) {
+        // human_approval pauses instantly and paid models run remotely —
+        // neither touches local VRAM, so they skip the Ollama semaphore.
+        if ($node?->type === 'human_approval' || PaidModel::isPaid((string) $node?->model)) {
             $exec->executeNode($this->flowRunId, $this->flowNodeId);
 
             return;

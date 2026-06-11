@@ -9,6 +9,7 @@ use App\Models\LlmModel;
 use App\Services\AgentGeneratorService;
 use App\Services\GeneratorService;
 use App\Support\PlannerPhases;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -69,10 +70,71 @@ class FlowController extends Controller
     public function show(Flow $flow)
     {
         $flow->load('company');
-        $runs = $flow->flowRuns()->with('flowVersion')->latest()->take(10)->get();
-        $versions = $flow->versions()->latest()->get();
+        $versions = $flow->versions()
+            ->withCount([
+                'flowRuns as successful_runs_count' => fn ($query) => $query->where('status', 'completed'),
+                'flowRuns as failed_runs_count' => fn ($query) => $query->where('status', 'failed'),
+            ])
+            ->with(['flowRuns' => fn ($query) => $query
+                ->latest()
+                ->withSum('nodeRuns as runtime_cost_usd', 'cost_usd')])
+            ->latest()
+            ->get()
+            ->each(function ($version) {
+                $runtimeCostUsd = $version->flowRuns->sum(fn ($run) => (float) ($run->runtime_cost_usd ?? 0));
 
-        return view('flows.show', compact('flow', 'runs', 'versions'));
+                $version->setAttribute('last_run_at', $version->flowRuns->first()?->created_at);
+                $version->setAttribute('total_cost_usd', (float) ($version->cost_usd ?? 0) + $runtimeCostUsd);
+            });
+
+        return view('flows.show', compact('flow', 'versions'));
+    }
+
+    public function runsHistory(Request $request, Flow $flow): JsonResponse
+    {
+        $query = $flow->flowRuns()->with('flowVersion')->latest();
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->filled('triggered_by')) {
+            $query->where('triggered_by', $request->triggered_by);
+        }
+        if ($request->filled('version_id')) {
+            $query->where('flow_version_id', $request->integer('version_id'));
+        }
+        if ($request->filled('date_from')) {
+            $query->whereDate('started_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('started_at', '<=', $request->date_to);
+        }
+
+        $perPage = $request->integer('per_page', 15);
+        $paginator = $query->withSum('nodeRuns', 'cost_usd')
+            ->paginate($perPage > 0 ? $perPage : PHP_INT_MAX);
+
+        return response()->json([
+            'data' => $paginator->getCollection()->map(fn ($r) => [
+                'id' => $r->id,
+                'status' => $r->status,
+                'triggered_by' => $r->triggered_by,
+                'version_name' => $r->flowVersion?->name,
+                'started_at' => $r->started_at?->format('d.m.Y H:i'),
+                'duration_secs' => $r->started_at && $r->completed_at
+                    ? $r->started_at->diffInSeconds($r->completed_at) : null,
+                'cost_usd' => $r->node_runs_sum_cost_usd > 0
+                    ? number_format((float) $r->node_runs_sum_cost_usd, 4)
+                    : null,
+                'builder_url' => route('flows.builder', ['flow' => $flow, 'run' => $r->id]),
+            ]),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'total' => $paginator->total(),
+                'per_page' => $perPage,
+            ],
+        ]);
     }
 
     public function edit(Flow $flow)
@@ -300,10 +362,7 @@ MSG;
     public function generationLogs(Flow $flow)
     {
         $logs = AgentGenerationLog::query()
-            ->where(fn ($q) => $q
-                ->where('flow_id', $flow->id)
-                ->orWhere('company_id', $flow->company_id)
-            )
+            ->where('flow_id', $flow->id)
             ->latest()
             ->limit(60)
             ->get([

@@ -10,4 +10,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('flows:run-scheduled')->everyMinute();
+Schedule::command('flows:watchdog')->everyMinute();
 Schedule::job(new SyncOllamaModelsJob)->hourly();
