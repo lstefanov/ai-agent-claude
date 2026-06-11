@@ -286,6 +286,11 @@ function copyWebhookUrl() {
                                 class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 leading-none">
                             Преименувай
                         </button>
+                        <button type="button"
+                                @click="duplicate(@js(route('flows.versions.duplicate', [$flow, $version])), @js($version->name))"
+                                class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 leading-none">
+                            Дублирай
+                        </button>
                         <a href="{{ route('flows.builder', $flow) }}?version={{ $version->id }}"
                            class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-medium leading-none">
                             ✎ Редактирай
@@ -334,6 +339,12 @@ function flowVersionsPanel(csrf) {
             const name = prompt('Ново име на шаблона:', current);
             if (!name || name.trim() === '' || name === current) return;
             try { await send(url, 'PUT', { name: name.trim() }); window.location.reload(); }
+            catch (e) { this.error = e.message; }
+        },
+        async duplicate(url, name) {
+            const newName = prompt('Дублиране на „' + name + '" — въведи ново име:', 'Копие на ' + name);
+            if (!newName || newName.trim() === '') return;
+            try { await send(url, 'POST', { name: newName.trim() }); window.location.reload(); }
             catch (e) { this.error = e.message; }
         },
         async destroy(url, name) {
