@@ -511,6 +511,13 @@ function flowVersionsPanel(csrf) {
                             <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100"
                                   x-text="run.version_name" title="Шаблон"></span>
                         </template>
+                        {{-- Level pill --}}
+                        <template x-if="run.model_level">
+                            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full border"
+                                  :class="levelMeta(run.model_level).cls"
+                                  x-text="levelMeta(run.model_level).label"
+                                  title="Ниво на моделите на агентите за това изпълнение"></span>
+                        </template>
                     </div>
 
                     <div class="flex items-center gap-4 shrink-0">
@@ -570,6 +577,16 @@ function runsHistory(url, versions) {
         meta: { current_page: 1, last_page: 1, total: null, per_page: 15 },
         perPage: 15,
         filters: { status: '', triggered_by: '', version_id: '', date_from: '', date_to: '' },
+
+        levelMeta(lv) {
+            return {
+                low:    { label: '🪙 Ниско',  cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+                medium: { label: '⚖️ Средно', cls: 'bg-blue-100 text-blue-700 border-blue-300' },
+                high:   { label: '🚀 Високо', cls: 'bg-orange-100 text-orange-700 border-orange-300' },
+                ultra:  { label: '💎 Ултра',  cls: 'bg-violet-100 text-violet-700 border-violet-300' },
+                custom: { label: '✎ Custom',  cls: 'bg-gray-100 text-gray-600 border-gray-300' },
+            }[lv] || { label: lv, cls: 'bg-gray-100 text-gray-400 border-gray-200' };
+        },
 
         async load() {
             this.loading = true;

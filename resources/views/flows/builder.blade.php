@@ -583,11 +583,17 @@
                 </select>
             </div>
             {{-- Ниво на runtime моделите на агентите в този шаблон --}}
-            <div class="flex items-center gap-1.5"
-                 title="Ниво на моделите на агентите. Смяната преизчислява модела на всеки агент и показва приблизителен разход преди запис.">
-                <span class="text-[11px] font-bold px-2 py-1 rounded-full border"
-                      :class="levelMeta(modelLevel).cls"
-                      x-text="levelMeta(modelLevel).icon + ' ' + levelMeta(modelLevel).label"></span>
+            <div class="flex items-center gap-1.5">
+                <span class="relative flex items-center gap-1 group">
+                    <span class="text-xs text-gray-500 font-medium select-none">Ниво</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-gray-400 cursor-help" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+                    </svg>
+                    <span class="pointer-events-none absolute top-full left-0 mt-2 w-64 rounded-lg bg-gray-800 text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg leading-relaxed">
+                        Ниво на runtime моделите на агентите в шаблона.<br>
+                        Смяната преизчислява кой провайдър/модел се ползва за всеки агент и показва приблизителен разход преди запис.
+                    </span>
+                </span>
                 <select x-model="levelSelect" @change="onLevelSelect()"
                         class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="" disabled x-show="!isStandardLevel(modelLevel)">— смени ниво —</option>

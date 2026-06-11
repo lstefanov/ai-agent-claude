@@ -97,6 +97,9 @@ class GraphFlowExecutor
             'started_at' => now(),
             // Which template was executed — webhook/scheduler runs get it here.
             'flow_version_id' => $version->id,
+            // Snapshot the cost level used, so the run history reflects it even if
+            // the template is re-leveled afterwards.
+            'model_level' => $version->model_level,
             // Snapshot the Drawflow graph_layout at the moment the run starts so
             // the historical run viewer can show the exact graph that was executed
             // even if the user edits the template afterwards.

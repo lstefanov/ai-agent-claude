@@ -121,6 +121,7 @@ class FlowController extends Controller
                 'status' => $r->status,
                 'triggered_by' => $r->triggered_by,
                 'version_name' => $r->flowVersion?->name,
+                'model_level' => $r->model_level,
                 'started_at' => $r->started_at?->format('d.m.Y H:i'),
                 'duration_secs' => $r->started_at && $r->completed_at
                     ? $r->started_at->diffInSeconds($r->completed_at) : null,
