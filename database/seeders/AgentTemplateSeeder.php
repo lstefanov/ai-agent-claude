@@ -295,6 +295,14 @@ class AgentTemplateSeeder extends Seeder
                 'config' => ['temperature' => 0.3, 'num_predict' => 800],
             ],
             [
+                'icon' => '🎨', 'name' => 'Промпт за изображения', 'type' => 'image_prompt', 'sort_order' => 31,
+                'description' => 'Генерира изображение чрез ComfyUI (Stable Diffusion) — пише английски SD промпт от контекста и връща готова картинка за поста/рекламата.',
+                'role' => 'Превръща съдържанието от предишните агенти в английски Stable Diffusion промпт и генерира реално изображение през ComfyUI.',
+                'system_prompt' => 'Ти си Stable Diffusion prompt инженер. Превръщаш маркетингово съдържание в един висококачествен английски промпт за фотореалистично комерсиално изображение.',
+                'prompt_template' => 'Създай изображение за следното съдържание: {{input}}',
+                'config' => ['temperature' => 0.8, 'num_predict' => 300],
+            ],
+            [
                 'icon' => '🖊️', 'name' => 'Автор на Caption', 'type' => 'caption_writer', 'sort_order' => 32,
                 'description' => 'Сглобява финалния социален медии пост от всички части.',
                 'role' => 'Комбинира hook, основен текст, хаштагове и CTA в завършен пост. Оптимизиран за конкретна платформа.',
@@ -572,6 +580,7 @@ class AgentTemplateSeeder extends Seeder
             // New integration agents
             'airtable_writer' => 'qwen2.5:7b',
             'image_describer' => 'qwen2.5vl:7b',
+            'image_prompt' => 'mistral',
             'human_approval' => '', // pauses the run — no LLM involved
             default => 'gemma4:12b',
         };

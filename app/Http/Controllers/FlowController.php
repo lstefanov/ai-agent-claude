@@ -8,6 +8,7 @@ use App\Models\Flow;
 use App\Models\LlmModel;
 use App\Services\AgentGeneratorService;
 use App\Services\GeneratorService;
+use App\Support\ModelLevel;
 use App\Support\PlannerPhases;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -277,6 +278,7 @@ MSG;
             'flow_id' => 'required|exists:flows,id',
             'name' => 'required|string',
             'description' => 'required|string|min:10',
+            'level' => ['nullable', Rule::enum(ModelLevel::class)],
             'phases' => 'nullable|array',
             'phases.*.provider' => ['required_with:phases', Rule::in(GeneratorService::PROVIDERS)],
             'phases.*.model' => ['nullable', 'string', 'max:120', 'regex:'.self::MODEL_PATTERN],
@@ -318,6 +320,7 @@ MSG;
             'flow_id' => (int) $request->flow_id,
             'name' => $request->name,
             'description' => $request->description,
+            'level' => ModelLevel::fromRequest($request->input('level'))->value,
             'phases' => $phases,
         ], now()->addMinutes(15));
 

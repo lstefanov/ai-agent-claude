@@ -7,6 +7,7 @@ use App\Models\Flow;
 use App\Services\AgentGeneratorService;
 use App\Services\FlowPlannerService;
 use App\Services\GeneratorService;
+use App\Support\ModelLevel;
 use App\Support\PlannerPhases;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -49,7 +50,8 @@ class PlanAbCommand extends Command
         {flow : Flow ID}
         {--token= : Cache token for UI polling}
         {--provider= : Plan with a single provider (ollama|openai|anthropic|deepseek|gemini|xai|qwen)}
-        {--variant=* : "label:provider[:model]" или "label:phase=provider[:model],..." (фази: intent|design|critique|revision); само име → preset от services.planner.ab_presets}';
+        {--variant=* : "label:provider[:model]" или "label:phase=provider[:model],..." (фази: intent|design|critique|revision); само име → preset от services.planner.ab_presets}
+        {--level= : Ниво на runtime моделите за агентите (low|medium|high|ultra); празно → medium}';
 
     protected $description = 'Plan the same flow with different providers / hybrid per-phase combos and compare the resulting pipelines';
 
@@ -66,6 +68,7 @@ class PlanAbCommand extends Command
         }
 
         $variants = $this->collectVariants();
+        $level = ModelLevel::fromRequest((string) $this->option('level'));
 
         $plans = [];
         $state = ['status' => 'running', 'flow_id' => $flow->id, 'providers' => []];
@@ -103,7 +106,7 @@ class PlanAbCommand extends Command
             $startMs = (int) (microtime(true) * 1000);
 
             try {
-                $agents = $planner->plan($flow, null, $logToken);
+                $agents = $planner->plan($flow, null, $logToken, $level);
 
                 if (count($agents) < 3) {
                     throw new \RuntimeException('Planner върна по-малко от 3 агента.');
@@ -111,7 +114,7 @@ class PlanAbCommand extends Command
 
                 // Same deterministic hardening as normal generation — the chosen
                 // plan must be byte-equivalent to what the builder would build.
-                $agents = $generator->finalizePlannedAgents($agents);
+                $agents = $generator->finalizePlannedAgents($agents, $level);
             } catch (Throwable $e) {
                 $this->error("✗ {$label}: ".$e->getMessage());
                 $state['providers'][$label] = ['status' => 'failed', 'error' => $e->getMessage()];

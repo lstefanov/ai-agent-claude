@@ -685,6 +685,22 @@
                     </div>
                 </div>
 
+                {{-- Ниво на разходите за runtime моделите на САМИТЕ агенти
+                     (отделно от планер фазите по-долу). --}}
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Ниво на моделите за агентите</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <template x-for="lv in modelLevels" :key="lv.value">
+                            <button type="button" @click="genCfg.level = lv.value"
+                                    class="rounded-lg border px-2 py-1.5 text-xs font-semibold transition"
+                                    :class="genCfg.level === lv.value ? 'border-violet-400 bg-violet-50 text-violet-800' : 'border-gray-200 text-gray-600 hover:bg-gray-50'">
+                                <span x-text="lv.icon + ' ' + lv.label"></span>
+                            </button>
+                        </template>
+                    </div>
+                    <p class="text-[11px] text-gray-400 mt-1" x-text="modelLevelHint()"></p>
+                </div>
+
                 {{-- Един провайдър: компактна цена. Хибрид: пълният per-phase picker. --}}
                 <template x-if="genCfg.provider !== 'hybrid'">
                     <div class="flex items-center justify-between rounded-xl bg-violet-50 border border-violet-200 px-4 py-3">
@@ -778,7 +794,7 @@
                 <p x-text="gen.error"></p>
                 <div class="mt-3 flex gap-2 justify-end">
                     <button type="button" @click="gen.active = false" class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs">Затвори</button>
-                    <button type="button" @click="startGeneration(gen.autoSave, gen.phases)" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-xs">Опитай пак</button>
+                    <button type="button" @click="startGeneration(gen.autoSave, gen.phases, gen.level)" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-xs">Опитай пак</button>
                 </div>
             </div>
         </div>
@@ -1806,11 +1822,19 @@ function flowBuilder(config) {
             ollamaModels: config.models || [],
             pricing: config.pricing || {},
         }),
-        genCfg: { open: false, provider: 'openai', model: '' },
+        genCfg: { open: false, provider: 'openai', model: '', level: 'medium' },
+        // Нива на разходите за runtime моделите на агентите (enforce-ва се в
+        // FlowPlannerService::resolveProviderPins; default: medium).
+        modelLevels: [
+            { value: 'low', icon: '🪙', label: 'Ниско', hint: 'Основно локални Ollama модели; до 3 евтини cloud за критичните стъпки. Безплатно, но бавно (локален GPU).' },
+            { value: 'medium', icon: '⚖️', label: 'Средно', hint: 'Повечето агенти на евтини cloud модели (Gemini/DeepSeek/Qwen/Grok), поне 3 остават на Ollama. Балансът по подразбиране.' },
+            { value: 'high', icon: '🚀', label: 'Високо', hint: 'Всички агенти на евтини cloud модели; до 3 критични стъпки на OpenAI. Българският текст остава на BgGPT.' },
+            { value: 'ultra', icon: '💎', label: 'Ултра', hint: 'Всички агенти на OpenAI (вкл. българското писане); до 2 критични стъпки на Claude. Най-високо качество, най-скъпо.' },
+        ],
         saveDlg: { open: false, mode: 'new', name: '', isActive: true, agents: null, meta: null, saving: false, error: '' },
 
         // ── Agent generation (DAG) ──
-        gen: { active: false, progress: 0, message: '', stage: '', error: null, token: null, autoSave: false, phases: null, _timer: null, _rot: null, _stageChangedAt: 0, _narratorStage: '', _narratorIndex: 0, _steadyLineShown: false, _lastNarratorDelay: 0 },
+        gen: { active: false, progress: 0, message: '', stage: '', error: null, token: null, autoSave: false, phases: null, level: 'medium', _timer: null, _rot: null, _stageChangedAt: 0, _narratorStage: '', _narratorIndex: 0, _steadyLineShown: false, _lastNarratorDelay: 0 },
 
         // ── Run/view per-node data + modals ──
         runData: {},          // node_key → { status, output, raw_output, error, model, duration_ms, tokens_used, steps }
@@ -2716,6 +2740,11 @@ function flowBuilder(config) {
             return this.picker.singleModelOptions(this.genCfg.provider, this.genCfg.model);
         },
 
+        modelLevelHint() {
+            const lv = this.modelLevels.find(l => l.value === this.genCfg.level);
+            return lv ? lv.hint : '';
+        },
+
         genCfgProviderChanged() {
             if (this.genCfg.provider === 'hybrid') return;
             // Първо нулирай модела: singleModelOptions() unshift-ва текущия
@@ -2736,7 +2765,7 @@ function flowBuilder(config) {
 
         confirmGenConfig() {
             this.genCfg.open = false;
-            this.startGeneration(true, this.picker.payload());
+            this.startGeneration(true, this.picker.payload(), this.genCfg.level);
         },
 
         confirmSaveDialog() {
@@ -3897,7 +3926,7 @@ function flowBuilder(config) {
 
         // ───────────────────────── Agent generation (DAG) ─────────────────────────
 
-        startGeneration(autoSave, phases = null) {
+        startGeneration(autoSave, phases = null, level = 'medium') {
             // Block double-starts only while a generation is actually running —
             // after a failure the modal stays active to show the error, and
             // "Опитай пак" must be able to restart.
@@ -3917,6 +3946,7 @@ function flowBuilder(config) {
                 token: null,
                 autoSave: !!autoSave,
                 phases,
+                level,
                 _timer: null,
                 _rot: null,
                 _stageChangedAt: Date.now(),
@@ -3937,6 +3967,8 @@ function flowBuilder(config) {
                     description: config.flowDescription,
                     // null → планира на .env defaults; иначе per-phase изборът от попъпа.
                     phases: phases || undefined,
+                    // Ниво на runtime моделите за агентите (low|medium|high|ultra).
+                    level,
                 }),
             })
             .then(r => r.json().then(d => ({ ok: r.ok, d })))

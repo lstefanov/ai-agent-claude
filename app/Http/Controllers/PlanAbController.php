@@ -7,6 +7,7 @@ use App\Models\AgentTemplate;
 use App\Models\Flow;
 use App\Models\LlmModel;
 use App\Services\GeneratorService;
+use App\Support\ModelLevel;
 use App\Support\PlannerPhases;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -149,7 +150,10 @@ class PlanAbController extends Controller
         $tok = escapeshellarg($token);
         $flowId = (int) $flow->id;
         $providerArg = $provider !== '' && $provider !== 'hybrid' && $variantArgs === '' ? ' --provider='.escapeshellarg($provider) : '';
-        exec("{$php} {$artisan} flows:plan-ab {$flowId} --token={$tok}{$providerArg}{$variantArgs} >> ".escapeshellarg(storage_path('logs/plan-ab.log')).' 2>&1 &');
+        // Ниво на runtime моделите за агентите (low|medium|high|ultra) — важи
+        // за всички варианти в този run; невалидно/липсващо → medium.
+        $levelArg = ' --level='.escapeshellarg(ModelLevel::fromRequest($request->input('level'))->value);
+        exec("{$php} {$artisan} flows:plan-ab {$flowId} --token={$tok}{$providerArg}{$variantArgs}{$levelArg} >> ".escapeshellarg(storage_path('logs/plan-ab.log')).' 2>&1 &');
 
         return response()->json(['token' => $token, 'providers' => $covered]);
     }

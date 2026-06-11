@@ -67,7 +67,7 @@ class GeneratorService
             'openai' => 'gpt-4o-mini',
             'deepseek' => 'deepseek-v4-flash',
             'gemini' => 'gemini-3.1-flash-lite',
-            'xai' => 'grok-4.1-fast',
+            'xai' => 'grok-4.3',
             'qwen' => 'qwen3.5-flash',
             'ollama' => 'todorov/bggpt:Gemma-3-12B-IT-Q5_K_M',
         ];

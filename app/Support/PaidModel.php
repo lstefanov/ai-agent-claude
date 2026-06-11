@@ -11,7 +11,7 @@ namespace App\Support;
  *   "anthropic/claude-haiku-4-5"   → Anthropic Messages
  *   "deepseek/deepseek-v4-flash"   → DeepSeek API (OpenAI-compatible)
  *   "gemini/gemini-3.5-flash"      → Google Gemini API (OpenAI-compatible)
- *   "xai/grok-4.1-fast"            → xAI API (OpenAI-compatible)
+ *   "xai/grok-4.3"                 → xAI API (OpenAI-compatible)
  *   "qwen/qwen3.5-flash"           → Alibaba Qwen API (OpenAI-compatible)
  */
 class PaidModel
@@ -77,7 +77,7 @@ class PaidModel
             'anthropic' => (string) config('services.anthropic.runtime_model', 'claude-haiku-4-5'),
             'deepseek' => (string) config('services.deepseek.runtime_model', 'deepseek-v4-flash'),
             'gemini' => (string) config('services.gemini.runtime_model', 'gemini-3.1-flash-lite'),
-            'xai' => (string) config('services.xai.runtime_model', 'grok-4.1-fast'),
+            'xai' => (string) config('services.xai.runtime_model', 'grok-4.3'),
             'qwen' => (string) config('services.qwen.runtime_model', 'qwen3.5-flash'),
             default => (string) config('services.openai.runtime_model', 'gpt-4o-mini'),
         };

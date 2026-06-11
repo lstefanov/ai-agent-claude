@@ -121,9 +121,9 @@
                     <div class="text-gray-400 mt-1">Най-скъпият вариант — ползвай го като еталон при сравнение на шаблони.</div>
                 </div>
                 <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">⚡ Само Grok (~$0.04)</div>
-                    <div class="font-mono text-[11px] text-gray-600">design = xai (grok-4.3)<br>останалите = xai (grok-4.1-fast)</div>
-                    <div class="text-gray-400 mt-1">Един API ключ, топ мултиезичност и 1–2M контекст за дълги описания.</div>
+                    <div class="font-semibold text-gray-800 mb-1">⚡ Само Grok (~$0.06)</div>
+                    <div class="font-mono text-[11px] text-gray-600">всички фази = xai (grok-4.3)</div>
+                    <div class="text-gray-400 mt-1">Един API ключ, топ мултиезичност и 1M контекст за дълги описания.</div>
                 </div>
                 <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
                     <div class="font-semibold text-gray-800 mb-1">🐉 Само Qwen (~$0.02)</div>
@@ -132,7 +132,7 @@
                 </div>
                 <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
                     <div class="font-semibold text-gray-800 mb-1">🧬 Бюджетен микс (~$0.015)</div>
-                    <div class="font-mono text-[11px] text-gray-600">design = deepseek (v4-pro)<br>intent/critique = qwen (qwen3.5-flash)<br>revision = xai (grok-4.1-fast)</div>
+                    <div class="font-mono text-[11px] text-gray-600">design = deepseek (v4-pro)<br>intent/critique = qwen (qwen3.5-flash)<br>revision = xai (grok-4.3)</div>
                     <div class="text-gray-400 mt-1">Reasoning дизайн почти без пари; леките фази на ultra-cheap модели.</div>
                 </div>
             </div>

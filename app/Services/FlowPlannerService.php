@@ -8,6 +8,7 @@ use App\Models\Flow;
 use App\Models\LlmModel;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
+use App\Support\ModelLevel;
 use App\Support\PaidModel;
 use App\Support\TypographicQuotes;
 use App\Support\UrlExtractor;
@@ -79,12 +80,12 @@ class FlowPlannerService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null): array
+    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium): array
     {
         $intent = $this->analyzeIntent($flow, $onProgress, $logToken);
         $this->lastIntent = $intent;
 
-        $plan = $this->designPipeline($flow, $intent, $onProgress, $logToken);
+        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken);
         $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
 
         // A strong planner rarely under-produces; a single transient short plan
@@ -93,7 +94,7 @@ class FlowPlannerService
         // fails identically), so it carries explicit corrective feedback.
         if (count($agents) < 3) {
             Log::warning('[FlowPlanner] Pipeline design returned '.count($agents).' agents — retrying once.');
-            $plan = $this->designPipeline($flow, $intent, $onProgress, $logToken,
+            $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken,
                 'ВНИМАНИЕ: предишният опит върна само '.count($agents).' агента вместо пълен pipeline. '
                 .'Върни ПЪЛНИЯ DAG с ВСИЧКИ агенти (обикновено 7+), без съкращаване и без да '
                 .'прекъсваш текстовите полета по средата.');
@@ -107,11 +108,11 @@ class FlowPlannerService
         }
 
         if (config('services.planner.critique', true)) {
-            $agents = $this->critiquePlan($flow, $intent, $plan, $onProgress, $logToken);
+            $agents = $this->critiquePlan($flow, $intent, $plan, $level, $onProgress, $logToken);
         }
 
         return $this->sanitizePlanUrls(
-            $this->materialize($agents, $intent),
+            $this->materialize($agents, $intent, $level),
             UrlExtractor::first($flow->description ?? ''),
         );
     }
@@ -207,7 +208,7 @@ PROMPT;
     // ──────────────────────────────────────────────────────────────────────
 
     /** @return array<string, mixed> */
-    private function designPipeline(Flow $flow, array $intent, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null): array
+    private function designPipeline(Flow $flow, array $intent, ModelLevel $level, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null): array
     {
         if ($onProgress) {
             $onProgress('Генериране на агенти');
@@ -249,16 +250,7 @@ qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. 
    формат на изхода, конкретните входове ({{url}}, {{node:Име}}, {{input}}), КАКВО точно да
    извлече/произведе и какво да изключи. Кратки/общи промпти са НЕприемливи — изравни
    детайла с примерите от библиотеката.
-9. provider — избери осъзнато за ВСЕКИ агент според задачата му:
-   - "gemini" / "deepseek" / "qwen" / "xai" (евтини/безплатни cloud) — предпочитан избор за
-     research, анализ, екстракция, класификация, стриктен JSON и обработка на резултати от
-     tools: по-умни от локалните модели и работят паралелно (не делят локалния GPU).
-     Избирай само от изброените в каталога като налични.
-   - "openai" / "anthropic" (premium, скъпи) — САМО за най-критичните стъпки: сложен fan-in
-     синтез от много входове. Максимум {{max_premium}} premium агента общо в плана.
-   - "ollama" (локален, безплатен) — ЗАДЪЛЖИТЕЛЕН за всеки агент, който ПИШЕ български текст
-     за краен потребител (content_bg, report_writer, report_composer, caption_writer,
-     email_composer, bg_text_corrector и подобни) — кодът им закача специализиран BG модел.
+9. {{provider_rule}}
 10. temperature: 0.1-0.3 за research/анализ/QA/корекция; 0.6-0.8 за креативно съдържание
     и image промптове.
 11. output_size: short (списъци, хаштагове, QA) | medium (постове, имейли) |
@@ -278,9 +270,7 @@ qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. 
   с {{node:...}} референции) → bg_text_corrector → qa_verifier.
 PROMPT;
 
-        $system = strtr($system, [
-            '{{max_premium}}' => (string) max(0, (int) config('services.planner.max_premium_agents', 2)),
-        ]);
+        $system = strtr($system, ['{{provider_rule}}' => $level->promptRule()]);
 
         $intentJson = json_encode($intent, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
@@ -356,7 +346,7 @@ PROMPT;
      * @param  array<int, array<string, mixed>>  $plan
      * @return array<int, array<string, mixed>>
      */
-    private function critiquePlan(Flow $flow, array $intent, array $plan, ?callable $onProgress, ?string $logToken): array
+    private function critiquePlan(Flow $flow, array $intent, array $plan, ModelLevel $level, ?callable $onProgress, ?string $logToken): array
     {
         if ($onProgress) {
             $onProgress('Проверка на плана');
@@ -371,9 +361,7 @@ PROMPT;
 4. Fan-in агентите реферират ли правилните входове ({{node:Име}} съвпада с реално name)?
 5. Промптите конкретни ли са (формат, тон, какво се запазва дословно)?
 6. Има ли точно един bg_text_corrector (предпоследен) и един qa_verifier (uid qa_main, последен)?
-7. Провайдърите спазват ли правилата: агенти, пишещи български текст за краен потребител →
-   ollama; openai/anthropic САМО за най-критичния fan-in синтез; масовата research/анализ
-   работа → евтините cloud провайдъри от каталога?
+7. Провайдърите спазват ли правилото за нивото на разходите: {{provider_rule}}
 Ако планът е добър → approved=true, issues=[], revised_agents=[].
 Ако има дефекти → approved=false, опиши ги в issues и върни ЦЕЛИЯ поправен план в revised_agents
 (всички агенти, не само променените).
@@ -383,6 +371,8 @@ prompt_template, qa_custom_prompt, rationale) са на БЪЛГАРСКИ. Ак
 КАВИЧКИ: в текстовите стойности не пиши права двойна кавичка (") и не ползвай „…“ —
 ако ти трябват кавички, пиши «…».
 PROMPT;
+
+        $system = strtr($system, ['{{provider_rule}}' => $level->promptRule()]);
 
         $user = "INTENT:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
             ."\n\nПЛАН:\n".json_encode($plan, JSON_UNESCAPED_UNICODE)
@@ -575,11 +565,10 @@ PROMPT;
      * @param  array<int, array<string, mixed>>  $agents
      * @return array<int, array<string, mixed>>
      */
-    private function materialize(array $agents, array $intent): array
+    private function materialize(array $agents, array $intent, ModelLevel $level): array
     {
-        $maxPremium = max(0, (int) config('services.planner.max_premium_agents', 2));
         $language = $this->normalizeLanguage((string) ($intent['language'] ?? 'bg'));
-        $providerPins = $this->resolveProviderPins($agents, $maxPremium, $language);
+        $providerPins = $this->resolveProviderPins($agents, $level, $language);
 
         $out = [];
         $verifierSeen = false;
@@ -707,57 +696,127 @@ PROMPT;
 
     /**
      * Resolve the planner's per-agent provider choices into "provider/model"
-     * pins. Cheap cloud providers (gemini/deepseek/xai/qwen) are pinned freely —
-     * they are the preferred tier for mass work. Premium providers (openai/
-     * anthropic) are budgeted: only the N agents with the most inbound
-     * dependencies keep their pin (fan-in synthesis steps benefit most), the
-     * rest fall back to local Ollama. Providers without an API key are demoted
-     * regardless, and Bulgarian-prose agents always stay local (BgGPT).
+     * pins, enforcing the chosen cost level's quotas:
+     *
+     *   low    — mostly local: only the top (by fan-in) paid requests keep a
+     *            CHEAP pin, capped at cheapMax (premium requests are demoted
+     *            to the cheap tier).
+     *   medium — every paid request becomes a cheap pin (premium demoted),
+     *            but at least ollamaMin agents stay on local Ollama.
+     *   high   — every agent is force-pinned to a cheap provider; the top
+     *            premium requests become OpenAI pins (up to openaiMax).
+     *   ultra  — every agent is force-pinned to OpenAI; the top anthropic
+     *            requests become Anthropic pins (up to anthropicMax).
+     *
+     * Exempt on every level: vision-profile agents (need a local multimodal
+     * model) and — while the level keeps BG local — Bulgarian-prose agents
+     * (BgGPT). Providers without an API key are never pinned, and the
+     * verifier never occupies a premium slot.
      *
      * @param  array<int, array<string, mixed>>  $agents
      * @return array<int|string, string> uid (or index fallback) → pinned "provider/model"
      */
-    private function resolveProviderPins(array $agents, int $maxPremium, string $language): array
+    private function resolveProviderPins(array $agents, ModelLevel $level, string $language): array
     {
-        $pins = [];
-        $premiumCandidates = [];
+        $cheapFallback = $level->cheapFallbackProvider();
 
+        $eligible = [];
         foreach ($agents as $i => $spec) {
+            $type = trim((string) ($spec['type'] ?? ''));
+
+            if ($this->modelSelector->isVisionType($type)) {
+                continue;
+            }
+            if ($language === 'bg' && $level->bgStaysLocal() && $this->modelSelector->isBgWritingType($type)) {
+                continue;
+            }
+
             $provider = (string) ($spec['provider'] ?? 'ollama');
 
-            if (! array_key_exists($provider, PaidModel::PREFIXES) || ! PaidModel::available($provider)) {
-                continue;
-            }
-
-            // Bulgarian prose runs on local BgGPT — a cloud pin here would be
-            // stripped by AgentGeneratorService anyway, so don't waste budget.
-            if ($language === 'bg' && $this->modelSelector->isBgWritingType(trim((string) ($spec['type'] ?? '')))) {
-                continue;
-            }
-
-            $key = trim((string) ($spec['uid'] ?? '')) ?: $i;
-
-            if (! PaidModel::isPremium($provider)) {
-                $pins[$key] = PaidModel::pin($provider);
-
-                continue;
-            }
-
-            if ($spec['is_verifier'] ?? false) {
-                continue;
-            }
-
-            $premiumCandidates[] = [
-                'key' => $key,
-                'provider' => $provider,
+            $eligible[] = [
+                'key' => trim((string) ($spec['uid'] ?? '')) ?: $i,
+                'provider' => array_key_exists($provider, PaidModel::PREFIXES) ? $provider : null,
                 'fan_in' => count((array) ($spec['depends_on'] ?? [])),
+                'is_verifier' => (bool) ($spec['is_verifier'] ?? false),
             ];
         }
 
-        usort($premiumCandidates, fn ($a, $b) => $b['fan_in'] <=> $a['fan_in']);
+        // Highest fan-in first — synthesis steps benefit most from the
+        // strongest providers, and quota cuts hit the leaves first.
+        usort($eligible, fn ($a, $b) => $b['fan_in'] <=> $a['fan_in']);
 
-        foreach (array_slice($premiumCandidates, 0, $maxPremium) as $c) {
-            $pins[$c['key']] = PaidModel::pin($c['provider']);
+        $pins = [];
+
+        if ($level === ModelLevel::Ultra) {
+            $anthropicLeft = PaidModel::available('anthropic') ? $level->anthropicMax() : 0;
+
+            foreach ($eligible as $a) {
+                if ($a['provider'] === 'anthropic' && ! $a['is_verifier'] && $anthropicLeft > 0) {
+                    $pins[$a['key']] = PaidModel::pin('anthropic');
+                    $anthropicLeft--;
+                } elseif (PaidModel::available('openai')) {
+                    $pins[$a['key']] = PaidModel::pin('openai');
+                } elseif ($cheapFallback !== null) {
+                    $pins[$a['key']] = PaidModel::pin($cheapFallback);
+                }
+            }
+
+            return $pins;
+        }
+
+        if ($level === ModelLevel::High) {
+            $openaiLeft = PaidModel::available('openai') ? (int) $level->openaiMax() : 0;
+
+            foreach ($eligible as $a) {
+                $askedPremium = PaidModel::isPremium($a['provider']);
+
+                if ($askedPremium && ! $a['is_verifier'] && $openaiLeft > 0) {
+                    $pins[$a['key']] = PaidModel::pin('openai');
+                    $openaiLeft--;
+
+                    continue;
+                }
+
+                $cheap = $a['provider'] !== null && ! $askedPremium && PaidModel::available($a['provider'])
+                    ? $a['provider']
+                    : $cheapFallback;
+
+                if ($cheap !== null) {
+                    $pins[$a['key']] = PaidModel::pin($cheap);
+                }
+            }
+
+            return $pins;
+        }
+
+        // low / medium: only agents the planner sent to a paid provider get a
+        // pin, always on the cheap tier.
+        $candidates = [];
+        foreach ($eligible as $a) {
+            if ($a['provider'] === null) {
+                continue;
+            }
+
+            $cheap = PaidModel::isPremium($a['provider']) || ! PaidModel::available($a['provider'])
+                ? $cheapFallback
+                : $a['provider'];
+
+            if ($cheap !== null) {
+                $candidates[] = $a + ['cheap' => $cheap];
+            }
+        }
+
+        if ($level->cheapMax() !== null) {
+            $candidates = array_slice($candidates, 0, $level->cheapMax());
+        }
+
+        $maxPinned = max(0, count($agents) - $level->ollamaMin());
+        if (count($candidates) > $maxPinned) {
+            $candidates = array_slice($candidates, 0, $maxPinned);
+        }
+
+        foreach ($candidates as $c) {
+            $pins[$c['key']] = PaidModel::pin($c['cheap']);
         }
 
         return $pins;

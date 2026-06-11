@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Flow;
+use App\Support\ModelLevel;
 use App\Support\PaidModel;
 use Illuminate\Support\Facades\Log;
 
@@ -44,9 +45,9 @@ class AgentGeneratorService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null): array
+    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium): array
     {
-        $planned = $this->planner->plan($flow, $onProgress, $logToken);
+        $planned = $this->planner->plan($flow, $onProgress, $logToken, $level);
 
         if (count($planned) < 3) {
             Log::warning('[AgentGenerator] Planner returned '.count($planned).' agents — nothing to build.');
@@ -58,7 +59,7 @@ class AgentGeneratorService
             $onProgress('Финализиране на pipeline-а');
         }
 
-        return $this->finalizePlannedAgents($planned);
+        return $this->finalizePlannedAgents($planned, $level);
     }
 
     /**
@@ -76,10 +77,10 @@ class AgentGeneratorService
      * @param  array<int, array<string, mixed>>  $planned
      * @return array<int, array<string, mixed>>
      */
-    public function finalizePlannedAgents(array $planned): array
+    public function finalizePlannedAgents(array $planned, ModelLevel $level = ModelLevel::Medium): array
     {
         $agents = array_values(array_filter(array_map(
-            fn ($a, $i) => $this->normalizeAgent($a, $i + 1),
+            fn ($a, $i) => $this->normalizeAgent($a, $i + 1, $level),
             $planned,
             array_keys($planned),
         )));
@@ -345,7 +346,7 @@ class AgentGeneratorService
     // Per-agent normalization
     // ──────────────────────────────────────────────────────────────────────
 
-    private function normalizeAgent(mixed $agent, int $fallbackOrder): ?array
+    private function normalizeAgent(mixed $agent, int $fallbackOrder, ModelLevel $level = ModelLevel::Medium): ?array
     {
         if (! is_array($agent) || empty($agent['name'])) {
             return null;
@@ -372,17 +373,18 @@ class AgentGeneratorService
         // The model is chosen by code, not by the planning LLM — with one
         // exception: a step pinned to a paid provider ("gemini/<model>",
         // "openai/<model>"…) is hybrid execution by design and is preserved.
-        // Counter-exception: Bulgarian prose always runs on the local BgGPT
-        // stack, so a paid pin on a BG-writing agent is dropped here — the
-        // guarantee holds for manual and library plans too, not just the
-        // planner path.
+        // Counter-exception: while the cost level keeps BG local (everything
+        // below Ultra), Bulgarian prose runs on the local BgGPT stack, so a
+        // paid pin on a BG-writing agent is dropped here — the guarantee
+        // holds for manual and library plans too, not just the planner path.
         $modelHint = trim(($agent['name'] ?? '').' '.($agent['role'] ?? '').' '.($agent['output_description'] ?? ''));
         $tools = array_values(array_map('strval', (array) ($agent['config']['tools'] ?? $agent['capabilities'] ?? [])));
         $plannedModel = (string) ($agent['model'] ?? '');
-        $writesBulgarian = ($agent['output_language'] ?? 'bg') === 'bg'
+        $writesBulgarian = $level->bgStaysLocal()
+            && ($agent['output_language'] ?? 'bg') === 'bg'
             && $this->modelSelector->isBgWritingType($type);
         $model = PaidModel::isPaid($plannedModel) && ! $writesBulgarian
-            ? $plannedModel
+            ? $this->validatedPaidPin($plannedModel)
             : $this->modelSelector->selectModel($type, $modelHint, $tools);
 
         // A partial plan must never produce a node with empty prompts — the
@@ -429,6 +431,26 @@ class AgentGeneratorService
             'depends_on' => $this->normalizeDependsOn($agent['depends_on'] ?? null),
             'output_language' => $agent['output_language'] ?? null,
         ];
+    }
+
+    /**
+     * A paid pin is preserved only when the model actually exists at the
+     * provider (= is a key in its services.<provider>.pricing list). The
+     * planning LLM occasionally hallucinates model ids ("xai/grok-4.1-fast"),
+     * which the provider rejects at runtime and the node fails hard — so an
+     * unknown id is swapped for the provider's configured runtime model,
+     * keeping the planner's hybrid intent.
+     */
+    private function validatedPaidPin(string $pinnedModel): string
+    {
+        $provider = PaidModel::provider($pinnedModel);
+        $known = array_keys((array) config("services.{$provider}.pricing", []));
+
+        if ($known === [] || in_array(PaidModel::strip($pinnedModel), $known, true)) {
+            return $pinnedModel;
+        }
+
+        return PaidModel::pin($provider);
     }
 
     /**

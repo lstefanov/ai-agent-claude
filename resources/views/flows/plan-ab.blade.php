@@ -180,6 +180,15 @@
                 <p class="text-xs text-gray-400 mt-0.5">Различен провайдър/модел за всяка фаза на планирането.</p>
             </div>
             <div class="p-6 overflow-y-auto">
+                <div class="mb-4">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Ниво на моделите за агентите</label>
+                    <select x-model="level" class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                        <option value="low">🪙 Ниско — основно Ollama, до 3 евтини cloud</option>
+                        <option value="medium">⚖️ Средно — евтини cloud, поне 3 на Ollama (по подразбиране)</option>
+                        <option value="high">🚀 Високо — всичко на евтин cloud, до 3 на OpenAI</option>
+                        <option value="ultra">💎 Ултра — всичко на OpenAI, до 2 на Claude</option>
+                    </select>
+                </div>
                 @include('flows.partials.phase-picker')
             </div>
             <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 shrink-0">
@@ -247,6 +256,9 @@ function planAb() {
         savedAs: {},         // label → име на записания шаблон
         savePopup: { open: false, label: null, name: '', isActive: false, error: '' },
         hybridCfgOpen: false,
+        // Ниво на runtime моделите за агентите (low|medium|high|ultra) —
+        // важи за стартирания A/B run; default medium.
+        level: 'medium',
         error: null,
         state: { providers: {} },
         _pollTimer: null,
@@ -297,10 +309,10 @@ function planAb() {
         async start(label = null) {
             this.error = null;
             const body = label === 'hybrid'
-                ? { provider: 'hybrid', phases: this.picker.payload() }
+                ? { provider: 'hybrid', phases: this.picker.payload(), level: this.level }
                 : (label
-                    ? { provider: label, model: this.cardModel[label] || null }
-                    : { models: this.cardModel });
+                    ? { provider: label, model: this.cardModel[label] || null, level: this.level }
+                    : { models: this.cardModel, level: this.level });
             try {
                 const res = await fetch(@json(route('flows.plan-ab.start', $flow)), {
                     method: 'POST',

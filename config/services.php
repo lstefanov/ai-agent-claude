@@ -81,7 +81,7 @@ return [
         'anthropic_model' => env('ASSIST_ANTHROPIC_MODEL', 'claude-haiku-4-5'),
         'deepseek_model' => env('ASSIST_DEEPSEEK_MODEL', 'deepseek-v4-flash'),
         'gemini_model' => env('ASSIST_GEMINI_MODEL', 'gemini-3.1-flash-lite'),
-        'xai_model' => env('ASSIST_XAI_MODEL', 'grok-4.1-fast'),
+        'xai_model' => env('ASSIST_XAI_MODEL', 'grok-4.3'),
         'qwen_model' => env('ASSIST_QWEN_MODEL', 'qwen3.5-flash'),
     ],
 
@@ -119,10 +119,6 @@ return [
     'planner' => [
         // Phase C: a second LLM pass that reviews + repairs the generated plan.
         'critique' => env('PLANNER_CRITIQUE', true),
-        // Hard cap on how many agents in one plan may run on a PREMIUM provider
-        // (openai/* + anthropic/* combined) at runtime. Cheap cloud providers
-        // (gemini/deepseek/xai/qwen) are not budgeted.
-        'max_premium_agents' => env('PLANNER_MAX_PREMIUM_AGENTS', 5),
         // Фаза 2: proven plans injected as few-shot examples at design time.
         'few_shots' => env('PLANNER_FEW_SHOTS', 2),
         // Фаза 3: revise failing agents mid-run (QA fail / degenerate output).
@@ -281,16 +277,17 @@ return [
         'api_key' => env('XAI_API_KEY'),
         // Дизайн фазата: grok-4.3 е актуалният флагман (1M контекст).
         'model' => env('XAI_GENERATOR_MODEL', 'grok-4.3'),
-        // Runtime възли (planner pin "xai/<runtime_model>"): grok-4.1-fast —
-        // 2M контекст, почти без пари. Prefix match покрива и
-        // -reasoning/-non-reasoning вариантите.
-        'runtime_model' => env('XAI_RUNTIME_MODEL', 'grok-4.1-fast'),
+        // Runtime възли (planner pin "xai/<runtime_model>"): grok-4.3 — xAI
+        // обедини линийката, флагманът е и най-бързият модел (няма вече отделен
+        // евтин "fast" вариант).
+        'runtime_model' => env('XAI_RUNTIME_MODEL', 'grok-4.3'),
         'base_url' => env('XAI_BASE_URL', 'https://api.x.ai/v1'),
         'structured_output' => env('XAI_STRUCTURED_OUTPUT', 'json_schema'),
         'max_tokens_param' => 'max_tokens',
         'pricing' => [
-            'grok-4.3' => ['in' => 1.25, 'out' => 2.50, 'stars' => 3, 'desc' => 'Флагман — топ мултиезичност, 1M контекст'],
-            'grok-4.1-fast' => ['in' => 0.20, 'out' => 0.50, 'stars' => 2, 'desc' => 'Почти безплатен — 2M контекст'],
+            'grok-4.3' => ['in' => 1.25, 'out' => 2.50, 'stars' => 3, 'desc' => 'Флагман — най-умен и най-бърз, 1M контекст'],
+            'grok-4.20-0309-non-reasoning' => ['in' => 1.25, 'out' => 2.50, 'stars' => 2, 'desc' => 'Без reasoning — по-малко токени, 1M контекст'],
+            'grok-build-0.1' => ['in' => 1.00, 'out' => 2.00, 'stars' => 1, 'desc' => 'Най-евтин — 256K контекст'],
         ],
     ],
 

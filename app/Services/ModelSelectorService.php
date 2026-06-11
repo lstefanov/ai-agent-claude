@@ -163,6 +163,15 @@ class ModelSelectorService
     }
 
     /**
+     * True when the agent type resolves to the vision profile — image inputs
+     * need a local multimodal model, so these are never cloud-pinned.
+     */
+    public function isVisionType(string $agentType): bool
+    {
+        return $this->profileForType($agentType) === 'vision';
+    }
+
+    /**
      * Ordered candidate tags for an agent, honouring description/name heuristics.
      *
      * @return array<int, string>

@@ -172,19 +172,26 @@ Per-agent provider, кодиран в полето `model` с префикс
 
 Routing-ът е на едно място (`OllamaService::chat()` делегира префикснатите
 модели на `OpenAiChatService`/`AnthropicChatService`), така че **нито един
-агент клас не се променя**. Planner-ът избира провайдър per агент на три нива:
+агент клас не се променя**.
 
-- **Евтини cloud** (gemini/deepseek/qwen/xai) — предпочитани за масовата
-  research/анализ/екстракция работа и стриктен JSON; без лимит, вървят
-  паралелно (не делят локалния GPU слот).
-- **Premium** (openai/anthropic) — само за най-критичния fan-in синтез;
-  бюджетирани с `PLANNER_MAX_PREMIUM_AGENTS` (печелят стъпките с най-голям
-  fan-in, останалите се понижават).
-- **Ollama** (локално) — задължително за агенти, които пишат български текст
-  за краен потребител: кодът (`AgentGeneratorService`) маха платен pin от
-  BG-писащ агент и `ModelSelectorService` закача BgGPT.
+Колко „скъпо" се сглобява pipeline-ът се избира per генерация чрез
+**ниво на моделите** (`App\Support\ModelLevel`, default `medium`) — опция в
+генериращия popup на builder-а и в A/B страницата (`--level` на
+`flows:plan-ab`). Промптът насочва планера към разпределението на нивото, а
+`FlowPlannerService::resolveProviderPins()` го налага детерминистично:
 
-Моделът per провайдър се контролира с `<PROVIDER>_RUNTIME_MODEL`.
+| Ниво | Разпределение |
+|---|---|
+| `low` (Ниско) | Основно Ollama; до 3 евтини cloud pin-а за стъпките с най-голям fan-in. |
+| `medium` (Средно) | Евтин cloud (gemini/deepseek/qwen/xai) за повечето агенти; поне 3 остават на Ollama; без premium. |
+| `high` (Високо) | Всички агенти на евтин cloud; до 3-те най-критични стъпки на OpenAI. |
+| `ultra` (Ултра) | Всички агенти на OpenAI (runtime модела); до 2-те най-критични на Anthropic. |
+
+На всички нива: vision агентите остават на локален multimodal модел, а
+агентите, които пишат български текст за краен потребител, остават на BgGPT
+(`AgentGeneratorService` маха платен pin) — освен на `ultra`, където и те
+отиват на OpenAI. Моделът per провайдър се контролира с
+`<PROVIDER>_RUNTIME_MODEL`.
 
 ---
 
@@ -476,7 +483,8 @@ ANTHROPIC_API_KEY=sk-ant-…           # planner / A-B / runtime с Claude
 ANTHROPIC_GENERATOR_MODEL=claude-sonnet-4-6   # planner модел за Claude
 ANTHROPIC_RUNTIME_MODEL=claude-haiku-4-5      # модел за агенти с provider=anthropic
 PLANNER_CRITIQUE=true                # Фаза В вкл/изкл
-PLANNER_MAX_PREMIUM_AGENTS=2         # таван на PREMIUM агенти (openai+anthropic общо); евтините cloud са без лимит
+# Квотите на provider-ите per план се определят от нивото на моделите
+# (low|medium|high|ultra, избира се в UI при генериране; default medium)
 PLANNER_FEW_SHOTS=2                  # Фаза 2: брой примери от plan library
 PLANNER_ADAPTIVE=true                # Фаза 3: ревизия при QA fail/watchdog
 PLANNER_ESCALATION_PROVIDER=openai   # Фаза 3: накъде ескалира провалена стъпка (openai|anthropic)

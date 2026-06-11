@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Flow;
 use App\Services\AgentGeneratorService;
 use App\Services\GeneratorService;
+use App\Support\ModelLevel;
 use App\Support\PlannerPhases;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -59,6 +60,9 @@ class GenerateAgentsCommand extends Command
             }
             $effectivePhases = app(GeneratorService::class)->resolveAllPhases();
 
+            // Model-cost level for the agents' runtime models (popup choice).
+            $level = ModelLevel::fromRequest($request['level'] ?? null);
+
             $lastHeartbeatAt = 0.0;
             $onProgress = function (?string $stage = null) use ($cacheKey, &$lastHeartbeatAt): void {
                 $now = microtime(true);
@@ -85,7 +89,7 @@ class GenerateAgentsCommand extends Command
             $onProgress('Подготовка на заявката');
 
             $startMs = (int) (microtime(true) * 1000);
-            $agents = $generator->generate($flow, $onProgress, $token);
+            $agents = $generator->generate($flow, $onProgress, $token, $level);
 
             if (empty($agents)) {
                 Cache::put($cacheKey, [
@@ -109,6 +113,7 @@ class GenerateAgentsCommand extends Command
                     'label' => PlannerPhases::label($effectivePhases),
                     'phases' => $effectivePhases,
                 ],
+                'level' => $level->value,
                 'cost_usd' => round((float) AgentGenerationLog::where('token', $token)->sum('cost_usd'), 4),
                 'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
                 'error' => null,
