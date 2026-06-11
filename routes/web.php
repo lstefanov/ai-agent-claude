@@ -62,6 +62,7 @@ Route::scopeBindings()->group(function () {
     Route::post('flows/{flow}/versions/from-plan', [FlowVersionController::class, 'storeFromPlan'])->name('flows.versions.from-plan');
     Route::put('flows/{flow}/versions/{version}', [FlowVersionController::class, 'update'])->name('flows.versions.update');
     Route::post('flows/{flow}/versions/{version}/activate', [FlowVersionController::class, 'activate'])->name('flows.versions.activate');
+    Route::post('flows/{flow}/versions/{version}/duplicate', [FlowVersionController::class, 'duplicate'])->name('flows.versions.duplicate');
     Route::delete('flows/{flow}/versions/{version}', [FlowVersionController::class, 'destroy'])->name('flows.versions.destroy');
 });
 
