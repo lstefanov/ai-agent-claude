@@ -111,6 +111,15 @@ class FlowVersionController extends Controller
         return response()->json(['ok' => true, 'version' => $this->payload($version->fresh())]);
     }
 
+    public function duplicate(Request $request, Flow $flow, FlowVersion $version): JsonResponse
+    {
+        $validated = $request->validate(['name' => 'required|string|max:255']);
+
+        $newVersion = $this->versions->duplicate($version, $validated['name']);
+
+        return response()->json(['ok' => true, 'version' => $this->payload($newVersion)]);
+    }
+
     public function destroy(Flow $flow, FlowVersion $version): JsonResponse
     {
         $this->versions->delete($version);
