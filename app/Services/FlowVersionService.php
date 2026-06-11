@@ -101,6 +101,28 @@ class FlowVersionService
         $version->update(['name' => $name]);
     }
 
+    /**
+     * Create a 1:1 copy of a version under a new name. The copy is always
+     * inactive — the caller must explicitly activate it if desired.
+     */
+    public function duplicate(FlowVersion $version, string $name): FlowVersion
+    {
+        return $this->createFromLayout(
+            $version->flow,
+            $version->graph_layout,
+            $name,
+            false,
+            $version->agents,
+            [
+                'intent' => $version->plan_intent,
+                'generator' => $version->generator,
+                'model_level' => $version->model_level,
+                'cost_usd' => $version->cost_usd,
+                'duration_ms' => $version->duration_ms,
+            ],
+        );
+    }
+
     public function delete(FlowVersion $version): void
     {
         if ($version->is_active) {
