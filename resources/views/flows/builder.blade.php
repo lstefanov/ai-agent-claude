@@ -582,6 +582,21 @@
                     </template>
                 </select>
             </div>
+            {{-- Ниво на runtime моделите на агентите в този шаблон --}}
+            <div class="flex items-center gap-1.5"
+                 title="Ниво на моделите на агентите. Смяната преизчислява модела на всеки агент и показва приблизителен разход преди запис.">
+                <span class="text-[11px] font-bold px-2 py-1 rounded-full border"
+                      :class="levelMeta(modelLevel).cls"
+                      x-text="levelMeta(modelLevel).icon + ' ' + levelMeta(modelLevel).label"></span>
+                <select x-model="levelSelect" @change="onLevelSelect()"
+                        class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="" disabled x-show="!isStandardLevel(modelLevel)">— смени ниво —</option>
+                    <option value="low">🪙 Ниско</option>
+                    <option value="medium">⚖️ Средно</option>
+                    <option value="high">🚀 Високо</option>
+                    <option value="ultra">💎 Ултра</option>
+                </select>
+            </div>
             <div x-show="versions.length" class="h-6 w-px bg-gray-200"></div>
 
             {{-- Изграждане на графа --}}
@@ -718,6 +733,80 @@
                 <button type="button" @click="genCfg.open = false" class="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">Отказ</button>
                 <button type="button" @click="confirmGenConfig()" class="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-sm font-bold">
                     ✨ Генерирай
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Смяна на нивото на моделите: preview на новите модели + приблизителен разход --}}
+    <div x-show="relevel.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
+         @keydown.escape.window="closeRelevel()">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="closeRelevel()"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-gray-100 shrink-0">
+                <h3 class="text-lg font-bold text-gray-900">
+                    Смяна на нивото на моделите →
+                    <span class="text-sm font-bold px-2 py-1 rounded-full border align-middle"
+                          :class="levelMeta(relevel.level).cls"
+                          x-text="levelMeta(relevel.level).icon + ' ' + levelMeta(relevel.level).label"></span>
+                </h3>
+                <p class="text-xs text-gray-400 mt-0.5">Всеки агент получава нов модел според типа и задачите си. Прегледай разхода преди запис.</p>
+            </div>
+            <div class="p-6 overflow-y-auto">
+                <template x-if="relevel.loading">
+                    <div class="flex items-center gap-2 text-sm text-gray-500 py-6 justify-center">
+                        <span class="inline-block w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></span>
+                        Изчислявам новите модели и разхода…
+                    </div>
+                </template>
+                <template x-if="relevel.error">
+                    <div class="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5 rounded-lg mb-3" x-text="relevel.error"></div>
+                </template>
+                <template x-if="!relevel.loading && !relevel.error">
+                    <div>
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-[11px] uppercase tracking-wider text-gray-400 border-b border-gray-100">
+                                    <th class="text-left py-1.5 pr-2 font-semibold">Агент</th>
+                                    <th class="text-left py-1.5 pr-2 font-semibold">Нов модел</th>
+                                    <th class="text-right py-1.5 font-semibold">~Разход / run</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="n in relevel.nodes" :key="n.key">
+                                    <tr class="border-b border-gray-50">
+                                        <td class="py-1.5 pr-2 text-gray-800 truncate max-w-[220px]" x-text="n.name"></td>
+                                        <td class="py-1.5 pr-2">
+                                            <div class="font-mono text-xs"
+                                                 :class="n.new_model ? 'text-violet-700' : 'text-gray-500'"
+                                                 x-text="n.display_model + (n.new_model ? '' : ' (локален)')"></div>
+                                            <div class="text-[10px] text-gray-400 leading-snug" x-show="n.reason" x-text="n.reason"></div>
+                                        </td>
+                                        <td class="py-1.5 text-right tabular-nums align-top"
+                                            :class="n.est_cost > 0 ? 'text-amber-700' : 'text-green-700'"
+                                            x-text="n.est_cost > 0 ? '$' + n.est_cost.toFixed(4) : 'безплатно'"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                        <div class="flex items-center justify-between rounded-xl bg-violet-50 border border-violet-200 px-4 py-3 mt-4">
+                            <div class="text-sm font-semibold text-violet-900">
+                                Приблизителен разход на едно изпълнение
+                                <span class="block text-[11px] font-normal text-violet-700/70"
+                                      x-text="relevel.basis === 'last_run' ? 'на база реалните токени от последния успешен run' : 'на база допускания (~6K input токена на агент) — груба оценка'"></span>
+                            </div>
+                            <div class="text-base font-bold tabular-nums"
+                                 :class="relevel.total > 0 ? 'text-amber-700' : 'text-green-700'"
+                                 x-text="relevel.total > 0 ? '$' + relevel.total.toFixed(4) : 'безплатно'"></div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 shrink-0">
+                <button type="button" @click="closeRelevel()" class="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">Отказ</button>
+                <button type="button" @click="applyRelevel()" :disabled="relevel.loading || relevel.applying || !!relevel.error"
+                        class="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:bg-violet-300 text-sm font-bold">
+                    <span x-text="relevel.applying ? 'Запазва…' : '✓ Приложи и запиши'"></span>
                 </button>
             </div>
         </div>
@@ -1823,6 +1912,11 @@ function flowBuilder(config) {
             pricing: config.pricing || {},
         }),
         genCfg: { open: false, provider: 'openai', model: '', level: 'medium' },
+        // Ниво на runtime моделите на разглеждания шаблон ('custom' след ръчна
+        // смяна на модел; null при стари версии). levelSelect е dropdown mirror.
+        modelLevel: config.modelLevel || null,
+        levelSelect: ['low', 'medium', 'high', 'ultra'].includes(config.modelLevel) ? config.modelLevel : '',
+        relevel: { open: false, loading: false, applying: false, level: null, nodes: [], total: 0, basis: 'assumptions', error: null },
         // Нива на разходите за runtime моделите на агентите (enforce-ва се в
         // FlowPlannerService::resolveProviderPins; default: medium).
         modelLevels: [
@@ -2405,6 +2499,8 @@ function flowBuilder(config) {
 
             this.selectedId = id;
             this.selected = this.normalizeNodeData(JSON.parse(JSON.stringify(node.data || {})));
+            // Запомня модела при отваряне — ръчна смяна при запис → ниво "custom".
+            this._modelBeforeEdit = String(node.data?.model || '');
             this.propsTab = 'basic';
             this.propertiesOpen = true;
             this.generating = {};
@@ -2430,6 +2526,11 @@ function flowBuilder(config) {
             if (this.selectedId == null || !this.selected) return;
 
             const normalized = this.normalizeNodeData(this.selected);
+            // Ръчно сменен модел → шаблонът вече не отговаря на ниво.
+            if (String(normalized.model || '') !== this._modelBeforeEdit) {
+                this.modelLevel = 'custom';
+                this.levelSelect = '';
+            }
             // Decision: re-key branch ports to output_1..N and sync the node's
             // output ports so each branch has its own port to wire an edge from.
             if (normalized.type === 'decision' && Array.isArray(normalized.config.branches)) {
@@ -2654,6 +2755,7 @@ function flowBuilder(config) {
             try {
                 const body = { graph: this.export(), ...extra };
                 if (this.selectedVersionId) body.version_id = Number(this.selectedVersionId);
+                if (this.modelLevel && body.model_level === undefined) body.model_level = this.modelLevel;
 
                 const res = await fetch(config.saveUrl, {
                     method: 'POST',
@@ -2693,6 +2795,10 @@ function flowBuilder(config) {
 
         // Слива създадена/обновена версия в dropdown състоянието.
         absorbVersion(v) {
+            if (v.model_level !== undefined && v.model_level !== null) {
+                this.modelLevel = v.model_level;
+                this.levelSelect = this.isStandardLevel(v.model_level) ? v.model_level : '';
+            }
             if (v.is_active) {
                 this.versions.forEach(x => { x.is_active = String(x.id) === String(v.id); });
                 this.activeVersionId = String(v.id);
@@ -2743,6 +2849,83 @@ function flowBuilder(config) {
         modelLevelHint() {
             const lv = this.modelLevels.find(l => l.value === this.genCfg.level);
             return lv ? lv.hint : '';
+        },
+
+        // ── Ниво на моделите на шаблона (toolbar badge + смяна) ──────────
+        levelMeta(lv) {
+            return {
+                low:    { label: 'Ниско',  icon: '🪙', cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+                medium: { label: 'Средно', icon: '⚖️', cls: 'bg-blue-100 text-blue-700 border-blue-300' },
+                high:   { label: 'Високо', icon: '🚀', cls: 'bg-orange-100 text-orange-700 border-orange-300' },
+                ultra:  { label: 'Ултра',  icon: '💎', cls: 'bg-violet-100 text-violet-700 border-violet-300' },
+                custom: { label: 'Custom', icon: '✎',  cls: 'bg-gray-100 text-gray-600 border-gray-300' },
+            }[lv] || { label: '—', icon: '·', cls: 'bg-gray-100 text-gray-400 border-gray-200' };
+        },
+
+        isStandardLevel(lv) {
+            return ['low', 'medium', 'high', 'ultra'].includes(lv);
+        },
+
+        onLevelSelect() {
+            const level = this.levelSelect;
+            if (!level || level === this.modelLevel) return;
+            this.openRelevel(level);
+        },
+
+        async openRelevel(level) {
+            this.relevel = { open: true, loading: true, applying: false, level, nodes: [], total: 0, basis: 'assumptions', error: null };
+            try {
+                const res = await fetch(config.relevelUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        graph: this.export(),
+                        level,
+                        version_id: this.selectedVersionId ? Number(this.selectedVersionId) : undefined,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.ok === false) {
+                    this.relevel.error = data.error || data.message || 'Грешка при изчисляване на новите модели.';
+                } else {
+                    this.relevel.nodes = data.nodes || [];
+                    this.relevel.total = data.total_usd || 0;
+                    this.relevel.basis = data.basis || 'assumptions';
+                }
+            } catch (e) {
+                this.relevel.error = 'Мрежова грешка: ' + e.message;
+            } finally {
+                this.relevel.loading = false;
+            }
+        },
+
+        closeRelevel() {
+            this.relevel.open = false;
+            // Селектът се връща на текущото ниво (или placeholder при custom/—).
+            this.levelSelect = this.isStandardLevel(this.modelLevel) ? this.modelLevel : '';
+        },
+
+        async applyRelevel() {
+            if (this.relevel.applying || this.relevel.loading || this.relevel.error) return;
+            this.relevel.applying = true;
+
+            // Новите модели се записват директно в нодовете (node_key = drawflow id).
+            for (const n of this.relevel.nodes) {
+                const node = this.editor.getNodeFromId(n.key);
+                if (!node || this.isBoundaryData(node.data)) continue;
+                const data = JSON.parse(JSON.stringify(node.data || {}));
+                data.model = n.new_model;
+                this.editor.updateNodeDataFromId(n.key, data);
+                this.updateNodeLabel(n.key, data);
+            }
+
+            this.modelLevel = this.relevel.level;
+            this.levelSelect = this.relevel.level;
+
+            const ok = await this.save();
+            this.relevel.applying = false;
+            if (ok) this.relevel.open = false;
+            else this.relevel.error = this.saveError || 'Грешка при запис.';
         },
 
         genCfgProviderChanged() {
@@ -2803,6 +2986,7 @@ function flowBuilder(config) {
                     agents: this.saveDlg.agents,
                     generator: this.saveDlg.meta?.generator || null,
                     intent: this.saveDlg.meta?.intent || null,
+                    model_level: this.saveDlg.meta?.level || this.modelLevel || null,
                     cost_usd: this.saveDlg.meta?.cost_usd ?? null,
                     duration_ms: this.saveDlg.meta?.duration_ms ?? null,
                 }),
@@ -4114,6 +4298,12 @@ function flowBuilder(config) {
                 console.error('applyGeneratedGraph failed', e);
                 this.failGeneration('Грешка при изграждане на графа: ' + e.message);
                 return;
+            }
+
+            // Нивото, с което е генериран планът — записва се на шаблона.
+            if (meta.level) {
+                this.modelLevel = meta.level;
+                this.levelSelect = this.isStandardLevel(meta.level) ? meta.level : '';
             }
 
             // Първа генерация на flow-а (?generate=1) → авто-запис, който

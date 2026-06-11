@@ -77,16 +77,24 @@ enum ModelLevel: string
         return $this !== self::Ultra;
     }
 
+    /**
+     * Cheap providers with an API key, in preference order — the pool that
+     * cheap pins are spread across (round-robin on builder re-pins).
+     *
+     * @return list<string>
+     */
+    public static function availableCheapProviders(): array
+    {
+        return array_values(array_filter(
+            self::CHEAP_PRIORITY,
+            fn (string $provider) => PaidModel::available($provider),
+        ));
+    }
+
     /** First cheap provider with an API key, or null when none is configured. */
     public function cheapFallbackProvider(): ?string
     {
-        foreach (self::CHEAP_PRIORITY as $provider) {
-            if (PaidModel::available($provider)) {
-                return $provider;
-            }
-        }
-
-        return null;
+        return self::availableCheapProviders()[0] ?? null;
     }
 
     /**
@@ -99,30 +107,34 @@ enum ModelLevel: string
         return match ($this) {
             self::Low => <<<'TXT'
 provider (ниво на разходите: НИСКО): по подразбиране "ollama" (локално, безплатно).
-   САМО за до 3-те най-критични стъпки (сложен fan-in синтез, стриктен JSON) избери евтин
-   cloud провайдър от каталога ("gemini" / "deepseek" / "qwen" / "xai"). НЕ ползвай
+   САМО за до 3-те най-критични стъпки (сложен fan-in синтез, стриктен JSON) препоръчай
+   евтин cloud провайдър ("gemini" / "deepseek" / "qwen" / "xai") — изборът ти е
+   ПРЕПОРЪКА, кодът прави финалния избор според задачата на агента. НЕ ползвай
    "openai" и "anthropic". Агентите, които пишат български текст за краен потребител,
    са ВИНАГИ "ollama" (кодът им закача специализиран BG модел).
 TXT,
             self::Medium => <<<'TXT'
-provider (ниво на разходите: СРЕДНО): по подразбиране евтин cloud провайдър от
-   каталога ("gemini" / "deepseek" / "qwen" / "xai") — по-умни от локалните модели и
-   работят паралелно (не делят локалния GPU). Най-леките помощни стъпки (поне 3 агента)
-   остави на "ollama" (локално, безплатно). НЕ ползвай "openai" и "anthropic". Агентите,
-   които пишат български текст за краен потребител, са ВИНАГИ "ollama" (кодът им закача
-   специализиран BG модел).
+provider (ниво на разходите: СРЕДНО): по подразбиране препоръчай евтин cloud провайдър
+   ("gemini" / "deepseek" / "qwen" / "xai") — по-умни от локалните модели и работят
+   паралелно (не делят локалния GPU); изборът ти е ПРЕПОРЪКА, кодът прави финалния
+   избор според задачата на агента. Най-леките помощни стъпки (поне 3 агента) остави
+   на "ollama" (локално, безплатно). НЕ ползвай "openai" и "anthropic". Агентите,
+   които пишат български текст за краен потребител, са ВИНАГИ "ollama" (кодът им
+   закача специализиран BG модел).
 TXT,
             self::High => <<<'TXT'
-provider (ниво на разходите: ВИСОКО): ВСЕКИ агент е на евтин cloud провайдър от
-   каталога ("gemini" / "deepseek" / "qwen" / "xai"). За до 3-те най-критични стъпки
-   (сложен fan-in синтез) избери "openai". НЕ ползвай "anthropic". Изключения, които
-   остават "ollama": агентите, които пишат български текст за краен потребител, и
+provider (ниво на разходите: ВИСОКО): ВСЕКИ агент е на евтин cloud провайдър
+   ("gemini" / "deepseek" / "qwen" / "xai") — изборът ти е ПРЕПОРЪКА, кодът прави
+   финалния избор според задачата. За до 3-те най-критични стъпки (сложен fan-in
+   синтез) препоръчай "openai". НЕ ползвай "anthropic". Изключения, които остават
+   "ollama": агентите, които пишат български текст за краен потребител, и
    vision/обработка на изображения.
 TXT,
             self::Ultra => <<<'TXT'
 provider (ниво на разходите: УЛТРА): ВСЕКИ агент е "openai", ВКЛЮЧИТЕЛНО агентите,
    които пишат български текст. За до 2-те най-критични стъпки (най-сложният fan-in
-   синтез) избери "anthropic". Само vision/обработка на изображения остава "ollama".
+   синтез) препоръчай "anthropic" — кодът потвърждава според задачата. Само
+   vision/обработка на изображения остава "ollama".
 TXT,
         };
     }

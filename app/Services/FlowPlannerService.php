@@ -55,6 +55,7 @@ class FlowPlannerService
     public function __construct(
         private GeneratorService $generator,
         private ModelSelectorService $modelSelector,
+        private ModelRouterService $router,
         private PlanLibraryService $planLibrary,
     ) {}
 
@@ -112,7 +113,7 @@ class FlowPlannerService
         }
 
         return $this->sanitizePlanUrls(
-            $this->materialize($agents, $intent, $level),
+            $this->materialize($agents, $intent, $level, $flow, $logToken),
             UrlExtractor::first($flow->description ?? ''),
         );
     }
@@ -565,10 +566,10 @@ PROMPT;
      * @param  array<int, array<string, mixed>>  $agents
      * @return array<int, array<string, mixed>>
      */
-    private function materialize(array $agents, array $intent, ModelLevel $level): array
+    private function materialize(array $agents, array $intent, ModelLevel $level, Flow $flow, ?string $logToken): array
     {
         $language = $this->normalizeLanguage((string) ($intent['language'] ?? 'bg'));
-        $providerPins = $this->resolveProviderPins($agents, $level, $language);
+        $providerPins = $this->resolveProviderPins($agents, $level, $language, $flow, $logToken);
 
         $out = [];
         $verifierSeen = false;
@@ -647,8 +648,9 @@ PROMPT;
                 // Paid prefixes (gemini/…, openai/…) are preserved by
                 // normalizeAgent; '' lets the ModelSelector pick the best
                 // installed Ollama model.
-                'model' => $providerPins[$pinKey] ?? '',
-                'model_reason' => trim((string) ($spec['rationale'] ?? '')),
+                'model' => $providerPins[$pinKey]['model'] ?? '',
+                'model_reason' => trim((string) ($providerPins[$pinKey]['reason'] ?? ''))
+                    ?: trim((string) ($spec['rationale'] ?? '')),
                 'order' => $i + 1,
                 'is_verifier' => $isVerifier,
                 'qa_threshold' => $isVerifier ? self::DEFAULT_QA_THRESHOLD : null,
@@ -695,131 +697,42 @@ PROMPT;
     }
 
     /**
-     * Resolve the planner's per-agent provider choices into "provider/model"
-     * pins, enforcing the chosen cost level's quotas:
-     *
-     *   low    — mostly local: only the top (by fan-in) paid requests keep a
-     *            CHEAP pin, capped at cheapMax (premium requests are demoted
-     *            to the cheap tier).
-     *   medium — every paid request becomes a cheap pin (premium demoted),
-     *            but at least ollamaMin agents stay on local Ollama.
-     *   high   — every agent is force-pinned to a cheap provider; the top
-     *            premium requests become OpenAI pins (up to openaiMax).
-     *   ultra  — every agent is force-pinned to OpenAI; the top anthropic
-     *            requests become Anthropic pins (up to anthropicMax).
-     *
-     * Exempt on every level: vision-profile agents (need a local multimodal
-     * model) and — while the level keeps BG local — Bulgarian-prose agents
-     * (BgGPT). Providers without an API key are never pinned, and the
-     * verifier never occupies a premium slot.
+     * Map the planner's specs to model pins via the task-aware router. The
+     * planner's per-agent provider е само ПРЕПОРЪКА (vote бонус в скоринга) —
+     * квотите на нивото и конкретният избор са в ModelRouterService.
      *
      * @param  array<int, array<string, mixed>>  $agents
-     * @return array<int|string, string> uid (or index fallback) → pinned "provider/model"
+     * @return array<int|string, array{model: string, reason: string}> uid (или индекс) → pin
      */
-    private function resolveProviderPins(array $agents, ModelLevel $level, string $language): array
+    private function resolveProviderPins(array $agents, ModelLevel $level, string $language, Flow $flow, ?string $logToken): array
     {
-        $cheapFallback = $level->cheapFallbackProvider();
-
-        $eligible = [];
+        $items = [];
         foreach ($agents as $i => $spec) {
-            $type = trim((string) ($spec['type'] ?? ''));
-
-            if ($this->modelSelector->isVisionType($type)) {
-                continue;
-            }
-            if ($language === 'bg' && $level->bgStaysLocal() && $this->modelSelector->isBgWritingType($type)) {
+            if (! is_array($spec) || empty($spec['name'])) {
                 continue;
             }
 
+            $type = trim((string) ($spec['type'] ?? 'content_bg'));
             $provider = (string) ($spec['provider'] ?? 'ollama');
 
-            $eligible[] = [
-                'key' => trim((string) ($spec['uid'] ?? '')) ?: $i,
-                'provider' => array_key_exists($provider, PaidModel::PREFIXES) ? $provider : null,
+            $items[] = [
+                'key' => (string) (trim((string) ($spec['uid'] ?? '')) ?: $i),
+                'type' => $type,
+                'name' => (string) ($spec['name'] ?? ''),
+                'role' => (string) ($spec['role'] ?? ''),
+                'prompt' => trim((string) ($spec['system_prompt'] ?? '').' '.(string) ($spec['prompt_template'] ?? '')),
+                'tools' => array_values(array_map('strval', (array) ($spec['custom_tools'] ?? []))),
                 'fan_in' => count((array) ($spec['depends_on'] ?? [])),
-                'is_verifier' => (bool) ($spec['is_verifier'] ?? false),
+                'output_language' => $language,
+                'num_predict' => $this->numPredictForSize((string) ($spec['output_size'] ?? 'medium')),
+                'temperature' => is_numeric($spec['temperature'] ?? null) ? (float) $spec['temperature'] : 0.3,
+                'map_reduce' => $type === 'deep_researcher',
+                'is_verifier' => ($type === 'qa_verifier') || (bool) ($spec['is_verifier'] ?? false),
+                'planner_provider' => array_key_exists($provider, PaidModel::PREFIXES) ? $provider : null,
             ];
         }
 
-        // Highest fan-in first — synthesis steps benefit most from the
-        // strongest providers, and quota cuts hit the leaves first.
-        usort($eligible, fn ($a, $b) => $b['fan_in'] <=> $a['fan_in']);
-
-        $pins = [];
-
-        if ($level === ModelLevel::Ultra) {
-            $anthropicLeft = PaidModel::available('anthropic') ? $level->anthropicMax() : 0;
-
-            foreach ($eligible as $a) {
-                if ($a['provider'] === 'anthropic' && ! $a['is_verifier'] && $anthropicLeft > 0) {
-                    $pins[$a['key']] = PaidModel::pin('anthropic');
-                    $anthropicLeft--;
-                } elseif (PaidModel::available('openai')) {
-                    $pins[$a['key']] = PaidModel::pin('openai');
-                } elseif ($cheapFallback !== null) {
-                    $pins[$a['key']] = PaidModel::pin($cheapFallback);
-                }
-            }
-
-            return $pins;
-        }
-
-        if ($level === ModelLevel::High) {
-            $openaiLeft = PaidModel::available('openai') ? (int) $level->openaiMax() : 0;
-
-            foreach ($eligible as $a) {
-                $askedPremium = PaidModel::isPremium($a['provider']);
-
-                if ($askedPremium && ! $a['is_verifier'] && $openaiLeft > 0) {
-                    $pins[$a['key']] = PaidModel::pin('openai');
-                    $openaiLeft--;
-
-                    continue;
-                }
-
-                $cheap = $a['provider'] !== null && ! $askedPremium && PaidModel::available($a['provider'])
-                    ? $a['provider']
-                    : $cheapFallback;
-
-                if ($cheap !== null) {
-                    $pins[$a['key']] = PaidModel::pin($cheap);
-                }
-            }
-
-            return $pins;
-        }
-
-        // low / medium: only agents the planner sent to a paid provider get a
-        // pin, always on the cheap tier.
-        $candidates = [];
-        foreach ($eligible as $a) {
-            if ($a['provider'] === null) {
-                continue;
-            }
-
-            $cheap = PaidModel::isPremium($a['provider']) || ! PaidModel::available($a['provider'])
-                ? $cheapFallback
-                : $a['provider'];
-
-            if ($cheap !== null) {
-                $candidates[] = $a + ['cheap' => $cheap];
-            }
-        }
-
-        if ($level->cheapMax() !== null) {
-            $candidates = array_slice($candidates, 0, $level->cheapMax());
-        }
-
-        $maxPinned = max(0, count($agents) - $level->ollamaMin());
-        if (count($candidates) > $maxPinned) {
-            $candidates = array_slice($candidates, 0, $maxPinned);
-        }
-
-        foreach ($candidates as $c) {
-            $pins[$c['key']] = PaidModel::pin($c['cheap']);
-        }
-
-        return $pins;
+        return $this->router->assign($items, $level, $flow, $logToken);
     }
 
     private function clampTemperature(mixed $value, string $type): float

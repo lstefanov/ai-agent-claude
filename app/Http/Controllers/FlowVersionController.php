@@ -6,9 +6,11 @@ use App\Models\Flow;
 use App\Models\FlowVersion;
 use App\Services\AgentGeneratorService;
 use App\Services\FlowVersionService;
+use App\Support\ModelLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\Rule;
 
 /**
  * Graph versions ("шаблони") на един flow:
@@ -31,6 +33,7 @@ class FlowVersionController extends Controller
             'agents' => 'nullable|array',
             'generator' => 'nullable|array',
             'intent' => 'nullable|array',
+            'model_level' => ['nullable', Rule::in(['low', 'medium', 'high', 'ultra', 'custom'])],
             'cost_usd' => 'nullable|numeric',
             'duration_ms' => 'nullable|integer',
         ]);
@@ -44,6 +47,7 @@ class FlowVersionController extends Controller
             [
                 'intent' => $validated['intent'] ?? null,
                 'generator' => $validated['generator'] ?? null,
+                'model_level' => $validated['model_level'] ?? null,
                 'cost_usd' => isset($validated['cost_usd']) ? (float) $validated['cost_usd'] : null,
                 'duration_ms' => isset($validated['duration_ms']) ? (int) $validated['duration_ms'] : null,
             ],
@@ -71,8 +75,10 @@ class FlowVersionController extends Controller
 
         // The DAG preview allows edits, but every plan re-passes the
         // deterministic hardening — the planner/user proposes, code guarantees.
+        $level = ModelLevel::fromRequest($plan['level'] ?? null);
         $agents = $generator->finalizePlannedAgents(
-            ! empty($validated['agents']) ? $validated['agents'] : $plan['agents']
+            ! empty($validated['agents']) ? $validated['agents'] : $plan['agents'],
+            $level,
         );
 
         if (count($agents) < 3) {
@@ -87,6 +93,7 @@ class FlowVersionController extends Controller
             [
                 'intent' => is_array($plan['intent'] ?? null) ? $plan['intent'] : null,
                 'generator' => ['label' => (string) ($plan['model'] ?? $validated['label'])],
+                'model_level' => $level->value,
                 'cost_usd' => isset($plan['cost_usd']) ? (float) $plan['cost_usd'] : null,
                 'duration_ms' => isset($plan['duration_ms']) ? (int) $plan['duration_ms'] : null,
             ],
@@ -135,6 +142,7 @@ class FlowVersionController extends Controller
             'name' => $version->name,
             'is_active' => $version->is_active,
             'generator_label' => $version->generatorLabel(),
+            'model_level' => $version->model_level,
         ];
     }
 }

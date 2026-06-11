@@ -103,6 +103,7 @@ class FlowBuilderController extends Controller
                 'name' => $v->name,
                 'is_active' => $v->is_active,
                 'generator_label' => $v->generatorLabel(),
+                'model_level' => $v->model_level,
             ])
             ->values();
 
@@ -144,11 +145,14 @@ class FlowBuilderController extends Controller
         $config = [
             'saveUrl' => route('flows.graph.store', $flow),
             'validateUrl' => route('flows.graph.validate', $flow),
+            'relevelUrl' => route('flows.graph.relevel', $flow),
             'builderUrl' => route('flows.builder', $flow),
             'versionStoreUrl' => route('flows.versions.store', $flow),
             'versions' => $versions,
             'selectedVersionId' => $selectedVersion?->id,
             'activeVersionId' => $activeVersion?->id,
+            // Ниво на runtime моделите на разглеждания шаблон (null = стар запис).
+            'modelLevel' => $selectedVersion?->model_level,
             // Generation config popup: per-phase defaults (.env resolved),
             // provider availability + model lists + pricing for the estimate.
             'plannerDefaults' => $generator->resolveAllPhases(),

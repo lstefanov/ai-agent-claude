@@ -254,6 +254,20 @@ function copyWebhookUrl() {
                                 <div title="Създаден на">Създаден: {{ $version->created_at->format('d.m.Y H:i') }}</div>
                                 <div title="Последен run">Последен run: {{ $version->last_run_at ? $version->last_run_at->format('d.m.Y H:i') : 'няма' }}</div>
                                 <div title="Общ разход: генерация + run-ове" class="text-amber-600">Разход: ${{ number_format($version->total_cost_usd ?? 0, 6) }}</div>
+                                @php
+                                    [$levelLabel, $levelCls] = match ($version->model_level) {
+                                        'low' => ['🪙 Ниско', 'bg-emerald-100 text-emerald-700 border-emerald-300'],
+                                        'medium' => ['⚖️ Средно', 'bg-blue-100 text-blue-700 border-blue-300'],
+                                        'high' => ['🚀 Високо', 'bg-orange-100 text-orange-700 border-orange-300'],
+                                        'ultra' => ['💎 Ултра', 'bg-violet-100 text-violet-700 border-violet-300'],
+                                        'custom' => ['✎ Custom', 'bg-gray-100 text-gray-600 border-gray-300'],
+                                        default => ['—', 'bg-gray-100 text-gray-400 border-gray-200'],
+                                    };
+                                @endphp
+                                <div title="Ниво на моделите на агентите в този шаблон">
+                                    Ниво на моделите:
+                                    <span class="inline-flex items-center text-[11px] font-bold px-1.5 py-px rounded-full border {{ $levelCls }}">{{ $levelLabel }}</span>
+                                </div>
                                 <div>
                                     <span title="Успешни run-ове" class="text-green-600">Успешни: {{ $version->successful_runs_count }}</span>
                                     <span class="mx-1.5">·</span>

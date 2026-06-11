@@ -198,7 +198,7 @@ class ModelSelectorService
         return $this->profiles[$profile] ?? $this->profiles['utility'];
     }
 
-    private function profileForType(string $agentType): string
+    public function profileForType(string $agentType): string
     {
         if (isset($this->typeToProfile[$agentType])) {
             return $this->typeToProfile[$agentType];

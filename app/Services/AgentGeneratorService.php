@@ -35,6 +35,7 @@ class AgentGeneratorService
 
     public function __construct(
         private ModelSelectorService $modelSelector,
+        private ModelRouterService $router,
         private FlowPlannerService $planner,
         private OllamaService $ollama,
     ) {}
@@ -69,6 +70,54 @@ class AgentGeneratorService
     public function lastIntent(): ?array
     {
         return $this->planner->lastIntent();
+    }
+
+    /**
+     * Re-pin every agent node's model for a target cost level — the builder's
+     * "смени нивото" action. Делегира на ModelRouterService: профил на
+     * задачата per нод (тип/tools/промпт/fan-in, в smart режим и LLM преглед)
+     * срещу capability матрицата, при спазени квоти на нивото.
+     *
+     * @param  array<int, array<string, mixed>>  $nodes  GraphNormalizer::parse() nodes
+     * @param  array<int, array<string, string>>  $edges  GraphNormalizer::parse() edges
+     * @return array<string, array{model: string, reason: string}> node_key → pin ('' = локален авто)
+     */
+    public function assignModelsForLevel(array $nodes, array $edges, ModelLevel $level): array
+    {
+        $fanIn = [];
+        foreach ($edges as $edge) {
+            $to = (string) ($edge['to_node_key'] ?? '');
+            $fanIn[$to] = ($fanIn[$to] ?? 0) + 1;
+        }
+
+        $items = [];
+        foreach ($nodes as $node) {
+            $key = (string) ($node['node_key'] ?? '');
+            if ($key === '') {
+                continue;
+            }
+
+            $config = is_array($node['config'] ?? null) ? $node['config'] : [];
+            $type = trim((string) ($node['type'] ?? ''));
+
+            $items[] = [
+                'key' => $key,
+                'type' => $type,
+                'name' => (string) ($node['name'] ?? ''),
+                'role' => (string) ($node['role'] ?? ''),
+                'prompt' => trim((string) ($node['system_prompt'] ?? '').' '.(string) ($node['prompt_template'] ?? '')),
+                'tools' => array_values(array_map('strval', (array) ($config['tools'] ?? []))),
+                'fan_in' => $fanIn[$key] ?? 0,
+                'output_language' => (string) ($node['output_language'] ?? 'bg'),
+                'num_predict' => (int) ($config['num_predict'] ?? 0),
+                'temperature' => is_numeric($config['temperature'] ?? null) ? (float) $config['temperature'] : 0.3,
+                'map_reduce' => (bool) ($config['map_reduce'] ?? false),
+                'is_verifier' => $type === self::QA_VERIFIER_TYPE,
+                'planner_provider' => null,
+            ];
+        }
+
+        return $this->router->assign($items, $level);
     }
 
     /**

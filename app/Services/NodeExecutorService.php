@@ -177,6 +177,10 @@ class NodeExecutorService
 
             $qaResult = $this->qaGate->verify($flowRun, $node, $nodeRun, $qaConfig, $output);
 
+            // Историята за model router-а: финалният QA score остава на
+            // node_run-а (при retry следващата оценка го презаписва).
+            $nodeRun->update(['qa_score' => max(0, min(100, (int) ($qaResult['score'] ?? 0)))]);
+
             if ($qaResult['passed']) {
                 // Dedup gate AFTER the QA gate — no point embedding an output
                 // QA would reject anyway. The retried output re-runs QA.

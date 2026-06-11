@@ -130,6 +130,8 @@ class PlanAbCommand extends Command
                 'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
                 'cost_usd' => round((float) AgentGenerationLog::where('token', $logToken)->sum('cost_usd'), 4),
                 'model' => PlannerPhases::label($phases),
+                // Нивото на runtime моделите — storeFromPlan го записва на версията.
+                'level' => $level->value,
             ];
 
             $plans[$label] = $result;

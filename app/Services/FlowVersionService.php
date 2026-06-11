@@ -28,7 +28,7 @@ class FlowVersionService
      * — the Drawflow layout is built server-side, no browser needed.
      *
      * @param  array<int, array<string, mixed>>  $agents
-     * @param  array{intent?: ?array, generator?: ?array, cost_usd?: ?float, duration_ms?: ?int}  $meta
+     * @param  array{intent?: ?array, generator?: ?array, model_level?: ?string, cost_usd?: ?float, duration_ms?: ?int}  $meta
      */
     public function createFromAgents(Flow $flow, array $agents, string $name, bool $isActive, array $meta = []): FlowVersion
     {
@@ -41,7 +41,7 @@ class FlowVersionService
      * Create a version from a client-built Drawflow export (builder save dialog).
      *
      * @param  array<int, array<string, mixed>>|null  $agents
-     * @param  array{intent?: ?array, generator?: ?array, cost_usd?: ?float, duration_ms?: ?int}  $meta
+     * @param  array{intent?: ?array, generator?: ?array, model_level?: ?string, cost_usd?: ?float, duration_ms?: ?int}  $meta
      */
     public function createFromLayout(Flow $flow, array $export, string $name, bool $isActive, ?array $agents = null, array $meta = []): FlowVersion
     {
@@ -74,7 +74,7 @@ class FlowVersionService
      * $extra may carry agents/generator/plan_intent/cost_usd/duration_ms when
      * the save follows a fresh generation (overwrite) — null keys are kept as-is.
      *
-     * @param  array{agents?: ?array, generator?: ?array, plan_intent?: ?array, cost_usd?: ?float, duration_ms?: ?int}  $extra
+     * @param  array{agents?: ?array, generator?: ?array, plan_intent?: ?array, model_level?: ?string, cost_usd?: ?float, duration_ms?: ?int}  $extra
      */
     public function updateLayout(FlowVersion $version, array $export, array $extra = []): void
     {
@@ -84,6 +84,7 @@ class FlowVersionService
                 'agents' => $extra['agents'] ?? null,
                 'generator' => $extra['generator'] ?? null,
                 'plan_intent' => $extra['plan_intent'] ?? null,
+                'model_level' => $extra['model_level'] ?? null,
                 'cost_usd' => $extra['cost_usd'] ?? null,
                 'duration_ms' => $extra['duration_ms'] ?? null,
             ], fn ($v) => $v !== null));
@@ -140,7 +141,7 @@ class FlowVersionService
 
     /**
      * @param  array<int, array<string, mixed>>|null  $agents
-     * @param  array{intent?: ?array, generator?: ?array, cost_usd?: ?float, duration_ms?: ?int}  $meta
+     * @param  array{intent?: ?array, generator?: ?array, model_level?: ?string, cost_usd?: ?float, duration_ms?: ?int}  $meta
      */
     private function create(Flow $flow, array $layout, string $name, bool $isActive, ?array $agents, array $meta): FlowVersion
     {
@@ -154,6 +155,7 @@ class FlowVersionService
                 'graph_layout' => $layout,
                 'plan_intent' => $meta['intent'] ?? null,
                 'generator' => $meta['generator'] ?? null,
+                'model_level' => $meta['model_level'] ?? null,
                 'cost_usd' => $meta['cost_usd'] ?? null,
                 'duration_ms' => $meta['duration_ms'] ?? null,
             ]);

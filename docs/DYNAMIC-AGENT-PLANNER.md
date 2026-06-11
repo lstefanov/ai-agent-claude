@@ -193,6 +193,38 @@ Routing-ът е на едно място (`OllamaService::chat()` делегир
 отиват на OpenAI. Моделът per провайдър се контролира с
 `<PROVIDER>_RUNTIME_MODEL`.
 
+Нивото се **персистира на шаблона** (`flow_versions.model_level`) и се вижда
+като цветен badge в toolbar-а на builder-а. Оттам може и да се **сменя**:
+`POST flows/{flow}/graph/relevel` преизчислява модела на всеки нод за новото
+ниво и връща приблизителен разход на run (реалните токени от последния успешен
+run, иначе допускания) + причина per нод, които builder-ът показва ПРЕДИ запис.
+Ръчна смяна на модел на нод + запис → ниво `custom`.
+
+### Model Router — кой точно евтин провайдър за кой агент
+
+`ModelRouterService` е единственото място, което превръща „този агент, това
+ниво" в конкретен pin — и при генерация, и при смяна на ниво:
+
+1. **Профил на задачата** per агент: фасетни тежести 0–10 (research,
+   extraction, analysis, synthesis, json_strict, bg_language, long_context,
+   creative, speed), изведени детерминистично от типа, tools-овете, конфига
+   (map_reduce/num_predict/temperature), fan-in и ключови думи в промпта.
+2. **Smart режим** (`MODEL_ROUTING=smart`, default): безплатен LLM
+   (`MODEL_ROUTER_PROVIDER`, default gemini) чете ролята/промпта на всеки агент
+   в ЕДНА batched заявка и прецизира тежестите + дава причина на български.
+   Логва се като фаза `model_routing` в agent_generation_logs (с цена).
+   Провал → тих fallback към детерминистичния профил.
+3. **Скоринг** срещу capability матрицата (`config/model_router.php`):
+   `Σ тежест × сила − цена × penalty(ниво) − spread decay + глас на планера +
+   история`. Spread decay-ят пази free tier квотите (анти-монопол); гласът на
+   планера е бонус, не решение. Hard filters: API ключ + контекстен прозорец.
+4. **Историческо учене**: `node_runs.qa_score` (пише се от NodeExecutorService
+   при всеки step-QA) + fail rate per (провайдър, тип агент) от последните 30
+   дни дават бонус/малус — рутерът се самокоригира по реалното представяне.
+5. Premium слотовете на high/ultra се раздават по **synthesis тежест** (не по
+   гол fan-in); verifier-ът никога не взима premium слот. BG/vision
+   изключенията важат както при нивата.
+
 ---
 
 ## 4. Поток от гледна точка на потребителя

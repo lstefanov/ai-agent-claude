@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class FlowVersion extends Model
 {
-    protected $fillable = ['flow_id', 'name', 'is_active', 'agents', 'graph_layout', 'plan_intent', 'generator', 'cost_usd', 'duration_ms'];
+    protected $fillable = ['flow_id', 'name', 'is_active', 'agents', 'graph_layout', 'plan_intent', 'generator', 'model_level', 'cost_usd', 'duration_ms'];
 
     protected $casts = [
         'is_active' => 'boolean',

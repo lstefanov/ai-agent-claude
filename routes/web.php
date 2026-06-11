@@ -47,6 +47,7 @@ Route::get('flows/{flow}/generation-logs', [FlowController::class, 'generationLo
 Route::get('flows/{flow}/builder', [FlowBuilderController::class, 'show'])->name('flows.builder');
 Route::post('flows/{flow}/graph', [FlowGraphController::class, 'store'])->name('flows.graph.store');
 Route::post('flows/{flow}/graph/validate', [FlowGraphController::class, 'validateGraph'])->name('flows.graph.validate');
+Route::post('flows/{flow}/graph/relevel', [FlowGraphController::class, 'relevel'])->name('flows.graph.relevel');
 
 // Builder Copilot — чат асистентът в builder-а (фонов процес + token polling)
 Route::post('flows/{flow}/assistant', [FlowAssistantController::class, 'send'])->name('flows.assistant.send');
