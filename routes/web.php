@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\CostController as AdminCostController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentTemplateController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\FlowAssistantController;
 use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowGraphController;
@@ -45,6 +46,13 @@ Route::get('flows/{flow}/generation-logs', [FlowController::class, 'generationLo
 Route::get('flows/{flow}/builder', [FlowBuilderController::class, 'show'])->name('flows.builder');
 Route::post('flows/{flow}/graph', [FlowGraphController::class, 'store'])->name('flows.graph.store');
 Route::post('flows/{flow}/graph/validate', [FlowGraphController::class, 'validateGraph'])->name('flows.graph.validate');
+
+// Builder Copilot — чат асистентът в builder-а (фонов процес + token polling)
+Route::post('flows/{flow}/assistant', [FlowAssistantController::class, 'send'])->name('flows.assistant.send');
+Route::get('flows/assistant-status/{token}', [FlowAssistantController::class, 'status'])->name('flows.assistant.status');
+Route::get('flows/{flow}/assistant/history', [FlowAssistantController::class, 'history'])->name('flows.assistant.history');
+Route::get('flows/{flow}/assistant/notes', [FlowAssistantController::class, 'notes'])->name('flows.assistant.notes');
+Route::delete('assistant-notes/{note}', [FlowAssistantController::class, 'destroyNote'])->name('flows.assistant.notes.destroy');
 
 // Graph versions ("шаблони") на flow — builder save-диалог, A/B "Запази" и
 // dashboard секцията "Шаблони".

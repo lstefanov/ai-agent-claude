@@ -3,7 +3,10 @@
 namespace App\Agents;
 
 use App\Agents\Tools\BraveSearchTool;
+use App\Agents\Tools\DocumentOcrTool;
 use App\Agents\Tools\GoogleReviewsTool;
+use App\Agents\Tools\PeopleSearchTool;
+use App\Agents\Tools\PerplexitySearchTool;
 use App\Agents\Tools\SiteCrawlerTool;
 use App\Agents\Tools\SiteDiscoveryTool;
 use App\Agents\Tools\WebScraperTool;
@@ -12,7 +15,9 @@ use App\Services\BraveSearchService;
 use App\Services\ComfyUIService;
 use App\Services\CrawlService;
 use App\Services\GooglePlacesService;
+use App\Services\MistralOcrService;
 use App\Services\OllamaService;
+use App\Services\PerplexitySearchService;
 
 class AgentFactory
 {
@@ -36,9 +41,11 @@ class AgentFactory
             'multi_researcher' => new MultiResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
             'deep_researcher' => new DeepResearcherAgent($this->ollama, [
                 new BraveSearchTool($this->braveSearch),
+                new PerplexitySearchTool(new PerplexitySearchService),
                 new WebScraperTool(new CrawlService),
                 new SiteCrawlerTool(new CrawlService),
                 new SiteDiscoveryTool(new CrawlService),
+                new DocumentOcrTool(new MistralOcrService),
             ], new CrawlService),
             'summarizer' => new SummarizerAgent($this->ollama),
             'report_composer' => new ReportComposerAgent($this->ollama),
@@ -50,7 +57,15 @@ class AgentFactory
             'trend_researcher' => new TrendResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
             'competitor_profiler' => new CompetitorProfilerAgent($this->ollama, [
                 new BraveSearchTool($this->braveSearch),
+                new PerplexitySearchTool(new PerplexitySearchService),
                 new WebScraperTool(new CrawlService),
+            ]),
+            'people_researcher' => new PeopleResearcherAgent($this->ollama, [
+                new PeopleSearchTool(new PerplexitySearchService),
+                new PerplexitySearchTool(new PerplexitySearchService),
+            ]),
+            'document_ocr' => new DocumentOcrAgent($this->ollama, [
+                new DocumentOcrTool(new MistralOcrService),
             ]),
             'review_analyzer' => new ReviewAnalyzerAgent($this->ollama, [
                 new GoogleReviewsTool(new GooglePlacesService),
@@ -66,9 +81,12 @@ class AgentFactory
             // runs the tools whitelisted in its config['tools'] (see GenericAgent).
             'custom' => new GenericAgent($this->ollama, [
                 new BraveSearchTool($this->braveSearch),
+                new PerplexitySearchTool(new PerplexitySearchService),
+                new PeopleSearchTool(new PerplexitySearchService),
                 new WebScraperTool(new CrawlService),
                 new SiteCrawlerTool(new CrawlService),
                 new SiteDiscoveryTool(new CrawlService),
+                new DocumentOcrTool(new MistralOcrService),
                 new GoogleReviewsTool(new GooglePlacesService),
             ]),
             // All remaining LLM-only types (swot_builder, report_writer, seo_writer, etc.) use ContentAgent intentionally

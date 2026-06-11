@@ -25,6 +25,13 @@ class LlmUsage
         self::$costUsd += self::costFor($provider, $model, $promptTokens, $completionTokens);
     }
 
+    public static function addFlatCost(float $costUsd): void
+    {
+        if ($costUsd > 0) {
+            self::$costUsd += $costUsd;
+        }
+    }
+
     /**
      * Return the accumulated usage and reset the counters.
      *

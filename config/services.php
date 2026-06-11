@@ -82,6 +82,16 @@ return [
         'qwen_model' => env('ASSIST_QWEN_MODEL', 'qwen3.5-flash'),
     ],
 
+    // Builder Copilot — чат асистентът в графовия builder (agentic tool
+    // calling, само cloud провайдъри). provider празно → planner провайдъра,
+    // ако е cloud, иначе openai; model празно → generator модела на провайдъра.
+    'builder_assistant' => [
+        'provider' => env('BUILDER_ASSISTANT_PROVIDER'),
+        'model' => env('BUILDER_ASSISTANT_MODEL'),
+        'max_steps' => (int) env('BUILDER_ASSISTANT_MAX_STEPS', 8),
+        'history_limit' => 20,
+    ],
+
     // FlowPlannerService tuning (the "agent that creates agents").
     'planner' => [
         // Phase C: a second LLM pass that reviews + repairs the generated plan.
@@ -284,6 +294,29 @@ return [
             'qwen3.6-flash' => ['in' => 0.25, 'out' => 1.50, 'stars' => 2, 'desc' => 'Бърз и евтин — vision-language, 1M контекст'],
             'qwen3.5-flash' => ['in' => 0.10, 'out' => 0.40, 'stars' => 1, 'desc' => 'Най-евтиният — ultra-cheap лека фаза или runtime'],
         ],
+    ],
+
+    // Perplexity Search API — premium web/people search tools. This is not a
+    // chat/runtime provider; Brave remains the default web_search backend.
+    'perplexity' => [
+        'api_key' => env('PERPLEXITY_API_KEY'),
+        'search_url' => env('PERPLEXITY_SEARCH_URL', 'https://api.perplexity.ai/search'),
+        'max_results' => env('PERPLEXITY_SEARCH_MAX_RESULTS', 10),
+        'country' => env('PERPLEXITY_SEARCH_COUNTRY', 'BG'),
+        // Flat Search API cost: $5 / 1K requests (web and people search).
+        'request_cost_usd' => env('PERPLEXITY_REQUEST_COST_USD', 0.005),
+    ],
+
+    // Mistral OCR only. Chat models are intentionally not registered as a
+    // planner/runtime provider because local Ollama + existing cloud providers
+    // already cover that path.
+    'mistral' => [
+        'api_key' => env('MISTRAL_API_KEY'),
+        'ocr_url' => env('MISTRAL_OCR_URL', 'https://api.mistral.ai/v1/ocr'),
+        'ocr_model' => env('MISTRAL_OCR_MODEL', 'mistral-ocr-latest'),
+        'ocr_timeout' => env('MISTRAL_OCR_TIMEOUT', 120),
+        // OCR 3 pricing: $2 / 1K pages.
+        'ocr_page_cost_usd' => env('MISTRAL_OCR_PAGE_COST_USD', 0.002),
     ],
 
     'brave' => [

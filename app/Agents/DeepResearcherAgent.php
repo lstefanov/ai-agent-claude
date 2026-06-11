@@ -106,7 +106,7 @@ class DeepResearcherAgent extends BaseAgent
             // queries ("primelaser.bg услуги") add nothing. Run ONE review search only.
             $domain      = strtolower(preg_replace('/^www\./i', '', parse_url($targetUrl, PHP_URL_HOST) ?? ''));
             $reviewQuery = "\"{$domain}\" reviews OR отзиви OR мнения OR ревюта";
-            $reviewRes   = $this->useTool('web_search', ['query' => $reviewQuery]);
+            $reviewRes   = $this->searchWeb($reviewQuery);
             if ($reviewRes !== null) {
                 $allResults = "\n\n=== REVIEWS SEARCH: \"{$reviewQuery}\" ===\n"
                     .PricingSourceQuality::filterSearchResults($reviewRes);
@@ -128,7 +128,7 @@ class DeepResearcherAgent extends BaseAgent
             }
 
             foreach ($queryTemplates as $i => $query) {
-                $results = $this->useTool('web_search', ['query' => $query]);
+                $results = $this->searchWeb($query);
                 if ($results !== null) {
                     $num         = $i + 1;
                     $allResults .= "\n\n=== SEARCH {$num}: \"{$query}\" ===\n"
@@ -191,6 +191,18 @@ class DeepResearcherAgent extends BaseAgent
         }
 
         return $this->chat($agent, $agentRun->input, $extraContext);
+    }
+
+    private function searchWeb(string $query): ?string
+    {
+        if ($this->hasTool('pro_search')) {
+            $premium = $this->useTool('pro_search', ['query' => $query]);
+            if (is_string($premium) && trim($premium) !== '') {
+                return $premium;
+            }
+        }
+
+        return $this->useTool('web_search', ['query' => $query]);
     }
 
     /**

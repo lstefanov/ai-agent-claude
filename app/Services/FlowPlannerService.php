@@ -39,9 +39,12 @@ class FlowPlannerService
     /** Tools a `custom` (GenericAgent) step may use. */
     private const AVAILABLE_TOOLS = [
         'web_search' => 'Търсене в интернет (Brave) — връща топ резултати със заглавие, URL и описание',
+        'pro_search' => 'Премиум търсене в интернет (Perplexity) — по-качествени резултати, domain/регион филтри; за конкурентен анализ и дълбоко проучване',
+        'people_search' => 'Търсене на хора (Perplexity) — намира професионалисти по име, позиция, компания или локация, включително публични профили',
         'scrape_page' => 'Извлича пълното текстово съдържание на ЕДНА страница по URL',
         'crawl_site' => 'Обхожда цял сайт страница по страница и връща съдържанието им',
         'discover_urls' => 'Открива списъка от вътрешни URL адреси на даден сайт (без да ги скрейпва)',
+        'extract_document' => 'Извлича текст и таблици от PDF/сканиран документ/изображение по URL (Mistral OCR) — ценоразписи, каталози, фактури',
         'google_reviews' => 'Намира Google ревюта и рейтинг за бизнес по име/локация (Google Places API)',
     ];
 
@@ -472,6 +475,73 @@ PROMPT;
             'temperature' => max(0.0, min(1.2, (float) ($revised['temperature'] ?? 0.3))),
             'escalate' => (bool) ($revised['escalate'] ?? false),
             'reason' => trim((string) ($revised['reason'] ?? '')),
+        ];
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Builder Copilot entry points
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * The capability catalog as the design phase sees it — agent types, tools
+     * and models. Exposed for the Builder Copilot's get_capabilities tool.
+     */
+    public function capabilityCatalogText(): string
+    {
+        return $this->capabilityCatalog();
+    }
+
+    /**
+     * Evaluate an EXISTING graph (the builder's working copy) against the
+     * flow's intent — critique without revision, for the copilot's
+     * evaluate_flow tool.
+     *
+     * @param  array<int, array<string, mixed>>  $agents  compact agent dicts (name, type, role, prompts, model, depends_on)
+     * @return array{approved: bool, issues: list<string>, suggestions: list<string>}
+     */
+    public function critiqueExistingPlan(Flow $flow, array $agents): array
+    {
+        $system = <<<'PROMPT'
+Ти си QA на multi-agent pipeline планове. Получаваш intent/описание на flow и ТЕКУЩИЯ му
+граф от агенти (както е в builder-а). Оцени го безмилостно, но конструктивно:
+1. Покрива ли графът всички задачи от заданието?
+2. Зависимостите логични ли са? Ползва ли агент данни, които никой преди него не събира?
+3. Има ли излишни/дублиращи се агенти или агенти извън заданието?
+4. Промптите конкретни ли са (формат, тон, какво се пази дословно)?
+5. Подходящи ли са моделите и температурите за задачите?
+6. Има ли bg_text_corrector предпоследен и qa_verifier последен?
+Върни approved (true САМО ако няма съществени дефекти), issues (конкретните дефекти) и
+suggestions (конкретни подобрения, назоваващи засегнатите агенти по име).
+Отговаряй на български. КАВИЧКИ: в текстовите стойности не пиши права двойна кавичка (")
+— ако ти трябват кавички, пиши «…».
+PROMPT;
+
+        $intent = $flow->plan_intent ?: ['description' => (string) $flow->description];
+
+        $user = "INTENT/ОПИСАНИЕ:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
+            ."\n\nТЕКУЩ ГРАФ (агенти):\n".json_encode($agents, JSON_UNESCAPED_UNICODE)
+            ."\n\n".$this->capabilityCatalog();
+
+        $schema = [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['approved', 'issues', 'suggestions'],
+            'properties' => [
+                'approved' => ['type' => 'boolean'],
+                'issues' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'suggestions' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+
+        $result = $this->generator->chatJson($system, TypographicQuotes::normalize($user), 'plan_critique', $schema, [
+            'temperature' => 0.1,
+            'num_predict' => 4000,
+        ]);
+
+        return [
+            'approved' => (bool) ($result['approved'] ?? false),
+            'issues' => array_values(array_map('strval', (array) ($result['issues'] ?? []))),
+            'suggestions' => array_values(array_map('strval', (array) ($result['suggestions'] ?? []))),
         ];
     }
 

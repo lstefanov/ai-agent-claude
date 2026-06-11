@@ -40,6 +40,11 @@ class Flow extends Model
         return $this->hasMany(FlowRun::class);
     }
 
+    public function assistantMessages(): HasMany
+    {
+        return $this->hasMany(AssistantMessage::class);
+    }
+
     public function versions(): HasMany
     {
         return $this->hasMany(FlowVersion::class);

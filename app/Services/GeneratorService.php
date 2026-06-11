@@ -159,6 +159,28 @@ class GeneratorService
     }
 
     /**
+     * One tool-calling round for the Builder Copilot. Provider+model are
+     * explicit (resolved from services.builder_assistant by the caller) —
+     * the assistant is not a planner phase. Ollama is not supported here:
+     * v1 needs dependable function calling.
+     *
+     * @param  list<array<string, mixed>>  $messages
+     * @param  list<array{name: string, description: string, parameters: array<string, mixed>}>  $tools
+     * @return array{content: string, tool_calls: list<array{id: string, name: string, arguments: array<string, mixed>}>}
+     */
+    public function chatTurn(string $provider, string $model, array $messages, array $tools, array $options = []): array
+    {
+        return match (true) {
+            $provider === 'anthropic' => app(AnthropicChatService::class)->chatTurn($model, $messages, $tools, $options),
+            in_array($provider, self::OPENAI_COMPATIBLE, true) => OpenAiChatService::for($provider)->chatTurn($model, $messages, $tools, $options),
+            default => throw new \RuntimeException(
+                'BUILDER_ASSISTANT_PROVIDER must be a cloud provider with tool calling ('
+                .implode(', ', [...self::OPENAI_COMPATIBLE, 'anthropic']).') — got "'.$provider.'".'
+            ),
+        };
+    }
+
+    /**
      * Per-phase provider+model resolution. With a phase name the override from
      * services.planner.phases.{phase} wins; otherwise (or for unset phases)
      * GENERATOR_PROVIDER + the provider's default model apply.

@@ -76,7 +76,7 @@ class FlowRunController extends Controller
 
         // Land back in the Graph Editor, which detects the active run and switches
         // into locked "run" mode with live per-node progress/result/log.
-        return redirect()->route('flows.builder', $flow);
+        return redirect()->route('flows.builder', [$flow, 'run' => $flowRun->id]);
     }
 
     public function show(FlowRun $flowRun)

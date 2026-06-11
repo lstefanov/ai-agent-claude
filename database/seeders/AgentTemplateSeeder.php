@@ -27,6 +27,32 @@ class AgentTemplateSeeder extends Seeder
                 'config' => ['temperature' => 0.3, 'num_predict' => 2000],
             ],
             [
+                'icon' => '👤', 'name' => 'Търсач на хора', 'type' => 'people_researcher', 'sort_order' => 2,
+                'description' => 'Намира публични професионални профили по име, позиция, компания, ниша или локация чрез Perplexity People Search.',
+                'role' => 'Открива и структурира публична информация за хора: име, позиция, компания, локация, профили и доказателствени URL-и.',
+                'system_prompt' => 'Ти си B2B/HR изследовател. Работиш само с публично достъпни професионални данни. Не измисляш контакти, имейли, LinkedIn профили или длъжности. Ако липсва доказателство, отбелязваш ниска увереност.',
+                'prompt_template' => 'Намери релевантни хора за следната задача: {{input}}. Върни markdown таблица с колони: Име, Позиция, Компания/организация, Локация, Публичен профил/URL, Защо е релевантен, Увереност. След таблицата предложи 3 персонализирани outreach подхода.',
+                'config' => [
+                    'temperature' => 0.2,
+                    'num_predict' => 2200,
+                    'tools' => ['people_search', 'pro_search'],
+                    'tool_params' => ['people_query' => '{{topic}} {{company_description}}'],
+                ],
+            ],
+            [
+                'icon' => '📄', 'name' => 'Документен четец (OCR)', 'type' => 'document_ocr', 'sort_order' => 2,
+                'description' => 'Извлича текст и таблици от публични PDF документи или изображения чрез Mistral OCR.',
+                'role' => 'Прочита PDF/сканирани документи/изображения и структурира извлеченото съдържание в таблици и кратко резюме.',
+                'system_prompt' => 'Ти си агент за документно извличане. Използваш само OCR съдържанието като източник. Не измисляш липсващи редове, цени, условия или дати. Запазваш оригиналните мерни единици и валута.',
+                'prompt_template' => 'Извлечи и структурирай съдържанието на документа от задачата: {{input}}. Ако има цени, услуги, продукти или условия, върни markdown таблица. Добави кратко резюме и списък с неясни/липсващи данни.',
+                'config' => [
+                    'temperature' => 0.1,
+                    'num_predict' => 2500,
+                    'tools' => ['extract_document'],
+                    'tool_params' => ['max_documents' => 5],
+                ],
+            ],
+            [
                 'icon' => '📊', 'name' => 'Анализатор', 'type' => 'analyzer', 'sort_order' => 3,
                 'description' => 'Анализира входни данни и извлича ключови структурирани изводи.',
                 'role' => 'Анализира данни, текст или информация и извлича структурирани изводи и препоръки.',
@@ -527,7 +553,7 @@ class AgentTemplateSeeder extends Seeder
             'qa_verifier' => 's_emanuilov/BgGPT-v1.0:2.6b',
             'analyzer', 'decision', 'swot_builder', 'sentiment_analyzer',
             'classifier', 'review_analyzer', 'researcher', 'trend_researcher',
-            'competitor_profiler',
+            'competitor_profiler', 'people_researcher', 'document_ocr',
             // New analysis agents
             'brand_voice_checker', 'lead_scorer', 'price_optimizer',
             'customer_segmenter', 'persona_builder', 'budget_analyzer',

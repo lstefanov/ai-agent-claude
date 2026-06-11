@@ -17,8 +17,8 @@ use App\Support\UrlExtractor;
  *       search_query: "{{topic}} новини"              # optional, {{}} substituted
  *       max_results: 10
  *
- * Execution: every whitelisted tool runs deterministically (search → discover →
- * scrape/crawl → reviews), the gathered material is appended to the rendered
+ * Execution: every whitelisted tool runs deterministically (search → people →
+ * discover → scrape/crawl → document OCR → reviews), the gathered material is appended to the rendered
  * prompt as named blocks, then a single LLM call produces the output. This is
  * what lets the planner invent single-responsibility agents that don't exist
  * as PHP classes ("Откривател на конкуренти", "Одитор на сайта", ...).
@@ -41,6 +41,27 @@ class GenericAgent extends BaseAgent
             $result = $this->useTool('web_search', ['query' => $query]);
             if ($this->usable($result)) {
                 $material['Резултати от търсене ('.$query.')'] = $result;
+            }
+        }
+
+        if (in_array('pro_search', $enabled, true) && $query !== '') {
+            $result = $this->useTool('pro_search', [
+                'query' => $query,
+                'domains' => $params['domains'] ?? null,
+                'max_results' => $params['max_results'] ?? null,
+            ]);
+            if ($this->usable($result)) {
+                $material['Премиум резултати от търсене ('.$query.')'] = $result;
+            }
+        }
+
+        if (in_array('people_search', $enabled, true)) {
+            $peopleQuery = $this->resolvePeopleQuery($params, $agent, $agentRun, $context, $query);
+            if ($peopleQuery !== '') {
+                $result = $this->useTool('people_search', ['query' => $peopleQuery]);
+                if ($this->usable($result)) {
+                    $material['Намерени хора и професионални профили ('.$peopleQuery.')'] = $result;
+                }
             }
         }
 
@@ -83,6 +104,15 @@ class GenericAgent extends BaseAgent
             }
         }
 
+        if (in_array('extract_document', $enabled, true)) {
+            foreach ($this->documentTargets($url, $agent, $agentRun, $params, $context, $material) as $target) {
+                $result = $this->useTool('extract_document', ['url' => $target]);
+                if ($this->usable($result)) {
+                    $material['OCR документ: '.$target] = $result;
+                }
+            }
+        }
+
         $extraContext = '';
         if ($material !== []) {
             $blocks = [];
@@ -118,15 +148,9 @@ class GenericAgent extends BaseAgent
 
     private function resolveQuery(array $params, Agent $agent, AgentRun $agentRun, array $context): string
     {
-        $template = trim((string) ($params['search_query'] ?? ''));
+        $template = $this->renderParamTemplate($params['search_query'] ?? '', $context);
 
         if ($template !== '') {
-            foreach ($context as $key => $value) {
-                if (is_string($value)) {
-                    $template = str_replace('{{'.$key.'}}', $value, $template);
-                }
-            }
-
             // Unresolved placeholders left in the template → fall through.
             if (! str_contains($template, '{{')) {
                 return mb_substr($template, 0, 300);
@@ -136,6 +160,35 @@ class GenericAgent extends BaseAgent
         $fallback = $context['flow_topic'] ?? $context['topic'] ?? mb_substr((string) $agentRun->input, 0, 200);
 
         return trim((string) $fallback);
+    }
+
+    private function resolvePeopleQuery(array $params, Agent $agent, AgentRun $agentRun, array $context, string $fallback): string
+    {
+        $template = $this->renderParamTemplate($params['people_query'] ?? '', $context);
+        if ($template !== '' && ! str_contains($template, '{{')) {
+            return mb_substr($template, 0, 300);
+        }
+
+        return $fallback !== '' ? $fallback : $this->resolveQuery($params, $agent, $agentRun, $context);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function renderParamTemplate(mixed $value, array $context): string
+    {
+        $template = trim((string) $value);
+        if ($template === '') {
+            return '';
+        }
+
+        foreach ($context as $key => $contextValue) {
+            if (is_string($contextValue)) {
+                $template = str_replace('{{'.$key.'}}', $contextValue, $template);
+            }
+        }
+
+        return trim($template);
     }
 
     /**
@@ -155,6 +208,42 @@ class GenericAgent extends BaseAgent
         $max = max(1, min(25, (int) ($params['max_pages'] ?? 10)));
 
         return array_slice(array_values(array_unique($targets)), 0, $max);
+    }
+
+    /**
+     * @param  array<string, string>  $material
+     * @return array<int, string>
+     */
+    private function documentTargets(?string $url, Agent $agent, AgentRun $agentRun, array $params, array $context, array $material): array
+    {
+        $targets = [];
+        $explicit = $this->renderParamTemplate($params['document_url'] ?? '', $context);
+        if ($explicit !== '' && ! str_contains($explicit, '{{')) {
+            $targets[] = $explicit;
+        }
+
+        foreach ([$url, $agent->prompt_template ?? '', $agentRun->input ?? '', implode("\n", $material)] as $source) {
+            if (! is_string($source) || trim($source) === '') {
+                continue;
+            }
+
+            foreach (UrlExtractor::all($source) as $found) {
+                if ($this->isDocumentUrl($found)) {
+                    $targets[] = $found;
+                }
+            }
+        }
+
+        $max = max(1, min(10, (int) ($params['max_documents'] ?? $params['max_pages'] ?? 5)));
+
+        return array_slice(array_values(array_unique($targets)), 0, $max);
+    }
+
+    private function isDocumentUrl(string $url): bool
+    {
+        $path = strtolower(parse_url($url, PHP_URL_PATH) ?? '');
+
+        return (bool) preg_match('/\.(pdf|png|jpe?g|webp|gif|tiff?|bmp)$/i', $path);
     }
 
     private function usable(?string $result): bool

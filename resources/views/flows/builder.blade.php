@@ -26,6 +26,13 @@
     #drawflow.df-space { cursor: grab; }
     #drawflow.df-panning { cursor: grabbing; }
 
+    /* Builder Copilot: възли с приложени (но незапазени) предложения */
+    .drawflow .drawflow-node.assistant-proposed {
+        outline: 2px dashed #8b5cf6;
+        outline-offset: 5px;
+        border-radius: 16px;
+    }
+
     #drawflow .drawflow {
         min-width: 100%;
         min-height: 100%;
@@ -564,6 +571,7 @@
 
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden relative shadow-sm flex-1 min-h-0">
         <div id="drawflow" class="w-full h-full"></div>
+        @include('flows.partials.assistant-panel')
         <div class="absolute left-4 bottom-4 rounded-xl bg-white/90 backdrop-blur border border-gray-200 px-3 py-2 text-xs text-gray-500 shadow-sm">
             Свържи син изход към зелен вход. “Контекст” означава междинен резултат, който се подава към следващи агенти, но не влиза директно във финалния output.
         </div>
@@ -1741,6 +1749,15 @@ function flowBuilder(config) {
         testAttempts: {},
         finalModal: { open: false, body: '' },
         genLogModal: { open: false, loading: false, logs: [], error: '' },
+
+        // ── Асистент (Builder Copilot) ──
+        chat: { open: false, loaded: false, messages: [], input: '', sending: false, stage: '', session: null },
+        chatSuggestions: [
+            'Обясни ми какво прави този flow',
+            'Оцени настройките на flow-а и кажи какво да подобря',
+            'Защо се провали последният run?',
+        ],
+        _assistantIdMap: {},
         modalReadOnly: false, // true in run/view modes — makes the properties modal display-only
         qaThresholdOptions: Array.from({ length: 21 }, (_, i) => i * 5),
 
@@ -2527,6 +2544,7 @@ function flowBuilder(config) {
                 if (data.version) this.absorbVersion(data.version);
                 this._baseline = JSON.stringify(this.editor.export());
                 this.savedAt = new Date().toLocaleTimeString();
+                this.clearAssistantMarks();
                 return true;
             } catch (e) {
                 console.error('save graph error', e);
@@ -2669,6 +2687,7 @@ function flowBuilder(config) {
                 window.history.replaceState({}, '', url);
                 this._baseline = JSON.stringify(this.editor.export());
                 this.savedAt = new Date().toLocaleTimeString();
+                this.clearAssistantMarks();
                 this.saveDlg.open = false;
             })
             .catch(e => { this.saveDlg.error = 'Мрежова грешка: ' + e.message; })
@@ -3345,6 +3364,193 @@ function flowBuilder(config) {
 
         openFinal() {
             this.finalModal = { open: true, body: this.finalOutput || '' };
+        },
+
+        // ── Асистент (Builder Copilot) ─────────────────────────────────────
+        toggleChat() {
+            this.chat.open = !this.chat.open;
+            if (this.chat.open && !this.chat.loaded) this.loadChatHistory();
+            if (this.chat.open) this.$nextTick(() => this.scrollChat());
+        },
+
+        scrollChat() {
+            const el = this.$refs.chatScroll;
+            if (el) el.scrollTop = el.scrollHeight;
+        },
+
+        chatUuid() {
+            if (window.crypto?.randomUUID) return crypto.randomUUID();
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        },
+
+        newChat() {
+            this.chat.session = this.chatUuid();
+            this.chat.messages = [];
+        },
+
+        async loadChatHistory() {
+            this.chat.loaded = true;
+            try {
+                const res = await fetch(config.assistantHistoryUrl, { headers: { 'Accept': 'application/json' } });
+                const data = await res.json();
+                if (data.session) this.chat.session = data.session;
+                this.chat.messages = (data.messages || []).map(m => ({
+                    role: m.role,
+                    content: m.content || '',
+                    failed: !!m.failed,
+                    cost_usd: m.cost_usd,
+                    hasOps: !!m.has_ops,
+                }));
+                this.$nextTick(() => this.scrollChat());
+            } catch (e) {
+                console.error('assistant history error', e);
+            }
+        },
+
+        async sendChat(text = null) {
+            const message = String(text ?? this.chat.input ?? '').trim();
+            if (!message || this.chat.sending) return;
+
+            this.chat.input = '';
+            this.chat.messages.push({ role: 'user', content: message });
+            this.chat.sending = true;
+            this.chat.stage = 'Мисля…';
+            this.$nextTick(() => this.scrollChat());
+
+            try {
+                const res = await fetch(config.assistantSendUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        message,
+                        session: this.chat.session,
+                        mode: this.mode,
+                        // Работното копие: асистентът вижда ТЕКУЩИЯ канвас, вкл. незапазени промени.
+                        graph: this.mode === 'edit' ? this.export() : null,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'Грешка при изпращане.');
+                this.chat.session = data.session || this.chat.session;
+                await this.pollAssistant(data.token);
+            } catch (e) {
+                this.chat.messages.push({ role: 'assistant', content: e.message || 'Мрежова грешка.', failed: true });
+            } finally {
+                this.chat.sending = false;
+                this.chat.stage = '';
+                this.$nextTick(() => this.scrollChat());
+            }
+        },
+
+        async pollAssistant(token) {
+            for (let i = 0; i < 240; i++) {
+                await new Promise(r => setTimeout(r, 1200));
+                let res, data;
+                try {
+                    res = await fetch(config.assistantStatusUrlBase + '/' + token, { headers: { 'Accept': 'application/json' } });
+                    data = await res.json();
+                } catch (e) {
+                    continue; // мрежов блип — следващият тик ще успее
+                }
+                if (res.status === 404) throw new Error(data.error || 'Заявката изтече — изпрати съобщението отново.');
+                if (data.status === 'completed' && data.message) {
+                    const m = data.message;
+                    this.chat.messages.push({
+                        role: 'assistant',
+                        content: m.content || '',
+                        cost_usd: m.cost_usd,
+                        hasOps: (m.ops || []).length > 0,
+                    });
+                    this.applyAssistantOps(m.ops || []);
+                    this.runAssistantUi(m.ui || []);
+                    return;
+                }
+                if (data.status === 'failed') throw new Error(data.error || 'Асистентът се провали.');
+                if (data.stage) this.chat.stage = data.stage;
+            }
+            throw new Error('Времето за отговор изтече.');
+        },
+
+        // Прилага предложените операции върху канваса. Нищо не пипа в БД —
+        // промените стават реални чак при 💾 Запис (= одобрението).
+        applyAssistantOps(ops) {
+            if (!ops.length || this.mode !== 'edit') return;
+            this._assistantIdMap = {};
+            const rid = (k) => this._assistantIdMap[k] ?? k;
+
+            for (const op of ops) {
+                try {
+                    if (op.op === 'add') {
+                        const id = this.addNodeData(op.data);
+                        this._assistantIdMap[op.node_key] = id;
+                        if (op.pos_x != null && op.pos_y != null) this.moveNodeTo(id, op.pos_x, op.pos_y);
+                        this.markAssistantNode(id);
+                    } else if (op.op === 'update') {
+                        const id = rid(op.node_key);
+                        const normalized = this.normalizeNodeData(op.data);
+                        this.editor.updateNodeDataFromId(id, normalized);
+                        this.updateNodeLabel(id, normalized);
+                        this.markAssistantNode(id);
+                    } else if (op.op === 'remove') {
+                        this.editor.removeNodeId('node-' + rid(op.node_key));
+                    } else if (op.op === 'connect') {
+                        this.editor.addConnection(String(rid(op.from)), String(rid(op.to)), 'output_1', 'input_1');
+                    } else if (op.op === 'disconnect') {
+                        this.editor.removeSingleConnection(String(rid(op.from)), String(rid(op.to)), 'output_1', 'input_1');
+                    }
+                } catch (e) {
+                    console.error('assistant op failed', op, e);
+                }
+            }
+
+            this.ensureBoundaryNodes();
+        },
+
+        moveNodeTo(id, x, y) {
+            const node = this.editor.drawflow?.drawflow?.Home?.data?.[id];
+            const el = document.getElementById('node-' + id);
+            if (!node || !el) return;
+            node.pos_x = x;
+            node.pos_y = y;
+            el.style.left = x + 'px';
+            el.style.top = y + 'px';
+            this.editor.updateConnectionNodes('node-' + id);
+        },
+
+        markAssistantNode(id) {
+            this.$nextTick(() => document.getElementById('node-' + id)?.classList.add('assistant-proposed'));
+        },
+
+        clearAssistantMarks() {
+            document.querySelectorAll('#drawflow .assistant-proposed')
+                .forEach(el => el.classList.remove('assistant-proposed'));
+        },
+
+        runAssistantUi(ui) {
+            for (const action of ui) {
+                if (action.action === 'open_node') {
+                    const id = this._assistantIdMap[action.node_key] ?? action.node_key;
+                    this.$nextTick(() => this.openNodeModal(String(id)));
+                }
+            }
+        },
+
+        escapeChat(s) {
+            return String(s ?? '')
+                .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+                .replace(/\n/g, '<br>');
+        },
+
+        // Минимален markdown за отговорите: **bold**, `code`, редове/булети.
+        chatMd(s) {
+            let h = this.escapeChat(s);
+            h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            h = h.replace(/`([^`]+)`/g, '<code class="bg-gray-200/80 px-1 rounded text-[12px]">$1</code>');
+            h = h.replace(/(^|<br>)\s*[-•]\s+/g, '$1• ');
+            return h;
         },
 
         async openGenLog() {

@@ -32,7 +32,7 @@ class CompetitorProfilerAgent extends BaseAgent
 
         // Phase 1: Search for competitor information
         $searchQuery = "{$competitor} services pricing website";
-        $searchResults = $this->useTool('web_search', ['query' => $searchQuery]);
+        $searchResults = $this->searchWeb($searchQuery);
 
         $allResults = '';
         if ($searchResults !== null) {
@@ -67,6 +67,18 @@ class CompetitorProfilerAgent extends BaseAgent
         }
 
         return $this->chat($agent, $agentRun->input, $extraContext);
+    }
+
+    private function searchWeb(string $query): ?string
+    {
+        if ($this->hasTool('pro_search')) {
+            $premium = $this->useTool('pro_search', ['query' => $query]);
+            if (is_string($premium) && trim($premium) !== '') {
+                return $premium;
+            }
+        }
+
+        return $this->useTool('web_search', ['query' => $query]);
     }
 
     private function scrapeTopPricingPages(string $searchResults, int $maxPages): string

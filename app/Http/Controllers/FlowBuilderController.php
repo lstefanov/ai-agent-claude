@@ -165,6 +165,10 @@ class FlowBuilderController extends Controller
             'generateFieldUrl' => route('agents.generate-field'),
             'generateUrl' => route('flows.generate-agents'),
             'generationStatusUrlBase' => url('flows/generation-status'),
+            // Builder Copilot (чат асистентът): send + status poll + history.
+            'assistantSendUrl' => route('flows.assistant.send', $flow),
+            'assistantStatusUrlBase' => url('flows/assistant-status'),
+            'assistantHistoryUrl' => route('flows.assistant.history', $flow),
             'generationLogsUrl' => route('flows.generation-logs', $flow),
             'activeRunId' => $activeRun?->id,
             'mode' => $mode,

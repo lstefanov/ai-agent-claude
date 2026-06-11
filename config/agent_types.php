@@ -6,6 +6,8 @@ return [
     'site_context' => ['output_role' => 'hidden',    'label' => 'Базов контекст',             'description' => 'Скрейпва началната страница и изгражда компактна идентичност на бизнеса (име, дейност, ключови услуги, контакти) — споделен контекст за следващите клонове'],
     'researcher' => ['output_role' => 'hidden',    'label' => 'Изследовател',               'description' => 'Събира контекст, тенденции, актуални новини, данни за конкуренти'],
     'deep_researcher' => ['output_role' => 'hidden',    'label' => 'Дълбок изследовател',        'description' => 'Търси с Brave + scrape-ва сайта; при map-reduce режим резюмира всяка страница поотделно (за малки модели като mistral-nemo)'],
+    'people_researcher' => ['output_role' => 'hidden',    'label' => 'Търсач на хора',             'description' => 'Намира публични професионални профили чрез Perplexity People Search и ги структурира за lead/HR/организационно проучване'],
+    'document_ocr' => ['output_role' => 'hidden',    'label' => 'Документен OCR четец',      'description' => 'Извлича текст и таблици от PDF/сканирани документи/изображения чрез Mistral OCR'],
     'trend_researcher' => ['output_role' => 'hidden',    'label' => 'Изследовател на тенденции',  'description' => 'Търси тенденции и вирусни теми в нишата за контент идеи'],
     'competitor_profiler' => ['output_role' => 'hidden',    'label' => 'Профилиращ конкуренти',      'description' => 'Изгражда пълен профил на конкурент (услуги, цени, позициониране, слабости)'],
     'review_analyzer' => ['output_role' => 'hidden',    'label' => 'Анализатор на ревюта',       'description' => 'Scrape-ва и анализира ревюта — открива recurring patterns и sentiment'],

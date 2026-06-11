@@ -89,10 +89,132 @@ class AnthropicChatService
         throw new \RuntimeException("Anthropic did not return a tool_use block for schema {$schemaName}.");
     }
 
+    /**
+     * One round of a multi-turn TOOL-CALLING conversation (Builder Copilot) —
+     * same neutral message/tool shape as OpenAiChatService::chatTurn(), mapped
+     * onto the Messages API (tool_use / tool_result content blocks).
+     *
+     * @param  list<array<string, mixed>>  $messages
+     * @param  list<array{name: string, description: string, parameters: array<string, mixed>}>  $tools
+     * @return array{content: string, tool_calls: list<array{id: string, name: string, arguments: array<string, mixed>}>}
+     */
+    public function chatTurn(string $model, array $messages, array $tools, array $options = []): array
+    {
+        [$system, $anthropicMessages] = $this->toAnthropicMessages($messages);
+
+        $numPredict = $options['num_predict'] ?? null;
+        $payload = [
+            'model' => $model,
+            'system' => $system,
+            'messages' => $anthropicMessages,
+            'max_tokens' => (is_numeric($numPredict) && (int) $numPredict > 0) ? (int) $numPredict : self::DEFAULT_MAX_TOKENS,
+            'temperature' => is_numeric($options['temperature'] ?? null) ? (float) $options['temperature'] : 0.3,
+        ];
+
+        if ($tools !== []) {
+            $payload['tools'] = array_map(fn (array $t) => [
+                'name' => $t['name'],
+                'description' => $t['description'] ?? '',
+                'input_schema' => $t['parameters'] ?? ['type' => 'object', 'properties' => new \stdClass],
+            ], $tools);
+        }
+
+        // Audit: the latest user/tool message is the most useful "user" text.
+        $last = end($anthropicMessages) ?: null;
+        $auditUser = is_array($last)
+            ? (is_string($last['content']) ? $last['content'] : json_encode($last['content'], JSON_UNESCAPED_UNICODE))
+            : '';
+
+        $response = $this->send($payload, $options, 'chat_turn', $system, (string) $auditUser);
+
+        $content = '';
+        $toolCalls = [];
+        foreach ($response->json('content', []) as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $content .= $block['text'] ?? '';
+            } elseif (($block['type'] ?? '') === 'tool_use') {
+                $toolCalls[] = [
+                    'id' => (string) ($block['id'] ?? ''),
+                    'name' => (string) ($block['name'] ?? ''),
+                    'arguments' => is_array($block['input'] ?? null) ? $block['input'] : [],
+                ];
+            }
+        }
+
+        return ['content' => $content, 'tool_calls' => $toolCalls];
+    }
+
+    /**
+     * Neutral messages → Messages API: system messages collapse into the
+     * top-level system string; assistant tool calls become tool_use blocks;
+     * consecutive tool results merge into ONE user message (the API requires
+     * alternating user/assistant turns).
+     *
+     * @param  list<array<string, mixed>>  $messages
+     * @return array{0: string, 1: list<array<string, mixed>>}
+     */
+    private function toAnthropicMessages(array $messages): array
+    {
+        $system = '';
+        $out = [];
+
+        foreach ($messages as $message) {
+            $role = (string) ($message['role'] ?? 'user');
+            $content = $message['content'] ?? '';
+
+            if ($role === 'system') {
+                $system .= ($system === '' ? '' : "\n\n").(string) $content;
+
+                continue;
+            }
+
+            if ($role === 'tool') {
+                $block = [
+                    'type' => 'tool_result',
+                    'tool_use_id' => (string) ($message['tool_call_id'] ?? ''),
+                    'content' => (string) $content,
+                ];
+
+                $lastIdx = count($out) - 1;
+                if ($lastIdx >= 0
+                    && $out[$lastIdx]['role'] === 'user'
+                    && is_array($out[$lastIdx]['content'])
+                    && (($out[$lastIdx]['content'][0]['type'] ?? '') === 'tool_result')) {
+                    $out[$lastIdx]['content'][] = $block;
+                } else {
+                    $out[] = ['role' => 'user', 'content' => [$block]];
+                }
+
+                continue;
+            }
+
+            if ($role === 'assistant' && ! empty($message['tool_calls'])) {
+                $blocks = [];
+                if ((string) $content !== '') {
+                    $blocks[] = ['type' => 'text', 'text' => (string) $content];
+                }
+                foreach ($message['tool_calls'] as $call) {
+                    $blocks[] = [
+                        'type' => 'tool_use',
+                        'id' => (string) $call['id'],
+                        'name' => (string) $call['name'],
+                        'input' => ($call['arguments'] ?? []) === [] ? new \stdClass : $call['arguments'],
+                    ];
+                }
+                $out[] = ['role' => 'assistant', 'content' => $blocks];
+
+                continue;
+            }
+
+            $out[] = ['role' => $role, 'content' => (string) $content];
+        }
+
+        return [$system, $out];
+    }
+
     /** @param array<string, mixed> $extra */
     private function post(string $model, string $systemPrompt, string $userMessage, array $options, array $extra = [], string $kind = 'chat'): Response
     {
-        $startMs = (int) (microtime(true) * 1000);
         $numPredict = $options['num_predict'] ?? null;
         $maxTokens = (is_numeric($numPredict) && (int) $numPredict > 0)
             ? (int) $numPredict
@@ -111,6 +233,18 @@ class AnthropicChatService
         if (isset($options['top_p']) && is_numeric($options['top_p'])) {
             $payload['top_p'] = (float) $options['top_p'];
         }
+
+        return $this->send($payload, $options, $kind, $systemPrompt, $userMessage);
+    }
+
+    /**
+     * The single HTTP + usage/audit chokepoint for every Messages API call.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function send(array $payload, array $options, string $kind, string $auditSystem, string $auditUser): Response
+    {
+        $startMs = (int) (microtime(true) * 1000);
 
         // Transient failures (529 overloaded, rate-limit 429s, 5xx, network
         // blips) get 3 retries with growing backoff; client errors fail fast.
@@ -133,6 +267,8 @@ class AnthropicChatService
         $promptTokens = (int) ($response->json('usage.input_tokens') ?? 0);
         $completionTokens = (int) ($response->json('usage.output_tokens') ?? 0);
 
+        $model = (string) ($payload['model'] ?? '');
+
         LlmUsage::record('anthropic', $model, $promptTokens, $completionTokens);
 
         $responseText = '';
@@ -148,8 +284,8 @@ class AnthropicChatService
             'anthropic',
             $model,
             $kind,
-            $systemPrompt,
-            $userMessage,
+            $auditSystem,
+            $auditUser,
             $responseText,
             array_intersect_key($payload, array_flip(['temperature', 'top_p', 'max_tokens'])),
             $promptTokens,

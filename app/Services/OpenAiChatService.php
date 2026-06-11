@@ -135,6 +135,110 @@ class OpenAiChatService
     }
 
     /**
+     * One round of a multi-turn TOOL-CALLING conversation (Builder Copilot).
+     * The caller owns the agentic loop; this method does exactly one request.
+     *
+     * $messages use the provider-neutral shape (see BuilderAssistantService):
+     *   role system|user|assistant|tool, content ?string,
+     *   tool_calls (assistant): list of {id, name, arguments: array},
+     *   tool_call_id (tool).
+     *
+     * @param  list<array<string, mixed>>  $messages
+     * @param  list<array{name: string, description: string, parameters: array<string, mixed>}>  $tools
+     * @return array{content: string, tool_calls: list<array{id: string, name: string, arguments: array<string, mixed>}>}
+     */
+    public function chatTurn(string $model, array $messages, array $tools, array $options = []): array
+    {
+        $payload = [
+            'model' => $model,
+            'messages' => array_map($this->toChatCompletionMessage(...), $messages),
+        ];
+
+        if ($tools !== []) {
+            $payload['tools'] = array_map(fn (array $t) => [
+                'type' => 'function',
+                'function' => [
+                    'name' => $t['name'],
+                    'description' => $t['description'] ?? '',
+                    'parameters' => $t['parameters'] ?? ['type' => 'object', 'properties' => new \stdClass, 'additionalProperties' => false],
+                ],
+            ], $tools);
+        }
+
+        if (isset($options['temperature']) && is_numeric($options['temperature'])) {
+            $payload['temperature'] = (float) $options['temperature'];
+        }
+
+        $numPredict = $options['num_predict'] ?? null;
+        if (is_numeric($numPredict) && (int) $numPredict > 0) {
+            $cap = (int) $this->cfg('max_output_cap', 0);
+            $payload[(string) $this->cfg('max_tokens_param', 'max_completion_tokens')] =
+                $cap > 0 ? min((int) $numPredict, $cap) : (int) $numPredict;
+        }
+
+        $response = $this->post($payload, (int) ($options['http_timeout'] ?? 180), 'chat_turn');
+
+        $message = (array) ($response->json('choices.0.message') ?? []);
+
+        $toolCalls = [];
+        foreach ((array) ($message['tool_calls'] ?? []) as $call) {
+            $arguments = json_decode((string) ($call['function']['arguments'] ?? ''), true);
+            $toolCalls[] = [
+                'id' => (string) ($call['id'] ?? ''),
+                'name' => (string) ($call['function']['name'] ?? ''),
+                'arguments' => is_array($arguments) ? $arguments : [],
+                // The provider's verbatim tool_call object, replayed as-is on
+                // the next round: Gemini 3 rejects a replay that drops its
+                // thought_signature (extra_content), so reconstructing the
+                // object from id/name/arguments is not an option.
+                'raw' => $call,
+            ];
+        }
+
+        return [
+            'content' => (string) ($message['content'] ?? ''),
+            'tool_calls' => $toolCalls,
+        ];
+    }
+
+    /**
+     * Neutral message → Chat Completions dialect.
+     *
+     * @param  array<string, mixed>  $message
+     * @return array<string, mixed>
+     */
+    private function toChatCompletionMessage(array $message): array
+    {
+        $role = (string) ($message['role'] ?? 'user');
+
+        if ($role === 'tool') {
+            return [
+                'role' => 'tool',
+                'tool_call_id' => (string) ($message['tool_call_id'] ?? ''),
+                'content' => (string) ($message['content'] ?? ''),
+            ];
+        }
+
+        $out = ['role' => $role, 'content' => (string) ($message['content'] ?? '')];
+
+        if ($role === 'assistant' && ! empty($message['tool_calls'])) {
+            // The API rejects an empty string next to tool_calls — null is the
+            // documented "no text" value there.
+            $out['content'] = $out['content'] === '' ? null : $out['content'];
+            $out['tool_calls'] = array_map(fn (array $call) => $call['raw'] ?? [
+                'id' => (string) $call['id'],
+                'type' => 'function',
+                'function' => [
+                    'name' => (string) $call['name'],
+                    'arguments' => json_encode($call['arguments'] ?: new \stdClass, JSON_UNESCAPED_UNICODE) ?: '{}',
+                ],
+            ], $message['tool_calls']);
+        }
+
+        return $out;
+    }
+
+    /**
      * Embedding vector for a text (plan-library vector retrieval). Pinned to
      * the OpenAI config regardless of $provider — embeddings are only used by
      * the plan library and only OpenAI is wired for them. Usage is recorded

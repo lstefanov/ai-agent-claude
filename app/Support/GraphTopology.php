@@ -13,6 +13,38 @@ namespace App\Support;
 class GraphTopology
 {
     /**
+     * Strict ancestors of the given target keys: every key with a directed
+     * path INTO any target. A target itself is only included when it reaches
+     * another target (e.g. a writer feeding a downstream corrector).
+     *
+     * @param  list<string>  $targetKeys
+     * @param  list<array{from: string, to: string}>  $edges
+     * @return array<string, true> set of ancestor keys
+     */
+    public static function ancestorsOf(array $targetKeys, array $edges): array
+    {
+        $reverse = [];
+        foreach ($edges as $edge) {
+            $reverse[$edge['to']][] = $edge['from'];
+        }
+
+        $ancestors = [];
+        $queue = $targetKeys;
+
+        while ($queue !== []) {
+            $key = array_shift($queue);
+            foreach ($reverse[$key] ?? [] as $parent) {
+                if (! isset($ancestors[$parent])) {
+                    $ancestors[$parent] = true;
+                    $queue[] = $parent;
+                }
+            }
+        }
+
+        return $ancestors;
+    }
+
+    /**
      * Validate the graph and compute execution waves via Kahn's algorithm.
      *
      * @param  list<string>  $nodeKeys

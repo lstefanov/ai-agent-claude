@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\FlowRun;
+use App\Support\GraphTopology;
 use App\Support\ReasoningStripper;
 use Illuminate\Support\Collection;
 use Throwable;
@@ -11,13 +12,23 @@ use Throwable;
  * Assembles the final, user-facing result of a flow run from the individual
  * agent outputs (e.g. FB posts + titles + hashtags).
  *
- * Strategy: the content is assembled DETERMINISTICALLY and verbatim — so no
- * agent output can ever be lost or reworded. A strong LLM is then used ONLY to
- * reformat that assembly into a nicer, sectioned layout. A verbatim guard
- * checks the LLM kept every part word-for-word; if it deviated (paraphrased,
- * dropped or invented), we discard the LLM result and keep the deterministic
- * assembly. This gives nice formatting when possible and guaranteed-complete
- * content always.
+ * Strategy, in order:
+ *
+ * 1. STRUCTURAL dedup — the run's DAG already says what is an ingredient: a
+ *    body/appendix part whose node feeds another completed body node was
+ *    consumed by that downstream deliverable (assembler/corrector), so only
+ *    terminal deliverables survive. Text matching can never make this call
+ *    reliably — an assembler may reword its ingredients (runs 81, 82).
+ * 2. TEXTUAL dedup — a surviving part whose word-shingle content is already
+ *    contained in another surviving part is dropped (parallel branches that
+ *    duplicate content without a connecting edge).
+ * 3. The survivors are assembled DETERMINISTICALLY and verbatim — so no
+ *    deliverable can ever be lost or reworded. A single survivor is returned
+ *    as-is. For multiple parts, a strong LLM is used ONLY to reformat the
+ *    assembly into a nicer, sectioned layout. A verbatim guard checks the LLM
+ *    kept every part word-for-word; if it deviated (paraphrased, dropped or
+ *    invented — run 71 was a fabricated report), we discard the LLM result
+ *    and keep the deterministic assembly.
  */
 class FinalComposerService
 {
@@ -28,11 +39,15 @@ class FinalComposerService
      */
     public function compose(FlowRun $flowRun): array
     {
-        [$bodyParts, $appendixParts] = $this->collectParts($flowRun);
+        [$bodyParts, $appendixParts, $completedKeys] = $this->collectParts($flowRun);
 
-        // Deduped deliverables: near-identical parts collapse, parts already
-        // contained in a larger part (assembler ingredients) are dropped.
-        $effectiveParts = $this->effectiveParts($bodyParts, $appendixParts);
+        // Structural dedup: parts consumed by a downstream completed
+        // deliverable are ingredients — only terminal deliverables survive.
+        $parts = $this->dropConsumedParts($flowRun, $bodyParts, $appendixParts, $completedKeys);
+
+        // Textual dedup between the survivors: parallel branches can still
+        // duplicate content without a connecting edge.
+        $effectiveParts = $this->dropContainedParts($parts);
 
         // Nothing to compose.
         if (count($effectiveParts) === 0) {
@@ -181,10 +196,12 @@ class FinalComposerService
     }
 
     /**
-     * Collect completed body/appendix node outputs in execution order.
-     * Hidden (research) and quality (QA) outputs are excluded.
+     * Collect completed body/appendix node outputs in execution order, plus
+     * the keys of ALL nodes that completed with output (any role) — the
+     * subgraph that content actually flowed through.
+     * Hidden (research) and quality (QA) outputs never become parts.
      *
-     * @return array{0: list<array{name: string, output: string}>, 1: list<array{name: string, output: string}>}
+     * @return array{0: list<array{key: string, output: string}>, 1: list<array{key: string, output: string}>, 2: list<string>}
      */
     private function collectParts(FlowRun $flowRun): array
     {
@@ -198,10 +215,13 @@ class FinalComposerService
 
         $body = [];
         $appendix = [];
+        $completedKeys = [];
 
         foreach ($runs as $run) {
+            $completedKeys[] = (string) $run->node_key;
+
             $role = $run->flowNode->effectiveOutputRole();
-            $part = ['name' => $run->flowNode->name, 'output' => trim($run->output)];
+            $part = ['key' => (string) $run->node_key, 'output' => trim($run->output)];
 
             if ($role === 'body') {
                 $body[] = $part;
@@ -211,7 +231,46 @@ class FinalComposerService
             // 'hidden' and 'quality' are intentionally skipped.
         }
 
-        return [array_values($body), array_values($appendix)];
+        return [array_values($body), array_values($appendix), $completedKeys];
+    }
+
+    /**
+     * Structural dedup over the run's DAG: a part whose node has a path
+     * (through nodes that completed with output) into another completed
+     * body-role node is an INGREDIENT — that downstream deliverable consumed
+     * it, however much it reworded it. Only terminal deliverables survive.
+     *
+     * When the downstream assembler failed (best_effort runs), no completed
+     * body node is reachable, so the ingredient parts are kept — the final
+     * output degrades to the assembled pieces instead of losing content.
+     *
+     * @param  list<array{key: string, output: string}>  $bodyParts
+     * @param  list<array{key: string, output: string}>  $appendixParts
+     * @param  list<string>  $completedKeys
+     * @return list<string> surviving part outputs (bodies first, then appendix)
+     */
+    private function dropConsumedParts(FlowRun $flowRun, array $bodyParts, array $appendixParts, array $completedKeys): array
+    {
+        $completed = array_fill_keys($completedKeys, true);
+
+        $edges = $flowRun->flow->edges()
+            ->get(['from_node_key', 'to_node_key'])
+            ->map(fn ($e) => ['from' => (string) $e->from_node_key, 'to' => (string) $e->to_node_key])
+            ->filter(fn ($e) => isset($completed[$e['from']], $completed[$e['to']]))
+            ->values()
+            ->all();
+
+        $consumed = GraphTopology::ancestorsOf(
+            array_map(fn ($p) => $p['key'], $bodyParts),
+            $edges
+        );
+
+        $surviving = array_filter(
+            array_merge($bodyParts, $appendixParts),
+            fn ($p) => ! isset($consumed[$p['key']])
+        );
+
+        return array_values(array_map(fn ($p) => $p['output'], $surviving));
     }
 
     /**
@@ -228,7 +287,7 @@ class FinalComposerService
 - НЕ пренаписвай, НЕ перифразирай, НЕ съкращавай, НЕ добавяй и НЕ махай текст.
 
 РАЗРЕШЕНО ти е САМО:
-- Да добавиш ясни заглавия на секции (напр. „Публикации", „Заглавия", „Хаштагове").
+- Да добавиш ясни заглавия на секции (напр. „Публикации", „Заглавия", „Хаштагове") — но НЕ добавяй заглавие над част, която вече започва със заглавие.
 - Да подредиш секциите и да добавиш разделители/празни редове за по-добра четимост.
 
 Върни САМО оформения текст на български, без обяснения и без think бележки.
@@ -245,52 +304,16 @@ SYS;
         );
     }
 
-    /**
-     * The parts that actually appear in the deterministic assembly (after
-     * near-identical body parts are collapsed and parts contained in a larger
-     * part are dropped), used by the verbatim guard.
-     *
-     * @param  list<array{name: string, output: string}>  $bodyParts
-     * @param  list<array{name: string, output: string}>  $appendixParts
-     * @return list<string>
-     */
-    private function effectiveParts(array $bodyParts, array $appendixParts): array
-    {
-        $effectiveBodies = [];
-
-        foreach ($bodyParts as $part) {
-            $output = $part['output'];
-            $replaced = false;
-
-            foreach ($effectiveBodies as $i => $existing) {
-                if ($this->nearlyIdentical($existing, $output)) {
-                    $effectiveBodies[$i] = $output;
-                    $replaced = true;
-                    break;
-                }
-            }
-
-            if (! $replaced) {
-                $effectiveBodies[] = $output;
-            }
-        }
-
-        return $this->dropContainedParts(array_merge(
-            array_values($effectiveBodies),
-            array_map(fn ($p) => $p['output'], $appendixParts)
-        ));
-    }
-
     // Lengths within this ratio count as "near equal" for the containment
     // tie-break (mutual containment keeps the LATER part).
     private const CONTAINMENT_LENGTH_TOLERANCE = 0.02;
 
     /**
      * Drop parts whose content is already contained verbatim in a longer (or,
-     * for near-equal lengths, later) surviving part — e.g. hook/copy/headline
-     * outputs that a downstream assembler node re-emits inside the compiled
-     * post. Without this the final result repeats the same content under
-     * different section headings (run 81).
+     * for near-equal lengths, later) surviving part — parallel branches with
+     * no connecting edge can still emit the same content twice. Mutual
+     * containment (near-identical parts) keeps the later part, e.g. the
+     * corrected of two variants.
      *
      * Longest parts are decided first, so every dropped part is contained in a
      * part that actually survives — content can never be lost.
@@ -333,43 +356,50 @@ SYS;
         ));
     }
 
-    /** Whether enough sampled fragments of the needle appear verbatim in the haystack (both normalized). */
+    // Word n-gram size for containment coverage. Positional fragment sampling
+    // is brittle here: fragments landing on a part's own labels or spanning
+    // section boundaries can never match the containing document (run 82).
+    private const SHINGLE_WORDS = 5;
+
+    /** Whether enough of the needle's word shingles appear verbatim in the haystack (both normalized). */
     private function containedIn(string $normNeedle, string $normHaystack): bool
     {
-        $fragments = $this->sampleFragments($normNeedle);
-        if (count($fragments) === 0) {
-            return false;
+        $needleShingles = $this->wordShingles($normNeedle);
+
+        // Too short to shingle — fall back to direct substring presence.
+        if ($needleShingles === []) {
+            return $normNeedle !== '' && mb_strpos($normHaystack, $normNeedle) !== false;
         }
 
+        $hayShingles = array_fill_keys($this->wordShingles($normHaystack), true);
+
         $present = 0;
-        foreach ($fragments as $fragment) {
-            if (mb_strpos($normHaystack, $fragment) !== false) {
+        foreach ($needleShingles as $shingle) {
+            if (isset($hayShingles[$shingle])) {
                 $present++;
             }
         }
 
-        return $present / count($fragments) >= self::VERBATIM_COVERAGE_THRESHOLD;
+        return $present / count($needleShingles) >= self::VERBATIM_COVERAGE_THRESHOLD;
     }
 
     /**
-     * Two strings are "nearly identical" when they're close in length and
-     * share a high character-level similarity (corrected vs raw version).
+     * Overlapping word n-grams of a normalized string.
+     *
+     * @return list<string>
      */
-    private function nearlyIdentical(string $a, string $b): bool
+    private function wordShingles(string $normalized): array
     {
-        $la = mb_strlen($a);
-        $lb = mb_strlen($b);
-        if ($la === 0 || $lb === 0) {
-            return false;
+        $words = $normalized === '' ? [] : explode(' ', $normalized);
+        if (count($words) < self::SHINGLE_WORDS) {
+            return [];
         }
 
-        // Only compare when lengths are within ~25% of each other.
-        if (min($la, $lb) / max($la, $lb) < 0.75) {
-            return false;
+        $shingles = [];
+        for ($i = 0, $max = count($words) - self::SHINGLE_WORDS; $i <= $max; $i++) {
+            $shingles[] = implode(' ', array_slice($words, $i, self::SHINGLE_WORDS));
         }
 
-        similar_text($a, $b, $percent);
-
-        return $percent >= 75.0;
+        return $shingles;
     }
 }
