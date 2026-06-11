@@ -17,8 +17,9 @@ use Illuminate\Support\Carbon;
  * Admin "Разходи" — unified per-call audit of all LLM usage and cost.
  *
  * Single source of truth: llm_requests. Every call is logged there at the
- * provider chokepoints — paid OpenAI/Anthropic (real USD cost) AND free local
- * Ollama (cost 0). Powers summary cards, Chart.js charts, a grouped Grid.js
+ * provider chokepoints — paid providers (OpenAI/Anthropic/DeepSeek/Gemini/xAI/
+ * Qwen, real USD cost) AND free local Ollama (cost 0). Powers summary cards,
+ * per-provider model-breakdown boxes, Chart.js charts, a grouped Grid.js
  * table (generation sessions + run sessions with drill-down) and a detail popup
  * (full prompt + model output per request). All filters apply globally to every
  * stat; cost-based charts naturally show paid only (Ollama is $0).
@@ -40,8 +41,6 @@ class CostController extends Controller
             'total_requests' => $paidRequests + $ollamaRequests,
             'paid_requests' => $paidRequests,
             'ollama_requests' => $ollamaRequests,
-            'openai_cost' => round((float) $this->filtered($r)->where('provider', 'openai')->sum('cost_usd'), 2),
-            'anthropic_cost' => round((float) $this->filtered($r)->where('provider', 'anthropic')->sum('cost_usd'), 2),
             'avg_cost' => $paidRequests > 0 ? round($totalCost / $paidRequests, 2) : 0.0,
         ];
 
@@ -55,6 +54,7 @@ class CostController extends Controller
 
         return view('admin.costs.index', [
             'summary' => $summary,
+            'providers' => $this->providerBreakdown($r),
             'charts' => $charts,
             'rows' => $this->gridRows($r),
             'filterOptions' => $this->filterOptions(),
@@ -297,6 +297,35 @@ class CostController extends Controller
         return array_slice($combined, 0, 500);
     }
 
+    /**
+     * One entry per provider present in llm_requests (filter-aware), with the
+     * per-model cost/request breakdown for the provider boxes. Paid providers
+     * sort first (by total cost); free Ollama lands last with $0.00.
+     */
+    private function providerBreakdown(Request $r): array
+    {
+        $rows = $this->filtered($r)
+            ->selectRaw('provider, model, COUNT(*) as cnt, COALESCE(SUM(cost_usd),0) as cost')
+            ->groupBy('provider', 'model')
+            ->orderByDesc('cost')
+            ->get();
+
+        return $rows->groupBy('provider')
+            ->map(fn ($group, $provider) => [
+                'provider' => $provider,
+                'total' => round((float) $group->sum('cost'), 6),
+                'requests' => (int) $group->sum('cnt'),
+                'models' => $group->map(fn ($m) => [
+                    'model' => $m->model,
+                    'cost' => (float) $m->cost,
+                    'requests' => (int) $m->cnt,
+                ])->values()->all(),
+            ])
+            ->sortByDesc('total')
+            ->values()
+            ->all();
+    }
+
     /** Cost + tokens per calendar day (defaults to the FULL period). */
     private function spendByDay(Request $r): array
     {
@@ -402,9 +431,13 @@ class CostController extends Controller
         $usedCompanyIds = LlmRequest::query()->distinct()->pluck('company_id')->filter();
         $usedFlowIds = LlmRequest::query()->distinct()->pluck('flow_id')->filter();
 
+        $pairs = LlmRequest::query()->distinct()->orderBy('provider')->orderBy('model')->get(['provider', 'model'])
+            ->filter(fn ($p) => $p->provider && $p->model);
+
         return [
-            'providers' => LlmRequest::query()->distinct()->orderBy('provider')->pluck('provider')->filter()->values(),
-            'models' => LlmRequest::query()->distinct()->orderBy('model')->pluck('model')->filter()->values(),
+            'providers' => $pairs->pluck('provider')->unique()->values(),
+            'models' => $pairs->pluck('model')->unique()->values(),
+            'modelsByProvider' => $pairs->groupBy('provider')->map(fn ($g) => $g->pluck('model')->unique()->values()),
             'companies' => Company::whereIn('id', $usedCompanyIds)->orderBy('name')->get(['id', 'name']),
             'flows' => Flow::whereIn('id', $usedFlowIds)->orderBy('name')->get(['id', 'name']),
         ];

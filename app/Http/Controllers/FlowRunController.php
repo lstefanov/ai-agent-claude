@@ -6,9 +6,12 @@ use App\Models\Flow;
 use App\Models\FlowRun;
 use App\Services\FlowVersionService;
 use App\Services\GraphFlowExecutor;
+use App\Support\PaidModel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class FlowRunController extends Controller
@@ -234,7 +237,137 @@ class FlowRunController extends Controller
             'output' => $run->output,
             'raw_output' => $run->raw_output,
             'error' => $run->error,
+            'tokens_used' => $run->tokens_used,
+            'prompt_tokens' => $run->prompt_tokens,
+            'completion_tokens' => $run->completion_tokens,
+            'cost_usd' => $run->cost_usd,
+            'duration_ms' => $run->duration_ms,
         ]);
+    }
+
+    /**
+     * Тест на агент: an ad-hoc, transient re-generation of one node — same (or
+     * edited) prompts on a user-chosen model. Persists NOTHING (no NodeRun, no
+     * flow changes); runs as a detached artisan process and reports through a
+     * cache token, mirroring FlowController::generateAgents.
+     */
+    public function nodeTest(Request $request, FlowRun $flowRun, string $nodeKey): JsonResponse
+    {
+        $run = $flowRun->nodeRuns()->where('node_key', $nodeKey)->orderByDesc('id')->first();
+
+        if (! $run) {
+            return response()->json(['error' => 'Няма изпълнение за този възел.'], 404);
+        }
+
+        $validated = $request->validate([
+            'model' => ['required', 'string', 'max:200', 'regex:'.FlowController::MODEL_PATTERN],
+            'system_prompt' => ['nullable', 'string', 'max:60000'],
+            'user_message' => ['required', 'string', 'max:200000'],
+            'options' => ['nullable', 'array'],
+            'options.temperature' => ['nullable', 'numeric', 'between:0,2'],
+            'options.num_predict' => ['nullable', 'integer', 'min:-1', 'max:32768'],
+        ]);
+
+        $provider = PaidModel::provider($validated['model']);
+        if ($provider && ! PaidModel::available($provider)) {
+            return response()->json(['error' => "Провайдърът {$provider} няма конфигуриран API ключ."], 503);
+        }
+
+        // Whitelist numeric sampler options — the snapshot may carry anything.
+        $options = collect((array) ($validated['options'] ?? []))
+            ->only(['temperature', 'top_p', 'top_k', 'repeat_penalty', 'num_predict', 'num_ctx', 'seed'])
+            ->filter(fn ($v) => $v !== null && $v !== '' && is_numeric($v))
+            ->map(fn ($v) => $v + 0)
+            ->all();
+
+        $token = (string) Str::uuid();
+
+        Cache::put("node_test_request_{$token}", [
+            'flow_run_id' => $flowRun->id,
+            'node_key' => $nodeKey,
+            'model' => $validated['model'],
+            'system_prompt' => (string) ($validated['system_prompt'] ?? ''),
+            'user_message' => $validated['user_message'],
+            'options' => $options,
+        ], now()->addMinutes(60));
+
+        Cache::put("node_test_{$token}", [
+            'status' => 'pending',
+            'output' => null,
+            'error' => null,
+            'updated_at' => now()->timestamp,
+        ], now()->addMinutes(60));
+
+        // Detached background process — won't be killed by the web timeout.
+        $php = env('PHP_CLI_BINARY', PHP_BINARY);
+        $artisan = base_path('artisan');
+        $tok = escapeshellarg($token);
+        exec("{$php} {$artisan} flows:test-node {$tok} >> ".escapeshellarg(storage_path('logs/node-test.log')).' 2>&1 &');
+
+        return response()->json(['token' => $token]);
+    }
+
+    /**
+     * Poll endpoint for an ad-hoc node test token.
+     */
+    public function nodeTestStatus(string $token): JsonResponse
+    {
+        $result = Cache::get("node_test_{$token}");
+
+        if (! $result) {
+            return response()->json(['status' => 'expired', 'error' => 'Токенът е изтекъл. Опитай отново.'], 404);
+        }
+
+        return response()->json($result);
+    }
+
+    /**
+     * Persist a winning test attempt onto the flow's CURRENT node (with the
+     * user's explicit confirmation from the test popup): model always, system
+     * prompt only when it was edited. The user message is never persisted —
+     * it is the rendered template, not the template itself.
+     */
+    public function applyTest(Request $request, FlowRun $flowRun, string $nodeKey): JsonResponse
+    {
+        $validated = $request->validate([
+            'model' => ['required', 'string', 'max:200', 'regex:'.FlowController::MODEL_PATTERN],
+            'system_prompt' => ['nullable', 'string', 'max:60000'],
+        ]);
+
+        $flow = $flowRun->flow;
+        $node = $flow->nodes()->where('node_key', $nodeKey)->first();
+
+        if (! $node) {
+            return response()->json(['ok' => false, 'error' => 'Възелът вече не съществува в графа.'], 404);
+        }
+
+        // The snapshot system prompt carries the auto-appended output block;
+        // BaseAgent re-appends it on every run, so strip before persisting.
+        $system = preg_replace('/\n\n---\nOUTPUT REQUIREMENTS:\n.*$/s', '', (string) ($validated['system_prompt'] ?? ''));
+
+        $updates = ['model' => $validated['model']];
+        if (trim($system) !== '') {
+            $updates['system_prompt'] = $system;
+        }
+        $node->update($updates);
+
+        // Keep the Drawflow layout in sync — the builder loads from graph_layout.
+        $layout = $flow->graph_layout;
+        if (is_array($layout)) {
+            foreach ($layout['drawflow'] ?? [] as $moduleName => $module) {
+                if (isset($module['data'][$nodeKey]['data'])) {
+                    $data = $module['data'][$nodeKey]['data'];
+                    $data['model'] = $validated['model'];
+                    if (isset($updates['system_prompt'])) {
+                        $data['system_prompt'] = $updates['system_prompt'];
+                    }
+                    $layout['drawflow'][$moduleName]['data'][$nodeKey]['data'] = $data;
+                }
+            }
+            $flow->update(['graph_layout' => $layout]);
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Support\PlannerPhases;
+use App\Support\SchemaCoercion;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -81,12 +82,12 @@ class GeneratorService
         $modelKey = $provider.'_model';
         $defaults = [
             'anthropic' => 'claude-haiku-4-5',
-            'openai'    => 'gpt-4o-mini',
-            'deepseek'  => 'deepseek-v4-flash',
-            'gemini'    => 'gemini-3.1-flash-lite',
-            'xai'       => 'grok-4.1-fast',
-            'qwen'      => 'qwen3.5-flash',
-            'ollama'    => 'todorov/bggpt:Gemma-3-12B-IT-Q5_K_M',
+            'openai' => 'gpt-4o-mini',
+            'deepseek' => 'deepseek-v4-flash',
+            'gemini' => 'gemini-3.1-flash-lite',
+            'xai' => 'grok-4.1-fast',
+            'qwen' => 'qwen3.5-flash',
+            'ollama' => 'todorov/bggpt:Gemma-3-12B-IT-Q5_K_M',
         ];
         $model = (string) config('services.assist.'.$modelKey, $defaults[$provider] ?? '');
 
@@ -131,7 +132,7 @@ class GeneratorService
 
         ['provider' => $provider, 'model' => $model] = $this->resolve($schemaName);
 
-        return match (true) {
+        $result = match (true) {
             $provider === 'anthropic' => app(AnthropicChatService::class)->chatJson(
                 $model,
                 $systemPrompt,
@@ -151,6 +152,10 @@ class GeneratorService
             $provider === 'ollama' => $this->chatJsonOllama($model, $systemPrompt, $userMessage, $schemaName, $schema, $options),
             default => throw new \RuntimeException($this->badProviderMessage($provider)),
         };
+
+        // Models occasionally double-encode nested arrays as JSON strings;
+        // repair against the schema so callers always get the declared shape.
+        return SchemaCoercion::coerce($result, $schema);
     }
 
     /**

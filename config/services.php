@@ -72,14 +72,14 @@ return [
     // Ollama with a Bulgarian-tuned model.
     // provider: openai | anthropic | deepseek | gemini | xai | qwen | ollama
     'assist' => [
-        'provider'        => env('ASSIST_PROVIDER', 'ollama'),
-        'ollama_model'    => env('ASSIST_OLLAMA_MODEL', 'todorov/bggpt:Gemma-3-12B-IT-Q5_K_M'),
-        'openai_model'    => env('ASSIST_OPENAI_MODEL', 'gpt-4o-mini'),
+        'provider' => env('ASSIST_PROVIDER', 'ollama'),
+        'ollama_model' => env('ASSIST_OLLAMA_MODEL', 'todorov/bggpt:Gemma-3-12B-IT-Q5_K_M'),
+        'openai_model' => env('ASSIST_OPENAI_MODEL', 'gpt-4o-mini'),
         'anthropic_model' => env('ASSIST_ANTHROPIC_MODEL', 'claude-haiku-4-5'),
-        'deepseek_model'  => env('ASSIST_DEEPSEEK_MODEL', 'deepseek-v4-flash'),
-        'gemini_model'    => env('ASSIST_GEMINI_MODEL', 'gemini-3.1-flash-lite'),
-        'xai_model'       => env('ASSIST_XAI_MODEL', 'grok-4.1-fast'),
-        'qwen_model'      => env('ASSIST_QWEN_MODEL', 'qwen3.5-flash'),
+        'deepseek_model' => env('ASSIST_DEEPSEEK_MODEL', 'deepseek-v4-flash'),
+        'gemini_model' => env('ASSIST_GEMINI_MODEL', 'gemini-3.1-flash-lite'),
+        'xai_model' => env('ASSIST_XAI_MODEL', 'grok-4.1-fast'),
+        'qwen_model' => env('ASSIST_QWEN_MODEL', 'qwen3.5-flash'),
     ],
 
     // FlowPlannerService tuning (the "agent that creates agents").
@@ -219,6 +219,9 @@ return [
         // gemini-3-flash-preview. Thinking преамбюлът на 3.5-flash изгаря
         // num_predict бюджета — внимавай при structured планиране.
         'model' => env('GEMINI_GENERATOR_MODEL', 'gemini-3.1-flash-lite'),
+        // Runtime възли ("gemini/<model>" pin): flash-lite — free tier, без
+        // thinking преамбюл, който да изгаря num_predict бюджета.
+        'runtime_model' => env('GEMINI_RUNTIME_MODEL', 'gemini-3.1-flash-lite'),
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/openai'),
         'structured_output' => env('GEMINI_STRUCTURED_OUTPUT', 'json_schema'),
         'max_tokens_param' => 'max_tokens',

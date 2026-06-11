@@ -277,6 +277,7 @@ class OllamaService
             'openai' => app(OpenAiChatService::class),
             'anthropic' => app(AnthropicChatService::class),
             'deepseek' => OpenAiChatService::for('deepseek'),
+            'gemini' => OpenAiChatService::for('gemini'),
             'xai' => OpenAiChatService::for('xai'),
             'qwen' => OpenAiChatService::for('qwen'),
             default => null,

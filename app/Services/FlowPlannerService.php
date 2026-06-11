@@ -9,6 +9,7 @@ use App\Models\LlmModel;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use App\Support\PaidModel;
+use App\Support\TypographicQuotes;
 use App\Support\UrlExtractor;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -81,14 +82,19 @@ class FlowPlannerService
         $this->lastIntent = $intent;
 
         $plan = $this->designPipeline($flow, $intent, $onProgress, $logToken);
-        $agents = $plan['agents'] ?? [];
+        $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
 
         // A strong planner rarely under-produces; a single transient short plan
-        // should not abort the whole run — retry the design phase once.
+        // should not abort the whole run — retry the design phase once. The
+        // retry must not repeat the request verbatim (a low-temperature model
+        // fails identically), so it carries explicit corrective feedback.
         if (count($agents) < 3) {
             Log::warning('[FlowPlanner] Pipeline design returned '.count($agents).' agents — retrying once.');
-            $plan = $this->designPipeline($flow, $intent, $onProgress, $logToken);
-            $agents = $plan['agents'] ?? [];
+            $plan = $this->designPipeline($flow, $intent, $onProgress, $logToken,
+                'ВНИМАНИЕ: предишният опит върна само '.count($agents).' агента вместо пълен pipeline. '
+                .'Върни ПЪЛНИЯ DAG с ВСИЧКИ агенти (обикновено 7+), без съкращаване и без да '
+                .'прекъсваш текстовите полета по средата.');
+            $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
         }
 
         if (count($agents) < 3) {
@@ -198,7 +204,7 @@ PROMPT;
     // ──────────────────────────────────────────────────────────────────────
 
     /** @return array<string, mixed> */
-    private function designPipeline(Flow $flow, array $intent, ?callable $onProgress, ?string $logToken): array
+    private function designPipeline(Flow $flow, array $intent, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null): array
     {
         if ($onProgress) {
             $onProgress('Генериране на агенти');
@@ -212,9 +218,11 @@ PROMPT;
 ⚠️ ЕЗИК (ЗАДЪЛЖИТЕЛНО, НАЙ-ВАЖНО): name, role, system_prompt, prompt_template,
 qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. НИКОГА на английски.
 Само type е технически идентификатор и остава както е в каталога.
-- name: КРАТКО българско име от 2–5 думи (напр. „Извличане на контекст"), а НЕ описание
+- name: КРАТКО българско име от 2–5 думи (напр. «Извличане на контекст»), а НЕ описание
   и НЕ английско изречение.
 - role: кратка българска роля — едно изречение.
+- КАВИЧКИ: вътре в текстовите стойности НИКОГА не пиши права двойна кавичка (") и не
+  ползвай „…“ — ако ти трябват кавички, пиши «…».
 1. ВСЕКИ агент има ТОЧНО ЕДНА конкретна отговорност. По-добре повече малки агенти, отколкото един универсален.
 2. Покрий ВСЯКА задача от key_tasks с поне един агент и ДЕКОМПОЗИРАЙ дребно: отделни агенти
    за РАЗЛИЧНИ типове данни (напр. описание на бизнеса; услуги и ЦЕНИ; контакти), отделно
@@ -268,6 +276,10 @@ PROMPT;
             // Фаза 2: most similar PROVEN plans from the library as worked examples.
             .$this->planLibrary->fewShotBlock($intent, (int) config('services.planner.few_shots', 2))
             ."\n\nПроектирай pipeline-а. Върни agents + plan_rationale (кратко обяснение на топологията).";
+
+        if ($retryFeedback !== null) {
+            $user .= "\n\n".$retryFeedback;
+        }
 
         return $this->runPhase('pipeline_design', $system, $user, $this->planSchema(), [
             'temperature' => 0.3,
@@ -351,6 +363,8 @@ PROMPT;
 ЕЗИК: всички текстови полета в revised_agents (name, role, system_prompt,
 prompt_template, qa_custom_prompt, rationale) са на БЪЛГАРСКИ. Ако заварен агент е с
 английско name или role — поправи го на кратко българско (name 2–5 думи).
+КАВИЧКИ: в текстовите стойности не пиши права двойна кавичка (") и не ползвай „…“ —
+ако ти трябват кавички, пиши «…».
 PROMPT;
 
         $user = "INTENT:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
@@ -381,7 +395,7 @@ PROMPT;
             return $plan['agents'];
         }
 
-        $revised = $result['revised_agents'] ?? [];
+        $revised = is_array($result['revised_agents'] ?? null) ? $result['revised_agents'] : [];
 
         if (! ($result['approved'] ?? true) && count($revised) >= 3) {
             Log::info('[FlowPlanner] Critique revised the plan: '.implode(' | ', $result['issues'] ?? []));
@@ -767,6 +781,10 @@ PROMPT;
         Flow $flow,
         ?string $logToken
     ): array {
+        // „…“-quoted input primes the model to close quotes with a bare ASCII "
+        // inside JSON string values, truncating them — guillemets are safe.
+        $user = TypographicQuotes::normalize($user);
+
         $providerModel = $this->generator->providerModel($phase);
 
         $log = AgentGenerationLog::create([
@@ -804,9 +822,11 @@ PROMPT;
 
         LlmContext::clear();
 
+        $parsed = $result['agents'] ?? $result['revised_agents'] ?? $result;
+
         $log->update(array_merge(LlmUsage::take(), [
             'raw_response' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
-            'parsed_count' => count($result['agents'] ?? $result['revised_agents'] ?? $result),
+            'parsed_count' => is_array($parsed) ? count($parsed) : null,
             'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
             'status' => 'completed',
         ]));

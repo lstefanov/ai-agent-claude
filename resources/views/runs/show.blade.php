@@ -1135,7 +1135,8 @@ function flowRunMonitor() {
             if (!text) return '';
             const clean = text.replace(/!\[.*?\]\(https?:\/\/[^)]+\)\n?/g, '').trim();
             if (typeof marked === 'undefined') return clean.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
-            return marked.parse(clean, { breaks: false, gfm: true });
+            // breaks:true — LLM output uses single newlines as visual line breaks.
+            return marked.parse(clean, { breaks: true, gfm: true });
         },
 
         // Strip Markdown syntax to plain text (for clipboard copy)

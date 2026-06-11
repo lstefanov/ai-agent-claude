@@ -30,23 +30,23 @@ class FinalComposerService
     {
         [$bodyParts, $appendixParts] = $this->collectParts($flowRun);
 
-        $deliverableCount = count($bodyParts) + count($appendixParts);
+        // Deduped deliverables: near-identical parts collapse, parts already
+        // contained in a larger part (assembler ingredients) are dropped.
+        $effectiveParts = $this->effectiveParts($bodyParts, $appendixParts);
 
         // Nothing to compose.
-        if ($deliverableCount === 0) {
+        if (count($effectiveParts) === 0) {
             return ['output' => '', 'model' => null];
         }
 
         // Single deliverable — no assembly needed, return it verbatim.
-        if ($deliverableCount === 1) {
-            $only = $bodyParts[0] ?? $appendixParts[0];
-
-            return ['output' => $only['output'], 'model' => null];
+        if (count($effectiveParts) === 1) {
+            return ['output' => $effectiveParts[0], 'model' => null];
         }
 
-        // Deterministic, verbatim assembly is the source of truth.
-        $deterministic = $this->deterministicAssembly($bodyParts, $appendixParts);
-        $effectiveParts = $this->effectiveParts($bodyParts, $appendixParts);
+        // Deterministic, verbatim assembly is the source of truth — the robust
+        // safety net when the LLM is unavailable or deviates.
+        $deterministic = implode("\n\n---\n\n", $effectiveParts);
 
         // LLM formatting pass — cosmetic only, guarded by a verbatim check.
         $model = (string) config('services.ollama.composer_model');
@@ -247,7 +247,8 @@ SYS;
 
     /**
      * The parts that actually appear in the deterministic assembly (after
-     * near-identical body parts are collapsed), used by the verbatim guard.
+     * near-identical body parts are collapsed and parts contained in a larger
+     * part are dropped), used by the verbatim guard.
      *
      * @param  list<array{name: string, output: string}>  $bodyParts
      * @param  list<array{name: string, output: string}>  $appendixParts
@@ -274,26 +275,80 @@ SYS;
             }
         }
 
-        return array_merge(
+        return $this->dropContainedParts(array_merge(
             array_values($effectiveBodies),
             array_map(fn ($p) => $p['output'], $appendixParts)
-        );
+        ));
     }
 
+    // Lengths within this ratio count as "near equal" for the containment
+    // tie-break (mutual containment keeps the LATER part).
+    private const CONTAINMENT_LENGTH_TOLERANCE = 0.02;
+
     /**
-     * Deterministic, verbatim assembly — the robust safety net. Used when the
-     * LLM is unavailable, returns nothing, or drops a section. Guarantees no
-     * content is ever lost.
+     * Drop parts whose content is already contained verbatim in a longer (or,
+     * for near-equal lengths, later) surviving part — e.g. hook/copy/headline
+     * outputs that a downstream assembler node re-emits inside the compiled
+     * post. Without this the final result repeats the same content under
+     * different section headings (run 81).
      *
-     * Near-identical body parts (e.g. corrected titles vs raw titles) collapse
-     * into one, keeping the LATER (corrected) version.
+     * Longest parts are decided first, so every dropped part is contained in a
+     * part that actually survives — content can never be lost.
      *
-     * @param  list<array{name: string, output: string}>  $bodyParts
-     * @param  list<array{name: string, output: string}>  $appendixParts
+     * @param  list<string>  $parts
+     * @return list<string>
      */
-    private function deterministicAssembly(array $bodyParts, array $appendixParts): string
+    private function dropContainedParts(array $parts): array
     {
-        return implode("\n\n---\n\n", $this->effectiveParts($bodyParts, $appendixParts));
+        $norms = array_map(fn ($p) => $this->normalize($p), $parts);
+        $lens = array_map('mb_strlen', $norms);
+
+        $order = array_keys($parts);
+        usort($order, fn ($a, $b) => ($lens[$b] <=> $lens[$a]) ?: ($a <=> $b));
+
+        $dropped = [];
+
+        foreach ($order as $i) {
+            foreach (array_keys($parts) as $j) {
+                if ($j === $i || isset($dropped[$j])) {
+                    continue;
+                }
+
+                $nearEqual = abs($lens[$j] - $lens[$i]) <= max($lens[$i], $lens[$j]) * self::CONTAINMENT_LENGTH_TOLERANCE;
+                if ($lens[$j] <= $lens[$i] && ! ($nearEqual && $j > $i)) {
+                    continue;
+                }
+
+                if ($this->containedIn($norms[$i], $norms[$j])) {
+                    $dropped[$i] = true;
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_filter(
+            $parts,
+            fn ($k) => ! isset($dropped[$k]),
+            ARRAY_FILTER_USE_KEY
+        ));
+    }
+
+    /** Whether enough sampled fragments of the needle appear verbatim in the haystack (both normalized). */
+    private function containedIn(string $normNeedle, string $normHaystack): bool
+    {
+        $fragments = $this->sampleFragments($normNeedle);
+        if (count($fragments) === 0) {
+            return false;
+        }
+
+        $present = 0;
+        foreach ($fragments as $fragment) {
+            if (mb_strpos($normHaystack, $fragment) !== false) {
+                $present++;
+            }
+        }
+
+        return $present / count($fragments) >= self::VERBATIM_COVERAGE_THRESHOLD;
     }
 
     /**

@@ -18,10 +18,10 @@ class QaVerifierAgent extends BaseAgent
         // The QA verifier must ALWAYS respond in English — score parsing depends on it.
         // Small models (phi3.5, phi3:mini) fail hard with language instructions in Romanian/other.
         $response = $this->ollama->chat(
-            model:        $agent->model,
+            model: $agent->model,
             systemPrompt: $this->buildQaSystemPrompt($agent),
-            userMessage:  "Review the following content and provide your quality score:\n\n{$content}",
-            options:      array_merge($this->buildOptions($agent), [
+            userMessage: "Review the following content and provide your quality score:\n\n{$content}",
+            options: array_merge($this->buildOptions($agent), [
                 'temperature' => 0.1, // Low temperature for consistent, structured output
             ])
         );
@@ -106,43 +106,20 @@ PROMPT;
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Build a clean text of the content to be reviewed.
-    // Focus on the final/caption agent output, fallback to all context.
+    // The content under review always arrives as context['input']: the gated
+    // node's output for the inline step-QA gate (runVerifierInline), or the
+    // union of upstream outputs for a dedicated verifier node (agentContext).
     // ──────────────────────────────────────────────────────────────────────
     private function buildContentForReview(array $context): string
     {
-        if (empty($context)) {
+        $content = trim((string) ($context['input'] ?? ''));
+
+        if ($content === '') {
             return 'No content to review.';
         }
 
-        // Strip system/alias keys — only look at actual agent outputs
-        $systemKeys = ['company_description', 'company_name', 'company_industry', 'input', 'topic'];
-        $agentContext = array_filter(
-            $context,
-            fn ($k) => ! in_array($k, $systemKeys, true),
-            ARRAY_FILTER_USE_KEY
-        );
-
-        if (empty($agentContext)) {
-            return 'No content to review.';
-        }
-
-        // Prefer the last agent's output (most likely the final post)
-        $lastKey    = array_key_last($agentContext);
-        $lastOutput = $agentContext[$lastKey];
-
-        // If it looks like a social media post (has hashtags or is short enough)
-        if (str_contains($lastOutput, '#') || mb_strlen($lastOutput) < 2000) {
-            return "Agent: {$lastKey}\n\n{$lastOutput}";
-        }
-
-        // Otherwise include all context (truncated)
-        $parts = [];
-        foreach ($agentContext as $name => $output) {
-            $parts[] = "=== {$name} ===\n" . mb_substr($output, 0, 400);
-        }
-
-        return implode("\n\n", $parts);
+        // Cap so the local QA model's context window isn't blown on huge reports.
+        return mb_substr($content, 0, 12000);
     }
 
     // ──────────────────────────────────────────────────────────────────────

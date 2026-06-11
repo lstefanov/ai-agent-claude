@@ -4,7 +4,7 @@
     {
       "name": "flowai",
       "runtimeExecutable": "php",
-      "runtimeArgs": ["artisan", "serve", "--port=8099"],
+      "runtimeArgs": ["/Users/lub/Sites/localhost/ai-agent-claude/artisan", "serve", "--port=8099"],
       "port": 8099
     }
   ]

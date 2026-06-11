@@ -232,6 +232,8 @@ class NodeExecutorService
             $message = "Node {$node->name} failed after ".self::MAX_ATTEMPTS.' attempts: '.$lastError->getMessage();
             $nodeRun->update(array_merge($usage, [
                 'status' => 'failed',
+                // The resolved model (auto-select leaves node->model empty).
+                'model_used' => $agentInstance?->chatParams()['model'] ?? $node->model,
                 'error' => $message,
                 'duration_ms' => $durationMs,
                 'completed_at' => now(),
@@ -242,6 +244,8 @@ class NodeExecutorService
 
         $nodeRun->update(array_merge($usage, [
             'status' => 'completed',
+            // The resolved model (auto-select leaves node->model empty).
+            'model_used' => $agentInstance?->chatParams()['model'] ?? $node->model,
             'output' => $output,
             'raw_output' => $rawOutput !== $output ? $rawOutput : null,
             'quality_metrics' => PricingOutputMetrics::fromOutput($output),

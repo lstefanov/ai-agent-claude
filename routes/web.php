@@ -67,6 +67,11 @@ Route::get('runs/{flowRun}', [FlowRunController::class, 'show'])->name('flow-run
 Route::get('runs/{flowRun}/poll', [FlowRunController::class, 'poll'])->name('flow-runs.poll');
 // Full input/output/raw_output for ONE node — fetched on demand (the poll ships metadata only).
 Route::get('runs/{flowRun}/nodes/{nodeKey}', [FlowRunController::class, 'nodeDetail'])->name('flow-runs.node-detail');
+// Тест на агент: transient single-node experiments (background process + cache token)
+// and applying a winning attempt onto the flow's current node.
+Route::post('runs/{flowRun}/nodes/{nodeKey}/test', [FlowRunController::class, 'nodeTest'])->name('flow-runs.node-test');
+Route::get('node-test-status/{token}', [FlowRunController::class, 'nodeTestStatus'])->name('flow-runs.node-test.status');
+Route::post('runs/{flowRun}/nodes/{nodeKey}/apply-test', [FlowRunController::class, 'applyTest'])->name('flow-runs.apply-test');
 Route::get('runs/{flowRun}/log', [FlowRunController::class, 'log'])->name('flow-runs.log');
 // Фаза 3: persist a succeeded mid-run revision into the flow (user-confirmed).
 Route::post('runs/{flowRun}/apply-revision', [FlowRunController::class, 'applyRevision'])->name('flow-runs.apply-revision');

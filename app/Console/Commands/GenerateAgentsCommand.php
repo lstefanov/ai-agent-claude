@@ -90,7 +90,7 @@ class GenerateAgentsCommand extends Command
             if (empty($agents)) {
                 Cache::put($cacheKey, [
                     'status' => 'failed',
-                    'error' => 'AI не върна валидни агенти. Опитай с по-подробно описание.',
+                    'error' => 'Планиращият модел върна непълен план. Опитай отново или смени провайдъра за фазата «дизайн».',
                     'agents' => [],
                     'stage' => 'Генерацията се провали',
                     'updated_at' => now()->timestamp,
@@ -121,7 +121,7 @@ class GenerateAgentsCommand extends Command
             return Command::SUCCESS;
 
         } catch (\Throwable $e) {
-            Log::error("[GenerateAgents] Failed {$token}: ".$e->getMessage());
+            Log::error("[GenerateAgents] Failed {$token}: ".$e->getMessage(), ['exception' => $e]);
 
             Cache::put($cacheKey, [
                 'status' => 'failed',

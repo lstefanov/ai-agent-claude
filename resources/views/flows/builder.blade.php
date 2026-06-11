@@ -274,7 +274,7 @@
     .df-status-failed .df-run-status-label { color: #991b1b; }
 
     .df-run-actions { display: flex; gap: 6px; }
-    .df-run-result, .df-run-log {
+    .df-run-result, .df-run-log, .df-run-test {
         font-size: 11px;
         font-weight: 700;
         border-radius: 8px;
@@ -288,6 +288,43 @@
     .df-run-result:disabled { opacity: 0.45; cursor: not-allowed; }
     .df-run-result:not(:disabled):hover { background: #e0e7ff; }
     .df-run-log:hover { background: #f8fafc; }
+    .df-run-test:disabled { opacity: 0.45; cursor: not-allowed; }
+    .df-run-test:not(:disabled):hover { background: #f8fafc; }
+
+    /* ── Provider/model badge — ALWAYS rendered so card height is identical in
+       edit and run modes; only its text/classes change at runtime. ── */
+    .df-node-model {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px;
+        border-top: 1px solid #edf2f7;
+        min-height: 26px;
+    }
+    .df-model-provider {
+        font-size: 9px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        padding: 2px 6px;
+        border-radius: 999px;
+        flex: 0 0 auto;
+    }
+    .df-model-name {
+        font-size: 11px;
+        color: #475569;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .df-prov-auto      { background: #f1f5f9; color: #64748b; }
+    .df-prov-ollama    { background: #d1fae5; color: #065f46; }
+    .df-prov-openai    { background: #e0f2fe; color: #075985; }
+    .df-prov-anthropic { background: #ffedd5; color: #9a3412; }
+    .df-prov-deepseek  { background: #dbeafe; color: #1e40af; }
+    .df-prov-gemini    { background: #ccfbf1; color: #0f766e; }
+    .df-prov-xai       { background: #e2e8f0; color: #0f172a; }
+    .df-prov-qwen      { background: #ede9fe; color: #5b21b6; }
 
     .df-final-btn {
         margin-left: 8px;
@@ -756,6 +793,204 @@
         </div>
     </div>
 
+    {{-- Тест на агент Modal: ad-hoc experiments on a finished node (nothing persisted) --}}
+    <div x-show="testModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="testModal.open = false">
+        <div class="absolute inset-0 bg-black/50" @click="testModal.open = false"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[92vh] flex flex-col" @click.stop>
+            {{-- Header: agent + original run meta --}}
+            <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">🧪 Тест на агент — експерименти без запис</p>
+                    <h3 class="text-lg font-bold text-gray-900 truncate" x-text="testModal.nodeName"></h3>
+                    <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-gray-500">
+                        <span x-text="typeLabel(testModal.nodeType)"></span>
+                        <template x-if="testModal.original">
+                            <span class="flex flex-wrap items-center gap-2">
+                                <span class="px-2 py-0.5 rounded-full bg-gray-100 font-mono" x-text="testModal.original.model || 'авто'"></span>
+                                <span x-show="testModal.original.duration_ms" x-text="(Math.round(testModal.original.duration_ms / 100) / 10) + ' сек'"></span>
+                                <span x-show="testModal.original.tokens_used" x-text="testModal.original.tokens_used + ' токена'"></span>
+                                <span x-show="testModal.original.cost_usd" x-text="'$' + Number(testModal.original.cost_usd).toFixed(4)"></span>
+                            </span>
+                        </template>
+                    </div>
+                </div>
+                <button @click="testModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+
+            {{-- Original input (collapsible) --}}
+            <div class="px-6 py-2 border-b border-gray-100 bg-gray-50/60 shrink-0">
+                <button type="button" @click="testModal.inputOpen = !testModal.inputOpen"
+                        class="text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center gap-1">
+                    <span x-text="testModal.inputOpen ? '▾' : '▸'"></span>
+                    <span>Оригинален вход (какво получи агентът)</span>
+                    <span class="text-gray-400 font-normal"
+                          x-text="testModal.original ? '· ' + (testModal.original.user_message || '').length + ' знака' : ''"></span>
+                </button>
+                <pre x-show="testModal.inputOpen" x-cloak
+                     class="mt-2 mb-1 text-xs text-gray-700 whitespace-pre-wrap bg-white border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto"
+                     x-text="testModal.original?.user_message || '—'"></pre>
+            </div>
+
+            {{-- Body: left = experiment, right = original output --}}
+            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
+                {{-- LEFT: experiment panel --}}
+                <div class="min-h-0 overflow-y-auto p-5 space-y-4">
+                    <p x-show="testModal.loading" class="text-sm text-gray-400">Зареждане на данните от run-а…</p>
+
+                    <div class="space-y-3" x-show="!testModal.loading">
+                        <div class="flex items-center justify-between">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Промптове (само за теста)</p>
+                            <button type="button" @click="resetTestForm()"
+                                    class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">↺ Възстанови оригинала</button>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">System промпт</label>
+                            <textarea x-model="testModal.form.system_prompt" rows="5"
+                                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">Потребителско съобщение (вход)</label>
+                            <textarea x-model="testModal.form.user_message" rows="7"
+                                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                            <p class="text-[11px] text-gray-400 mt-1">Промените тук важат само за теста — шаблонът на промпта в агента не се променя при „Приложи“.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Провайдър</label>
+                                <select x-model="testModal.form.provider" @change="testProviderChanged()"
+                                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <template x-for="p in testProviders()" :key="p.key">
+                                        <option :value="p.key" :disabled="!p.available"
+                                                x-text="p.label + (p.available ? '' : ' — недостъпен')"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
+                                <select x-model="testModal.form.model"
+                                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <template x-for="m in testModelOptions()" :key="m.value">
+                                        <option :value="m.value" :title="m.title" x-text="m.label"></option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 -mt-1 min-h-[16px]" x-text="testModelHint()"></p>
+
+                        <details class="text-sm">
+                            <summary class="text-xs font-semibold text-gray-500 cursor-pointer select-none">Разширени настройки</summary>
+                            <div class="grid grid-cols-2 gap-3 mt-2">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Temperature</label>
+                                    <input type="number" step="0.1" min="0" max="2" x-model="testModal.form.temperature" placeholder="—"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Max токени (num_predict)</label>
+                                    <input type="number" step="1" min="-1" x-model="testModal.form.num_predict" placeholder="—"
+                                           class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                </div>
+                            </div>
+                        </details>
+
+                        <div class="flex items-center gap-3">
+                            <button type="button" @click="runTest()" :disabled="testModal.running || !testModal.form.model"
+                                    class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2 rounded-lg transition">
+                                ⚡ Генерирай
+                            </button>
+                            <span class="text-xs text-gray-500" x-text="'Очаквана цена: ' + (testCostEstimate() || '—')"></span>
+                        </div>
+
+                        <div x-show="testModal.running" x-cloak
+                             class="flex items-center gap-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            <span class="inline-block w-3 h-3 rounded-full bg-amber-500 animate-pulse shrink-0"></span>
+                            <span>Генериране… <span class="font-mono" x-text="testModal.elapsed + ' сек'"></span></span>
+                            <span class="text-xs text-amber-600/80">Локалните модели може да отнемат минути.</span>
+                        </div>
+
+                        <div x-show="testModal.error" x-cloak
+                             class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 whitespace-pre-wrap"
+                             x-text="testModal.error"></div>
+
+                        {{-- Attempt history (session-only) --}}
+                        <div x-show="(testAttempts[testModal.nodeKey] || []).length" class="space-y-1.5">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Опити в тази сесия</p>
+                            <template x-for="(a, i) in (testAttempts[testModal.nodeKey] || [])" :key="i">
+                                <button type="button" @click="testModal.activeAttempt = i"
+                                        class="w-full flex items-center gap-2 text-left text-xs px-2.5 py-1.5 rounded-lg border transition"
+                                        :class="testModal.activeAttempt === i ? 'border-indigo-300 bg-indigo-50' : 'border-gray-200 bg-white hover:bg-gray-50'">
+                                    <span class="font-bold" :class="a.status === 'completed' ? 'text-green-600' : 'text-red-500'"
+                                          x-text="a.status === 'completed' ? '✓' : '✗'"></span>
+                                    <span class="df-model-provider" :class="'df-prov-' + (a.provider || 'ollama')" x-text="a.provider"></span>
+                                    <span class="font-mono truncate" x-text="a.model.includes('/') ? a.model.split('/').slice(1).join('/') : a.model"></span>
+                                    <span class="ml-auto text-gray-400 shrink-0"
+                                          x-text="[a.at, a.duration_ms ? (Math.round(a.duration_ms / 100) / 10) + 'с' : null, a.tokens_used ? a.tokens_used + ' ток.' : null, a.cost_usd ? '$' + Number(a.cost_usd).toFixed(4) : null].filter(Boolean).join(' · ')"></span>
+                                </button>
+                            </template>
+                        </div>
+
+                        {{-- Active attempt output --}}
+                        <template x-if="activeTestAttempt()">
+                            <div class="border border-indigo-200 rounded-xl overflow-hidden">
+                                <div class="px-4 py-2 bg-indigo-50/60 flex flex-wrap items-center justify-between gap-2">
+                                    <p class="text-xs font-bold text-indigo-700">Нов резултат — <span class="font-mono" x-text="activeTestAttempt().model"></span></p>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-emerald-700 font-semibold" x-show="testModal.appliedNotice" x-text="testModal.appliedNotice"></span>
+                                        <button type="button" @click="applyAttempt(testModal.activeAttempt)"
+                                                x-show="activeTestAttempt().status === 'completed'" :disabled="testModal.applying"
+                                                title="Записва модела (и системния промпт, ако е редактиран) в агента на текущия flow"
+                                                class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition">
+                                            ✅ Приложи в агента
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="p-4">
+                                    <div x-show="activeTestAttempt().error"
+                                         class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 whitespace-pre-wrap"
+                                         x-text="activeTestAttempt().error"></div>
+                                    <div x-show="activeTestAttempt().output"
+                                         class="md-output text-sm text-gray-800 leading-relaxed"
+                                         x-html="renderMd(activeTestAttempt().output)"></div>
+                                    {{-- Thinking model burned the whole budget inside <think> --}}
+                                    <div x-show="!activeTestAttempt().output && !activeTestAttempt().error && activeTestAttempt().raw_output" x-cloak>
+                                        <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">
+                                            Моделът върна само вътрешен reasoning (&lt;think&gt;) — увеличи „Max токени“ и опитай пак. Суров отговор:
+                                        </p>
+                                        <pre class="text-xs text-gray-500 whitespace-pre-wrap bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-60 overflow-y-auto"
+                                             x-text="activeTestAttempt().raw_output"></pre>
+                                    </div>
+                                    <p x-show="!activeTestAttempt().output && !activeTestAttempt().error && !activeTestAttempt().raw_output"
+                                       class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                                        Празен отговор — при thinking модели (qwen3, deepseek-r1) целият бюджет може да отиде за вътрешен reasoning. Увеличи „Max токени“ в Разширени настройки и опитай пак.
+                                    </p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- RIGHT: original output (the comparison reference) --}}
+                <div class="min-h-0 overflow-y-auto p-5 bg-gray-50/50">
+                    <div class="flex items-center justify-between mb-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Оригинален резултат от run-а</p>
+                        <span class="text-xs text-gray-400 font-mono" x-text="testModal.original?.model || ''"></span>
+                    </div>
+                    <template x-if="testModal.original && testModal.original.error && !testModal.original.output">
+                        <div class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 whitespace-pre-wrap"
+                             x-text="testModal.original.error"></div>
+                    </template>
+                    <div x-show="testModal.original?.output"
+                         class="md-output text-sm text-gray-800 leading-relaxed"
+                         x-html="renderMd(testModal.original?.output)"></div>
+                    <p x-show="testModal.original && !testModal.original.output && !testModal.original.error"
+                       class="text-sm text-gray-400">Няма запазен изход.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {{-- Agent Generation Log Modal --}}
     <div x-show="genLogModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="genLogModal.open = false">
@@ -971,8 +1206,8 @@
          class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="closeNodeModal()">
         <div class="absolute inset-0 bg-black/40" @click="closeNodeModal()"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden" @click.stop>
-            <div class="px-6 py-5 border-b border-gray-100 flex items-start justify-between gap-4">
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col" @click.stop>
+            <div class="px-6 py-5 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
                 <div class="min-w-0">
                     <div class="flex items-center gap-2 mb-0.5">
                         <p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Свойства на агент-бокс</p>
@@ -985,8 +1220,8 @@
             </div>
 
             <template x-if="selected">
-                <div>
-                    <div class="flex px-6 border-b border-gray-200 gap-1">
+                <div class="flex-1 min-h-0 flex flex-col">
+                    <div class="flex px-6 border-b border-gray-200 gap-1 shrink-0">
                         <template x-for="tab in propsTabs" :key="tab.id">
                             <button type="button"
                                     @click="propsTab = tab.id"
@@ -999,7 +1234,7 @@
                         </template>
                     </div>
 
-                    <div class="p-6 overflow-y-auto max-h-[calc(92vh-185px)]">
+                    <div class="p-6 overflow-y-auto flex-1 min-h-0">
                         <div x-show="propsTab === 'basic'" class="space-y-5">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
@@ -1348,7 +1583,7 @@
                         </div>
                     </div>
 
-                    <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-3">
+                    <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-3 shrink-0">
                         {{-- Read-only: only Close; Edit: Delete + Cancel + Save --}}
                         <template x-if="!modalReadOnly">
                             <button type="button" @click="removeSelectedFromModal()"
@@ -1489,6 +1724,21 @@ function flowBuilder(config) {
         finalOutput: null,
         resultModal: { open: false, title: '', body: '' },
         logModal: { open: false, title: '', meta: {}, error: '', steps: '', input: '', params: null, systemPrompt: '', output: '' },
+        // ── Тест на агент (ad-hoc experiments on a finished node) ──
+        testModal: {
+            open: false, nodeKey: null, nodeName: '', nodeType: '',
+            loading: false,    // fetching nodeDetail on open
+            inputOpen: false,  // collapsible original input
+            original: null,    // { model, system_prompt, user_message, options, output, error, status, duration_ms, tokens_used, cost_usd }
+            form: { provider: 'ollama', model: '', system_prompt: '', user_message: '', temperature: '', num_predict: '' },
+            running: false, token: null, startedAt: 0, elapsed: 0, _timer: null,
+            error: '',
+            activeAttempt: -1, // index into testAttempts[nodeKey]; -1 = none yet
+            applying: false, appliedNotice: '',
+        },
+        // node_key → [{ model, provider, at, duration_ms, tokens_used, cost_usd, output, error, status, system_prompt }]
+        // Survives popup close; dies on page reload. Never persisted.
+        testAttempts: {},
         finalModal: { open: false, body: '' },
         genLogModal: { open: false, loading: false, logs: [], error: '' },
         modalReadOnly: false, // true in run/view modes — makes the properties modal display-only
@@ -1578,16 +1828,19 @@ function flowBuilder(config) {
         bindRunClicks(el) {
             el.addEventListener('click', (event) => {
                 const result = event.target.closest('.df-run-result');
+                const test = event.target.closest('.df-run-test');
                 const log = event.target.closest('.df-run-log');
                 const final = event.target.closest('.df-final-btn');
-                if (!result && !log && !final) return;
+                if (!result && !test && !log && !final) return;
                 event.preventDefault();
                 event.stopPropagation();
                 if (final) { this.openFinal(); return; }
-                const nodeEl = (result || log).closest('.drawflow-node');
+                const nodeEl = (result || test || log).closest('.drawflow-node');
                 if (!nodeEl) return;
                 const key = nodeEl.id.replace('node-', '');
-                if (result) this.openResult(key); else this.openLog(key);
+                if (result) this.openResult(key);
+                else if (test) { if (!test.disabled) this.openTest(key); }
+                else this.openLog(key);
             }, true);
         },
 
@@ -1774,6 +2027,30 @@ function flowBuilder(config) {
             return this.templateIcons[data.type] || this.typeIconFallbacks[data.type] || data.icon || '🤖';
         },
 
+        // ── Provider/model badge ──
+        // '' → null (авто-избор при изпълнение); 'openai/gpt-4o' → 'openai';
+        // anything unprefixed → local Ollama.
+        modelProviderOf(model) {
+            if (!model) return null;
+            const paid = ['openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen'];
+            const slash = String(model).indexOf('/');
+            if (slash > 0 && paid.includes(model.slice(0, slash))) return model.slice(0, slash);
+            return 'ollama';
+        },
+
+        modelBadge(model) {
+            const provider = this.modelProviderOf(model);
+            if (!provider) {
+                return { cls: 'df-prov-auto', providerLabel: 'авто', name: 'авто-избор', full: 'Моделът се избира автоматично при изпълнение' };
+            }
+            if (provider === 'ollama') {
+                const known = (this.models || []).find(m => m.ollama_tag === model);
+                return { cls: 'df-prov-ollama', providerLabel: 'Ollama', name: known?.display_name || model, full: model };
+            }
+            const labels = { openai: 'OpenAI', anthropic: 'Anthropic', deepseek: 'DeepSeek', gemini: 'Gemini', xai: 'xAI', qwen: 'Qwen' };
+            return { cls: `df-prov-${provider}`, providerLabel: labels[provider], name: String(model).slice(provider.length + 1), full: model };
+        },
+
         nodeHtml(data) {
             if (this.isBoundaryData(data)) {
                 return this.boundaryNodeHtml(data);
@@ -1782,12 +2059,15 @@ function flowBuilder(config) {
             const role = this.effectiveOutputRole(data);
             const icon = this.resolveIcon(data);
             const roleDescription = this.roleDescription(role);
+            const badge = this.modelBadge(data.model || '');
 
             // The run-extra block is ALWAYS rendered but collapsed in edit mode
             // via the df-run-hidden class so the card has no dead space below the
             // ports. When we flip into run mode the block expands and the card
             // grows; applyRunStatuses() calls editor.updateConnectionNodes() on
             // the reveal so the cached connection endpoints follow the port dots.
+            // The model badge row is always visible; in run/view mode
+            // paintModelBadge() swaps its text to the actually used model.
             return `<div class="df-node-card df-run-hidden ${this.roleClass(role)}">
                         <div class="df-node-header">
                             <div class="df-node-icon">${this.escapeHtml(icon)}</div>
@@ -1796,6 +2076,10 @@ function flowBuilder(config) {
                                 <div class="df-node-type">${this.escapeHtml(this.typeLabel(data.type))}</div>
                             </div>
                             <button type="button" class="df-node-edit nodrag" title="Свойства" aria-label="Свойства">⚙</button>
+                        </div>
+                        <div class="df-node-model" data-model="${this.escapeHtml(data.model || '')}">
+                            <span class="df-model-provider ${badge.cls}">${this.escapeHtml(badge.providerLabel)}</span>
+                            <span class="df-model-name" title="${this.escapeHtml(badge.full)}">${this.escapeHtml(badge.name)}</span>
                         </div>
                         <div class="df-node-footer">
                             <span class="df-port-label df-port-label-in">вход</span>
@@ -1807,6 +2091,7 @@ function flowBuilder(config) {
                             <div class="df-run-status-label">Изчаква своя ред</div>
                             <div class="df-run-actions">
                                 <button type="button" class="df-run-result nodrag" disabled>Резултат</button>
+                                <button type="button" class="df-run-test nodrag" title="Тест на агента — експерименти с друг модел/промпт" disabled>🧪</button>
                                 <button type="button" class="df-run-log nodrag" title="Лог">📜</button>
                             </div>
                         </div>
@@ -2460,7 +2745,9 @@ function flowBuilder(config) {
                     started_at_iso: nr.started_at_iso,
                     completed_at_iso: nr.completed_at_iso,
                     error: nr.error,
-                    model: nr.model_used,
+                    // Empty model_used (old runs / still-running auto nodes) must
+                    // never clobber a model already learned from params_snapshot.
+                    model: nr.model_used || (this.runData[key] || {}).model,
                     tokens_used: nr.tokens_used,
                     output_preview: nr.output_preview,
                     output_chars: nr.output_chars,
@@ -2564,6 +2851,13 @@ function flowBuilder(config) {
 
             resultBtn.disabled = status !== 'completed';
 
+            // Тестът е смислен само когато има записан вход — т.е. възелът е
+            // стигнал до изпълнение (completed или failed).
+            const testBtn = card.querySelector('.df-run-test');
+            if (testBtn) testBtn.disabled = !(status === 'completed' || status === 'failed');
+
+            this.paintModelBadge(card, key);
+
             // Update the small text label under the bar.
             if (label) {
                 if (status === 'running' && progress && (progress.pages_total > 0 || progress.phase === 'discovery')) {
@@ -2594,6 +2888,21 @@ function flowBuilder(config) {
                     label.title = '';
                 }
             }
+        },
+
+        // Swap the badge text to the actually used model once the run reports it.
+        // Text-only mutation (the row is always rendered) → card height constant.
+        paintModelBadge(card, key) {
+            const row = card.querySelector('.df-node-model');
+            if (!row) return;
+            const actual = (this.runData[key] || {}).model;
+            if (!actual || actual === row.dataset.model) return;
+            const badge = this.modelBadge(actual);
+            const prov = row.querySelector('.df-model-provider');
+            const name = row.querySelector('.df-model-name');
+            if (prov) { prov.textContent = badge.providerLabel; prov.className = 'df-model-provider ' + badge.cls; }
+            if (name) { name.textContent = badge.name; name.title = badge.full; }
+            row.dataset.model = actual;
         },
 
         // Lightweight 1s tick so the running-node bar visibly creeps between polls.
@@ -2633,7 +2942,10 @@ function flowBuilder(config) {
             if (typeof marked === 'undefined') {
                 return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>');
             }
-            return marked.parse(String(text), { breaks: false, gfm: true });
+            // breaks:true — LLM output uses single newlines as visual line breaks
+            // (e.g. slogan lists without markdown bullets); soft-break collapsing
+            // would merge them into one line.
+            return marked.parse(String(text), { breaks: true, gfm: true });
         },
 
         // On-demand fetch of the full node payload (input/output/raw_output/params)
@@ -2652,7 +2964,12 @@ function flowBuilder(config) {
                     raw_output: detail.raw_output,
                     input: detail.input,
                     params: detail.params,
-                    model: detail.model_used || current.model,
+                    model: detail.model_used || detail.params?.model || current.model,
+                    tokens_used: detail.tokens_used ?? current.tokens_used,
+                    prompt_tokens: detail.prompt_tokens,
+                    completion_tokens: detail.completion_tokens,
+                    cost_usd: detail.cost_usd,
+                    duration_ms: detail.duration_ms ?? current.duration_ms,
                     _detailStatus: current.status,
                 });
                 return this.runData[key];
@@ -2751,6 +3068,281 @@ function flowBuilder(config) {
             };
         },
 
+        // ───────────────────────── Тест на агент ─────────────────────────
+        // Ad-hoc experiments on a finished node: same input, editable prompts,
+        // any provider/model. Nothing is persisted unless „Приложи“ is clicked.
+
+        async openTest(key) {
+            const node = this.editor.getNodeFromId(key);
+            const t = this.testModal;
+            // Opening a different node releases the running state of the popup;
+            // an in-flight test keeps polling and lands in testAttempts anyway.
+            if (t.nodeKey !== key && t._timer) { clearInterval(t._timer); t._timer = null; }
+            if (t.nodeKey !== key) { t.running = false; t.token = null; t.elapsed = 0; }
+            t.open = true;
+            t.loading = true;
+            t.nodeKey = key;
+            t.nodeName = node?.data?.name || ('Възел ' + key);
+            t.nodeType = node?.data?.type || '';
+            t.error = '';
+            t.appliedNotice = '';
+            t.inputOpen = false;
+
+            const d = await this.fetchNodeDetail(key);
+            const p = d.params || {};
+            t.original = {
+                model: d.model || p.model || node?.data?.model || '',
+                system_prompt: p.system_prompt ?? node?.data?.system_prompt ?? '',
+                user_message: p.user_message ?? d.input ?? '',
+                options: p.options || {},
+                output: d.output || '',
+                error: d.error || '',
+                status: d.status || '',
+                duration_ms: d.duration_ms,
+                tokens_used: d.tokens_used,
+                cost_usd: d.cost_usd,
+            };
+            this.resetTestForm();
+            t.activeAttempt = (this.testAttempts[key] || []).length - 1;
+            t.loading = false;
+        },
+
+        // „Възстанови оригинала“ — prompts/options/model back to the run's snapshot.
+        resetTestForm() {
+            const o = this.testModal.original || {};
+            const f = this.testModal.form;
+            f.system_prompt = o.system_prompt || '';
+            f.user_message = o.user_message || '';
+            f.temperature = o.options?.temperature ?? '';
+            f.num_predict = o.options?.num_predict ?? '';
+            f.provider = this.modelProviderOf(o.model) || 'ollama';
+            if (f.provider === 'ollama' && !o.model) {
+                f.model = (this.models[0] || {}).ollama_tag || '';
+            } else {
+                f.model = o.model;
+            }
+        },
+
+        testProviders() {
+            const labels = { ollama: 'Ollama (локален, безплатен)', openai: 'OpenAI', anthropic: 'Anthropic', deepseek: 'DeepSeek', gemini: 'Gemini', xai: 'xAI', qwen: 'Qwen' };
+            return ['ollama', 'openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen'].map(p => ({
+                key: p,
+                label: labels[p],
+                available: p === 'ollama' ? (this.plannerAvailability.ollama ?? true) : !!this.plannerAvailability[p],
+            }));
+        },
+
+        testProviderChanged() {
+            const opts = this.testModelOptions();
+            this.testModal.form.model = opts.length ? opts[0].value : '';
+        },
+
+        testModelOptions() {
+            const f = this.testModal.form;
+            if (f.provider === 'ollama') {
+                const type = this.testModal.nodeType;
+                const rec = this.models.filter(m => (m.is_default_for || []).includes(type));
+                const rest = this.models.filter(m => !(m.is_default_for || []).includes(type));
+                const opts = [...rec, ...rest].map(m => ({
+                    value: m.ollama_tag,
+                    label: ((m.is_default_for || []).includes(type) ? '★ ' : '') + (m.display_name || m.ollama_tag) + ' · ' + m.ollama_tag,
+                    title: m.description || m.category || '',
+                }));
+                // The run's model may be missing from the installed list (e.g.
+                // remote Ollama host) — keep it selectable anyway.
+                const orig = this.testModal.original?.model;
+                if (orig && this.modelProviderOf(orig) === 'ollama' && !opts.some(o => o.value === orig)) {
+                    opts.unshift({ value: orig, label: orig + ' (моделът от run-а)', title: 'Моделът, използван в оригиналния run' });
+                }
+                return opts;
+            }
+            const opts = ((config.cloudModels || {})[f.provider] || []).map(m => {
+                const info = this.picker.cloudInfo(f.provider, m);
+                return {
+                    value: f.provider + '/' + m,
+                    label: m + (info?.stars ? ' · ' + this.picker.ratingStars(info.stars) : ''),
+                    title: info?.desc || '',
+                };
+            });
+            const orig = this.testModal.original?.model;
+            if (orig && this.modelProviderOf(orig) === f.provider && !opts.some(o => o.value === orig)) {
+                opts.unshift({ value: orig, label: orig.split('/').slice(1).join('/') + ' (моделът от run-а)', title: 'Моделът, използван в оригиналния run' });
+            }
+            return opts;
+        },
+
+        // Hint under the model select: stars · description · estimated cost.
+        testModelHint() {
+            const f = this.testModal.form;
+            if (!f.model) return '';
+            if (f.provider === 'ollama') {
+                const m = this.models.find(x => x.ollama_tag === f.model);
+                const desc = (m?.description || '').split('.')[0];
+                return [desc, 'безплатно (локален)'].filter(Boolean).join(' · ');
+            }
+            const info = this.picker.cloudInfo(f.provider, f.model.split('/').slice(1).join('/'));
+            if (!info) return '';
+            return [info.stars ? this.picker.ratingStars(info.stars) : '', info.desc || '', this.testCostEstimate()]
+                .filter(Boolean).join(' · ');
+        },
+
+        // Rough cost for one generation: chars/2.5 ≈ tokens in (BG text), num_predict out.
+        testCostEstimate() {
+            const f = this.testModal.form;
+            if (!f.model || f.provider === 'ollama') return 'безплатно';
+            const info = this.picker.cloudInfo(f.provider, f.model.split('/').slice(1).join('/'));
+            if (!info || (!info.in && !info.out)) return '';
+            const inTok = (String(f.system_prompt).length + String(f.user_message).length) / 2.5;
+            const outTok = Number(f.num_predict) > 0 ? Number(f.num_predict) : 1500;
+            const cost = (inTok * (info.in || 0) + outTok * (info.out || 0)) / 1e6;
+            return '~$' + cost.toFixed(4);
+        },
+
+        activeTestAttempt() {
+            const list = this.testAttempts[this.testModal.nodeKey] || [];
+            return list[this.testModal.activeAttempt] || null;
+        },
+
+        async runTest() {
+            const t = this.testModal;
+            if (t.running || !t.form.model || !t.form.user_message) return;
+            t.error = '';
+            t.appliedNotice = '';
+
+            // Preserve the run's sampler options (num_ctx, top_p…), override
+            // only what the form exposes.
+            const options = Object.assign({}, t.original?.options || {});
+            delete options.http_timeout;
+            if (t.form.temperature !== '' && t.form.temperature !== null) options.temperature = Number(t.form.temperature);
+            if (t.form.num_predict !== '' && t.form.num_predict !== null) options.num_predict = Number(t.form.num_predict);
+
+            let res, data;
+            try {
+                res = await fetch(`${config.nodeDetailUrlBase}/${encodeURIComponent(t.nodeKey)}/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': config.csrf },
+                    body: JSON.stringify({
+                        model: t.form.model,
+                        system_prompt: t.form.system_prompt,
+                        user_message: t.form.user_message,
+                        options,
+                    }),
+                });
+                data = await res.json();
+            } catch (e) {
+                t.error = 'Мрежова грешка: ' + e.message;
+                return;
+            }
+            if (!res.ok) {
+                t.error = data?.error || data?.message || ('HTTP ' + res.status);
+                return;
+            }
+
+            t.running = true;
+            t.token = data.token;
+            t.startedAt = Date.now();
+            t.elapsed = 0;
+            if (t._timer) clearInterval(t._timer);
+            t._timer = setInterval(() => { t.elapsed = Math.round((Date.now() - t.startedAt) / 1000); }, 500);
+
+            this.pollTest(t.nodeKey, data.token, { model: t.form.model, system_prompt: t.form.system_prompt });
+        },
+
+        // Poll the test token until it finishes. Captures node + form so the
+        // attempt lands correctly even if the popup was closed or switched to
+        // another node meanwhile.
+        pollTest(key, token, formSnapshot) {
+            const tick = async () => {
+                let data = null;
+                let expired = false;
+                try {
+                    const res = await fetch(`${config.nodeTestStatusUrlBase}/${token}`, { headers: { 'Accept': 'application/json' } });
+                    expired = res.status === 404;
+                    data = await res.json();
+                } catch (e) { /* transient network error — keep polling */ }
+
+                const finished = data && ['completed', 'failed'].includes(data.status);
+                if (!finished && !expired) { setTimeout(tick, 2000); return; }
+
+                if (finished) {
+                    if (!this.testAttempts[key]) this.testAttempts[key] = [];
+                    this.testAttempts[key].push({
+                        status: data.status,
+                        model: formSnapshot.model,
+                        provider: this.modelProviderOf(formSnapshot.model),
+                        system_prompt: formSnapshot.system_prompt,
+                        at: new Date().toLocaleTimeString('bg-BG', { hour: '2-digit', minute: '2-digit' }),
+                        duration_ms: data.duration_ms,
+                        tokens_used: data.tokens_used,
+                        cost_usd: data.cost_usd,
+                        output: data.output || '',
+                        raw_output: data.raw_output || '',
+                        error: data.error || '',
+                    });
+                    if (this.testModal.nodeKey === key) {
+                        this.testModal.activeAttempt = this.testAttempts[key].length - 1;
+                    }
+                }
+
+                // Release the running state only if this is still the active test.
+                if (this.testModal.token === token) {
+                    this.testModal.running = false;
+                    this.testModal.token = null;
+                    if (this.testModal._timer) { clearInterval(this.testModal._timer); this.testModal._timer = null; }
+                    if (expired) this.testModal.error = 'Токенът на теста изтече. Опитай отново.';
+                }
+            };
+            setTimeout(tick, 1500);
+        },
+
+        // „Приложи в агента“: model always; system prompt only when edited.
+        // The user message is never persisted — it's the rendered input, not
+        // the prompt template.
+        async applyAttempt(i) {
+            const t = this.testModal;
+            const a = (this.testAttempts[t.nodeKey] || [])[i];
+            if (!a || a.status !== 'completed' || t.applying) return;
+
+            const stripOutputBlock = (s) => String(s || '').replace(/\n\n---\nOUTPUT REQUIREMENTS:\n[\s\S]*$/, '');
+            const sysEdited = (a.system_prompt || '') !== (t.original?.system_prompt || '');
+            const sysToApply = sysEdited ? stripOutputBlock(a.system_prompt) : null;
+
+            if (this.mode === 'edit') {
+                const node = this.editor.getNodeFromId(t.nodeKey);
+                if (!node) { t.error = 'Възелът не е намерен в редактора.'; return; }
+                const data = this.normalizeNodeData(Object.assign({}, node.data, {
+                    model: a.model,
+                    ...(sysToApply && sysToApply.trim() !== '' ? { system_prompt: sysToApply } : {}),
+                }));
+                this.updateNodeLabel(t.nodeKey, data);
+                t.appliedNotice = 'Записано в редактора — натисни „Запази“, за да остане.';
+                return;
+            }
+
+            const what = sysEdited ? 'модела и системния промпт' : 'модела';
+            if (!confirm(`Това ще промени ${what} на агент „${t.nodeName}“ в текущия flow (не пипа този run). Продължи?`)) return;
+
+            t.applying = true;
+            t.error = '';
+            try {
+                const res = await fetch(`${config.nodeDetailUrlBase}/${encodeURIComponent(t.nodeKey)}/apply-test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': config.csrf },
+                    body: JSON.stringify({ model: a.model, system_prompt: sysToApply }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.ok) {
+                    t.error = data.error || ('Прилагането се провали (HTTP ' + res.status + ').');
+                    return;
+                }
+                t.appliedNotice = 'Приложено във flow-а ✓ — ще важи при следващия run.';
+            } catch (e) {
+                t.error = 'Мрежова грешка: ' + e.message;
+            } finally {
+                t.applying = false;
+            }
+        },
+
         openFinal() {
             this.finalModal = { open: true, body: this.finalOutput || '' };
         },
@@ -2775,7 +3367,10 @@ function flowBuilder(config) {
         // ───────────────────────── Agent generation (DAG) ─────────────────────────
 
         startGeneration(autoSave, phases = null) {
-            if (this.gen.active) return;
+            // Block double-starts only while a generation is actually running —
+            // after a failure the modal stays active to show the error, and
+            // "Опитай пак" must be able to restart.
+            if (this.gen.active && !this.gen.error) return;
             const hasNodes = Object.values(this.editor.export().drawflow.Home.data || {})
                 .some(n => !this.isBoundaryData(n.data));
             if (hasNodes && !config.generate) {

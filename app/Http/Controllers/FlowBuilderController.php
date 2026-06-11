@@ -45,6 +45,7 @@ class FlowBuilderController extends Controller
             'openai' => ['runtime' => config('services.openai.runtime_model'), 'generator' => config('services.openai.model')],
             'anthropic' => ['runtime' => config('services.anthropic.runtime_model'), 'generator' => config('services.anthropic.model')],
             'deepseek' => ['runtime' => config('services.deepseek.runtime_model'), 'generator' => config('services.deepseek.model')],
+            'gemini' => ['runtime' => config('services.gemini.runtime_model'), 'generator' => config('services.gemini.model')],
             'xai' => ['runtime' => config('services.xai.runtime_model'), 'generator' => config('services.xai.model')],
             'qwen' => ['runtime' => config('services.qwen.runtime_model'), 'generator' => config('services.qwen.model')],
         ])
@@ -157,6 +158,9 @@ class FlowBuilderController extends Controller
             'pollUrl' => $pollRun ? route('flow-runs.poll', $pollRun) : null,
             // Full node payloads are fetched on demand — the poll is metadata-only.
             'nodeDetailUrlBase' => $pollRun ? url("runs/{$pollRun->id}/nodes") : null,
+            // Тест на агент: poll URL for ad-hoc test tokens (POST URLs derive
+            // from nodeDetailUrlBase: …/{key}/test and …/{key}/apply-test).
+            'nodeTestStatusUrlBase' => url('node-test-status'),
             'pickerUrl' => route('agent-templates.picker'),
             'generateFieldUrl' => route('agents.generate-field'),
             'generateUrl' => route('flows.generate-agents'),

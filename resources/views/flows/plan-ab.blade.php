@@ -64,8 +64,7 @@
                                                 :title="m.title || ''" x-text="m.label"></option>
                                     </template>
                                 </select>
-                                <p class="text-[11px] text-gray-400 mt-1 truncate"
-                                   :title="picker.singleModelHint(label, cardModel[label])"
+                                <p class="text-[11px] text-gray-400 mt-1"
                                    x-text="picker.singleModelHint(label, cardModel[label])"></p>
                             </div>
                         </template>

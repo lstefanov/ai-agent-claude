@@ -6,8 +6,25 @@
 @section('content')
 @php
     $fmtUsd = fn ($v) => '$' . number_format((float) $v, 2);
+    // Per-model sums are often sub-cent — add decimals so they don't all read $0.00.
+    $fmtUsdSmart = fn ($v) => '$' . number_format((float) $v, match (true) {
+        (float) $v > 0 && (float) $v < 0.0001 => 6,
+        (float) $v > 0 && (float) $v < 0.01 => 4,
+        default => 2,
+    });
     $fmtInt = fn ($v) => number_format((int) $v);
     $hasFilters = collect($filters)->filter(fn ($v) => $v !== null && $v !== '')->isNotEmpty();
+
+    $providerStyles = [
+        'openai'    => ['border-emerald-200', 'text-emerald-600', 'text-emerald-700'],
+        'anthropic' => ['border-violet-200',  'text-violet-600',  'text-violet-700'],
+        'deepseek'  => ['border-blue-200',    'text-blue-600',    'text-blue-700'],
+        'gemini'    => ['border-amber-200',   'text-amber-600',   'text-amber-700'],
+        'xai'       => ['border-gray-300',    'text-gray-600',    'text-gray-800'],
+        'qwen'      => ['border-orange-200',  'text-orange-600',  'text-orange-700'],
+        'ollama'    => ['border-gray-200',    'text-gray-500',    'text-gray-700'],
+    ];
+    $defaultStyle = ['border-gray-200', 'text-gray-500', 'text-gray-700'];
 @endphp
 
 <div class="flex items-center justify-between mb-6">
@@ -18,7 +35,7 @@
 </div>
 
 {{-- ── Summary cards ─────────────────────────────────────────────────── --}}
-<div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 mb-8">
+<div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
     <div class="bg-white border border-gray-200 rounded-xl p-4">
         <p class="text-xs text-gray-500 uppercase tracking-wide">Общо разход</p>
         <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsd($summary['total_cost']) }}</p>
@@ -51,15 +68,34 @@
             <span class="text-gray-600 font-medium">{{ $fmtInt($summary['free_tokens']) }}</span> безпл.
         </p>
     </div>
-    <div class="bg-white border border-emerald-200 rounded-xl p-4">
-        <p class="text-xs text-emerald-600 uppercase tracking-wide">OpenAI</p>
-        <p class="text-2xl font-bold text-emerald-700 mt-1">{{ $fmtUsd($summary['openai_cost']) }}</p>
-    </div>
-    <div class="bg-white border border-violet-200 rounded-xl p-4">
-        <p class="text-xs text-violet-600 uppercase tracking-wide">Anthropic</p>
-        <p class="text-2xl font-bold text-violet-700 mt-1">{{ $fmtUsd($summary['anthropic_cost']) }}</p>
-    </div>
 </div>
+
+{{-- ── Provider boxes: total + per-model cost breakdown ──────────────── --}}
+@if(count($providers))
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-8">
+    @foreach($providers as $p)
+        @php [$border, $label, $value] = $providerStyles[$p['provider']] ?? $defaultStyle; @endphp
+        <div class="bg-white border {{ $border }} rounded-xl p-4">
+            <div class="flex items-baseline justify-between">
+                <p class="text-xs {{ $label }} uppercase tracking-wide font-semibold">{{ $p['provider'] }}</p>
+                <p class="text-xs text-gray-400">{{ $fmtInt($p['requests']) }} {{ $p['requests'] === 1 ? 'заявка' : 'заявки' }}</p>
+            </div>
+            <p class="text-2xl font-bold {{ $value }} mt-1">{{ $fmtUsdSmart($p['total']) }}</p>
+            <ul class="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                @foreach($p['models'] as $m)
+                    <li class="flex items-baseline justify-between gap-2 text-xs">
+                        <span class="text-gray-600 truncate" title="{{ $m['model'] }}">{{ $m['model'] }}</span>
+                        <span class="shrink-0 text-right">
+                            <span class="font-semibold text-gray-800">{{ $fmtUsdSmart($m['cost']) }}</span>
+                            <span class="text-gray-400 ml-1">{{ $fmtInt($m['requests']) }}×</span>
+                        </span>
+                    </li>
+                @endforeach
+            </ul>
+        </div>
+    @endforeach
+</div>
+@endif
 
 {{-- ── Charts ────────────────────────────────────────────────────────── --}}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
@@ -99,7 +135,7 @@
       class="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-end">
     <div class="min-w-[120px] flex-1">
         <label class="block text-xs text-gray-500 mb-1">Провайдър</label>
-        <select name="provider" class="w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5">
+        <select name="provider" id="f-provider" class="w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5">
             <option value="">Всички</option>
             @foreach($filterOptions['providers'] as $p)
                 <option value="{{ $p }}" @selected(($filters['provider'] ?? '') === $p)>{{ $p }}</option>
@@ -108,7 +144,7 @@
     </div>
     <div class="min-w-[160px] flex-1">
         <label class="block text-xs text-gray-500 mb-1">Модел</label>
-        <select name="model" class="w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5">
+        <select name="model" id="f-model" class="w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5">
             <option value="">Всички</option>
             @foreach($filterOptions['models'] as $m)
                 <option value="{{ $m }}" @selected(($filters['model'] ?? '') === $m)>{{ $m }}</option>
@@ -253,14 +289,35 @@ const ROWS   = @json($rows);
 const DETAIL_URL      = "{{ url('admin/costs/detail') }}";
 const GROUP_DETAIL_URL = "{{ url('admin/costs/group-detail') }}";
 
+// ── Linked filter dropdowns: "Модел" shows only the chosen provider's models ──
+const MODELS_BY_PROVIDER = @json($filterOptions['modelsByProvider']);
+const providerSel = document.getElementById('f-provider');
+const modelSel    = document.getElementById('f-model');
+
+function syncModelOptions() {
+    const models = providerSel.value
+        ? (MODELS_BY_PROVIDER[providerSel.value] || [])
+        : [...new Set(Object.values(MODELS_BY_PROVIDER).flat())].sort();
+    const current = modelSel.value; // keep the selection when still valid, else reset to "Всички"
+    modelSel.innerHTML = '<option value="">Всички</option>'
+        + models.map(m => `<option value="${m}">${m}</option>`).join('');
+    if (models.includes(current)) modelSel.value = current;
+}
+providerSel.addEventListener('change', syncModelOptions);
+syncModelOptions();
+
 // ── Colour palette ────────────────────────────────────────────────────
 const C = { emerald:'#10b981', violet:'#8b5cf6', indigo:'#6366f1',
             amber:'#f59e0b', sky:'#0ea5e9', rose:'#f43f5e',
             gray:'#9ca3af', teal:'#14b8a6' };
 const PALETTE = [C.indigo, C.emerald, C.violet, C.amber, C.sky, C.rose, C.teal, C.gray];
 
+const PROVIDER_CHART_COLORS = {
+    openai: C.emerald, anthropic: C.violet, deepseek: C.sky,
+    gemini: C.amber, xai: C.gray, qwen: C.rose, ollama: C.teal,
+};
 function providerColors(labels) {
-    return labels.map(l => l === 'openai' ? C.emerald : l === 'anthropic' ? C.violet : C.gray);
+    return labels.map(l => PROVIDER_CHART_COLORS[l] || C.gray);
 }
 
 // ── Charts ────────────────────────────────────────────────────────────

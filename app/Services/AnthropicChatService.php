@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -69,6 +71,10 @@ class AnthropicChatService
             'tools' => [[
                 'name' => $schemaName,
                 'description' => 'Върни резултата СТРИКТНО по схемата на този инструмент.',
+                // Strict tool use: the API validates the input against the
+                // schema, so nested arrays can't come back double-encoded
+                // as JSON strings.
+                'strict' => true,
                 'input_schema' => $schema,
             ]],
             'tool_choice' => ['type' => 'tool', 'name' => $schemaName],
@@ -106,11 +112,21 @@ class AnthropicChatService
             $payload['top_p'] = (float) $options['top_p'];
         }
 
+        // Transient failures (529 overloaded, rate-limit 429s, 5xx, network
+        // blips) get 3 retries with growing backoff; client errors fail fast.
         $response = Http::withHeaders([
             'x-api-key' => (string) config('services.anthropic.api_key'),
             'anthropic-version' => (string) config('services.anthropic.version', '2023-06-01'),
         ])
             ->timeout((int) ($options['http_timeout'] ?? 600))
+            ->retry([2000, 5000, 12000], when: function ($exception) {
+                if ($exception instanceof ConnectionException) {
+                    return true;
+                }
+
+                return $exception instanceof RequestException
+                    && in_array($exception->response->status(), [429, 500, 502, 503, 504, 529], true);
+            })
             ->post(rtrim((string) config('services.anthropic.base_url', 'https://api.anthropic.com'), '/').'/v1/messages', $payload)
             ->throw();
 

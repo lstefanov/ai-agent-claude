@@ -63,8 +63,8 @@
                         </template>
                     </select>
                     <p class="text-[11px] text-gray-400 mt-1"
-                       x-show="picker.phases[phase].provider === 'ollama' && picker.ollamaHint(phase)"
-                       x-text="picker.ollamaHint(phase)"></p>
+                       x-show="picker.phaseModelHint(phase)"
+                       x-text="picker.phaseModelHint(phase)"></p>
                 </div>
             </div>
         </div>
@@ -119,6 +119,21 @@
                     <div class="font-semibold text-gray-800 mb-1">💎 Максимално качество (~$0.31)</div>
                     <div class="font-mono text-[11px] text-gray-600">всички фази = anthropic<br>(claude-sonnet-4-6)</div>
                     <div class="text-gray-400 mt-1">Най-скъпият вариант — ползвай го като еталон при сравнение на шаблони.</div>
+                </div>
+                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                    <div class="font-semibold text-gray-800 mb-1">⚡ Само Grok (~$0.04)</div>
+                    <div class="font-mono text-[11px] text-gray-600">design = xai (grok-4.3)<br>останалите = xai (grok-4.1-fast)</div>
+                    <div class="text-gray-400 mt-1">Един API ключ, топ мултиезичност и 1–2M контекст за дълги описания.</div>
+                </div>
+                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                    <div class="font-semibold text-gray-800 mb-1">🐉 Само Qwen (~$0.02)</div>
+                    <div class="font-mono text-[11px] text-gray-600">design = qwen (qwen3.7-plus)<br>останалите = qwen (qwen3.5-flash)</div>
+                    <div class="text-gray-400 mt-1">Най-евтиният изцяло платен стек — флагман дизайн на цена на кафе.</div>
+                </div>
+                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                    <div class="font-semibold text-gray-800 mb-1">🧬 Бюджетен микс (~$0.015)</div>
+                    <div class="font-mono text-[11px] text-gray-600">design = deepseek (v4-pro)<br>intent/critique = qwen (qwen3.5-flash)<br>revision = xai (grok-4.1-fast)</div>
+                    <div class="text-gray-400 mt-1">Reasoning дизайн почти без пари; леките фази на ultra-cheap модели.</div>
                 </div>
             </div>
             <p class="text-gray-400">
@@ -244,6 +259,22 @@ window.plannerPhasePicker = function (initialPhases, opts) {
             const r = this.rateForPhase(m, phase);
             const top = (m.strengths || []).slice(0, 3).map(s => s.replace(/_/g, ' ')).join(', ');
             return this.ratingStars(r) + ' ' + this.ratingWord(r) + ' за тази фаза' + (top ? ' — ' + top : '');
+        },
+
+        // Ред под модел-селекта на фаза (всички провайдъри): оценка/описание
+        // на избрания модел + цена за тази фаза.
+        phaseModelHint(phase) {
+            const spec = this.phases[phase];
+            if (!spec.model) return '';
+            if (spec.provider === 'ollama') {
+                const hint = this.ollamaHint(phase);
+                return hint ? hint + ' · ' + this.phaseCostLabel(phase) : '';
+            }
+            const info = this.cloudInfo(spec.provider, spec.model) || {};
+            if (!info.stars && !info.desc) return '';
+            return (info.stars ? this.ratingStars(info.stars) + ' ' : '')
+                + (info.desc ? info.desc + ' · ' : '')
+                + this.phaseCostLabel(phase);
         },
 
         // UI метаданни за cloud модел от pricing таблицата (exact → prefix
