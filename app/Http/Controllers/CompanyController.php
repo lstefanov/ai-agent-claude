@@ -10,6 +10,7 @@ class CompanyController extends Controller
     public function index()
     {
         $companies = Company::withCount('flows')->latest()->get();
+
         return view('companies.index', compact('companies'));
     }
 
@@ -21,10 +22,10 @@ class CompanyController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name'        => 'required|string|max:255',
+            'name' => 'required|string|max:255',
             'description' => 'required|string',
-            'industry'    => 'required|string|max:255',
-            'language'    => 'required|in:bg,en',
+            'industry' => 'required|string|max:255',
+            'language' => 'required|in:bg,en',
         ]);
 
         $company = Company::create($validated);
@@ -35,8 +36,12 @@ class CompanyController extends Controller
 
     public function show(Company $company)
     {
-        $flows         = $company->flows()->withCount('nodes')->where('is_archived', false)->latest()->get();
-        $archivedFlows = $company->flows()->withCount('nodes')->where('is_archived', true)->latest()->get();
+        // Nodes are materialized per template (version) — count only the
+        // active template's, else every version would inflate the number.
+        $activeNodes = ['nodes' => fn ($q) => $q->whereHas('version', fn ($v) => $v->where('is_active', true))];
+
+        $flows = $company->flows()->withCount($activeNodes)->where('is_archived', false)->latest()->get();
+        $archivedFlows = $company->flows()->withCount($activeNodes)->where('is_archived', true)->latest()->get();
 
         return view('companies.show', compact('company', 'flows', 'archivedFlows'));
     }
@@ -49,10 +54,10 @@ class CompanyController extends Controller
     public function update(Request $request, Company $company)
     {
         $validated = $request->validate([
-            'name'        => 'required|string|max:255',
+            'name' => 'required|string|max:255',
             'description' => 'required|string',
-            'industry'    => 'required|string|max:255',
-            'language'    => 'required|in:bg,en',
+            'industry' => 'required|string|max:255',
+            'language' => 'required|in:bg,en',
         ]);
 
         $company->update($validated);
@@ -64,6 +69,7 @@ class CompanyController extends Controller
     public function destroy(Company $company)
     {
         $company->delete();
+
         return redirect()->route('companies.index')
             ->with('success', 'Фирмата е изтрита.');
     }

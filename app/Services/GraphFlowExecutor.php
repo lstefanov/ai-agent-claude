@@ -7,6 +7,7 @@ use App\Models\Flow;
 use App\Models\FlowEdge;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
+use App\Models\FlowVersion;
 use App\Models\NodeRun;
 use App\Support\GraphTopology;
 use App\Support\UrlExtractor;
@@ -36,14 +37,25 @@ class GraphFlowExecutor
             'triggered_by' => $triggeredBy,
         ]);
 
+        // The run is PINNED to one template (version) — its materialized graph
+        // is all this run ever reads, so several versions can run in parallel.
+        $versionId = $flowRun->flow_version_id ?? $flow->activeVersion()->value('id');
+        $version = $versionId ? FlowVersion::find($versionId) : null;
+
+        if (! $version) {
+            $this->fail($flowRun, 'Флоуът няма шаблон (версия на графа) за изпълнение.');
+
+            return $flowRun;
+        }
+
         // qa_verifier nodes are not standalone DAG steps — they run only as inline
         // gates referenced by other nodes' config.qa.verifier_node_key.
-        $nodeKeys = $flow->nodes()
+        $nodeKeys = $version->nodes()
             ->where('is_active', true)
             ->where('type', '!=', 'qa_verifier')
             ->pluck('node_key')
             ->all();
-        $edges = $flow->edges()->get(['from_node_key', 'to_node_key'])
+        $edges = $version->edges()->get(['from_node_key', 'to_node_key'])
             ->map(fn ($e) => ['from' => $e->from_node_key, 'to' => $e->to_node_key])
             ->all();
 
@@ -66,14 +78,14 @@ class GraphFlowExecutor
         $context['waves'] = $analysis['waves'];
         // WS4: only run the branch-pruning logic when the graph actually has a
         // decision node — keeps every existing flow's behaviour unchanged.
-        $context['has_decisions'] = $flow->nodes()
+        $context['has_decisions'] = $version->nodes()
             ->where('is_active', true)
             ->where('type', 'decision')
             ->exists();
         // Partial-failure policy: 'fail_fast' (default) cancels the run on the
         // first node error; 'best_effort' lets independent branches continue and
         // fan-in nodes assemble from whatever predecessors completed.
-        $context['failure_policy'] = ($flow->graph_layout['failure_policy'] ?? 'fail_fast') === 'best_effort'
+        $context['failure_policy'] = ($version->graph_layout['failure_policy'] ?? 'fail_fast') === 'best_effort'
             ? 'best_effort'
             : 'fail_fast';
 
@@ -82,11 +94,11 @@ class GraphFlowExecutor
             'context' => $context,
             'started_at' => now(),
             // Which template was executed — webhook/scheduler runs get it here.
-            'flow_version_id' => $flowRun->flow_version_id ?? $flow->activeVersion()->value('id'),
+            'flow_version_id' => $version->id,
             // Snapshot the Drawflow graph_layout at the moment the run starts so
             // the historical run viewer can show the exact graph that was executed
-            // even if the user edits the flow afterwards.
-            'graph_snapshot' => $flow->graph_layout,
+            // even if the user edits the template afterwards.
+            'graph_snapshot' => $version->graph_layout,
         ]);
 
         $this->dispatchWave($flowRun->id, $analysis['waves'], 0);
@@ -123,7 +135,7 @@ class GraphFlowExecutor
             }
         }
 
-        $nodeIds = FlowNode::where('flow_id', $flowRun->flow_id)
+        $nodeIds = FlowNode::where('flow_version_id', $flowRun->flow_version_id)
             ->whereIn('node_key', $waveKeys)
             ->pluck('id');
 
@@ -220,8 +232,9 @@ class GraphFlowExecutor
 
     private function terminalAssembly(FlowRun $flowRun): string
     {
-        $fromKeys = $flowRun->flow->edges()->pluck('from_node_key')->unique()->all();
-        $terminalKeys = $flowRun->flow->nodes()
+        $version = $flowRun->flowVersion;
+        $fromKeys = $version->edges()->pluck('from_node_key')->unique()->all();
+        $terminalKeys = $version->nodes()
             ->where('is_active', true)
             ->pluck('node_key')
             ->reject(fn ($k) => in_array($k, $fromKeys, true))
@@ -248,7 +261,7 @@ class GraphFlowExecutor
      */
     private function resolveActiveNodes(FlowRun $flowRun, array $waveKeys): array
     {
-        $edges = FlowEdge::where('flow_id', $flowRun->flow_id)
+        $edges = FlowEdge::where('flow_version_id', $flowRun->flow_version_id)
             ->whereIn('to_node_key', $waveKeys)
             ->get(['from_node_key', 'to_node_key', 'from_port']);
 
@@ -262,7 +275,7 @@ class GraphFlowExecutor
             ->whereIn('node_key', $fromKeys)
             ->pluck('status', 'node_key');
 
-        $decisionKeys = FlowNode::where('flow_id', $flowRun->flow_id)
+        $decisionKeys = FlowNode::where('flow_version_id', $flowRun->flow_version_id)
             ->where('type', 'decision')
             ->whereIn('node_key', $fromKeys)
             ->pluck('node_key')
@@ -315,7 +328,7 @@ class GraphFlowExecutor
      */
     private function markSkipped(FlowRun $flowRun, array $keys): void
     {
-        $nodes = FlowNode::where('flow_id', $flowRun->flow_id)
+        $nodes = FlowNode::where('flow_version_id', $flowRun->flow_version_id)
             ->whereIn('node_key', $keys)
             ->get(['id', 'node_key']);
 

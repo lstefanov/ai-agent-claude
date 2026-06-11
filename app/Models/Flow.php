@@ -9,14 +9,12 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Flow extends Model
 {
-    protected $fillable = ['company_id', 'name', 'description', 'topic', 'status', 'schedule_cron', 'last_run_at', 'is_archived', 'archived_at', 'webhook_secret', 'graph_layout', 'plan_intent', 'settings'];
+    protected $fillable = ['company_id', 'name', 'description', 'topic', 'status', 'schedule_cron', 'last_run_at', 'is_archived', 'archived_at', 'webhook_secret', 'settings'];
 
     protected $casts = [
         'last_run_at' => 'datetime',
         'archived_at' => 'datetime',
         'is_archived' => 'boolean',
-        'graph_layout' => 'array',
-        'plan_intent' => 'array',
         'settings' => 'array',
     ];
 
@@ -28,11 +26,6 @@ class Flow extends Model
     public function nodes(): HasMany
     {
         return $this->hasMany(FlowNode::class);
-    }
-
-    public function edges(): HasMany
-    {
-        return $this->hasMany(FlowEdge::class);
     }
 
     public function flowRuns(): HasMany

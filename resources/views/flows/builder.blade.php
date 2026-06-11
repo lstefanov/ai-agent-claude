@@ -436,8 +436,8 @@
                                                 x-text="(v.is_active ? '● ' : '') + v.name"></option>
                                     </template>
                                 </select>
-                                <p x-show="String(runVersionId) !== String(activeVersionId)" class="text-[11px] text-amber-600 mt-1">
-                                    Изборът на друг шаблон ще го направи активен преди стартирането.
+                                <p x-show="String(runVersionId) !== String(activeVersionId)" class="text-[11px] text-gray-400 mt-1">
+                                    Run-ът изпълнява този шаблон, без да сменя активния.
                                 </p>
                             </div>
                             <div>
@@ -508,7 +508,7 @@
     <template x-if="mode === 'edit'">
         <div class="flex flex-wrap items-center gap-2 mb-3 shrink-0 bg-white border border-gray-200 rounded-xl px-2.5 py-2 shadow-sm">
             {{-- Кой шаблон се редактира --}}
-            <div x-show="versions.length" class="flex items-center gap-1.5" title="Шаблон, който се редактира. Активният (●) е този, който се изпълнява при Run.">
+            <div x-show="versions.length" class="flex items-center gap-1.5" title="Шаблон, който се редактира. „Стартирай“ изпълнява него; активният (●) е по подразбиране за webhook и планирани изпълнения.">
                 <span class="text-xs text-gray-400 font-medium pl-1">Шаблон:</span>
                 <select x-model="selectedVersionId" @change="switchVersion()"
                         class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[220px]">
@@ -673,7 +673,7 @@
                     </div>
                     <label class="flex items-center gap-2 text-sm text-gray-700">
                         <input type="checkbox" x-model="saveDlg.isActive" class="rounded">
-                        Направи го активен (този шаблон ще се изпълнява при Run)
+                        Направи го активен (по подразбиране за webhook и планирани изпълнения)
                     </label>
                 </div>
 
@@ -1703,7 +1703,8 @@ function flowBuilder(config) {
         versions: (config.versions || []).map(v => ({ ...v })),
         selectedVersionId: config.selectedVersionId ? String(config.selectedVersionId) : '',
         activeVersionId: config.activeVersionId ? String(config.activeVersionId) : '',
-        runVersionId: config.activeVersionId ? String(config.activeVersionId) : '',
+        // „Стартирай“ изпълнява разглеждания шаблон (без да пипа активния).
+        runVersionId: config.selectedVersionId ? String(config.selectedVersionId) : '',
         _editingVersionId: config.selectedVersionId ? String(config.selectedVersionId) : '',
         _baseline: null,
 
@@ -2566,7 +2567,6 @@ function flowBuilder(config) {
             if (v.is_active) {
                 this.versions.forEach(x => { x.is_active = String(x.id) === String(v.id); });
                 this.activeVersionId = String(v.id);
-                this.runVersionId = String(v.id);
             }
             const idx = this.versions.findIndex(x => String(x.id) === String(v.id));
             if (idx >= 0) {
@@ -2577,6 +2577,7 @@ function flowBuilder(config) {
             if (!this.selectedVersionId) {
                 this.selectedVersionId = String(v.id);
                 this._editingVersionId = String(v.id);
+                this.runVersionId = String(v.id);
             }
         },
 
@@ -2682,6 +2683,7 @@ function flowBuilder(config) {
                 // Редакторът вече показва съдържанието на НОВИЯ шаблон.
                 this.selectedVersionId = String(data.version.id);
                 this._editingVersionId = String(data.version.id);
+                this.runVersionId = String(data.version.id);
                 const url = new URL(window.location);
                 url.searchParams.set('version', data.version.id);
                 window.history.replaceState({}, '', url);

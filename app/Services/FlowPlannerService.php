@@ -386,10 +386,18 @@ PROMPT;
             ],
         ];
 
+        // revised_agents mirrors the full plan, so the budget must cover every
+        // agent twice (once input, once output). Scale by agent count as a floor.
+        $agentCount = count($plan['agents'] ?? []);
+        $critiqueBudget = max(
+            $this->numPredictFor($intent, simple: 4000, medium: 6000, complex: 8000),
+            $agentCount * 600,
+        );
+
         try {
             $result = $this->runPhase('plan_critique', $system, $user, $schema, [
                 'temperature' => 0.1,
-                'num_predict' => $this->numPredictFor($intent, simple: 4000, medium: 6000, complex: 8000),
+                'num_predict' => $critiqueBudget,
             ], $flow, $logToken);
         } catch (Throwable $e) {
             // Critique is an enhancement — never let it kill a valid plan.
@@ -516,7 +524,7 @@ suggestions (конкретни подобрения, назоваващи за�
 — ако ти трябват кавички, пиши «…».
 PROMPT;
 
-        $intent = $flow->plan_intent ?: ['description' => (string) $flow->description];
+        $intent = $flow->activeVersion?->plan_intent ?: ['description' => (string) $flow->description];
 
         $user = "INTENT/ОПИСАНИЕ:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
             ."\n\nТЕКУЩ ГРАФ (агенти):\n".json_encode($agents, JSON_UNESCAPED_UNICODE)

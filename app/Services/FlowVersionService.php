@@ -10,9 +10,10 @@ use Throwable;
 
 /**
  * Lifecycle of flow graph versions ("шаблони"). A flow has many named
- * versions; exactly one is ACTIVE. Activation MATERIALIZES the version into
- * flows.graph_layout + flow_nodes/flow_edges (+ flows.plan_intent), which is
- * all the execution path ever reads — GraphFlowExecutor stays version-blind.
+ * versions; exactly one is ACTIVE — the default for webhook/scheduler runs and
+ * the builder's initial view. EVERY version is materialized into its own
+ * flow_nodes/flow_edges rows on create/save, so runs pin a version and execute
+ * its graph directly; several versions of one flow can run in parallel.
  */
 class FlowVersionService
 {
@@ -48,9 +49,9 @@ class FlowVersionService
     }
 
     /**
-     * Make the version the flow's active graph: deactivate siblings +
-     * materialize layout/intent into the flow. Saving/activating IS the plan
-     * approval — the snapshot feeds the plan library (best-effort).
+     * Make the version the flow's default ("active") graph — just the flag
+     * swap; the graph rows are already materialized per-version. Activating IS
+     * the plan approval — the snapshot feeds the plan library (best-effort).
      */
     public function activate(FlowVersion $version): void
     {
@@ -61,15 +62,14 @@ class FlowVersionService
         DB::transaction(function () use ($version) {
             $version->flow->versions()->whereKeyNot($version->id)->update(['is_active' => false]);
             $version->update(['is_active' => true]);
-            $this->materialize($version);
         });
 
-        $this->captureForPlanLibrary($version->flow);
+        $this->captureForPlanLibrary($version);
     }
 
     /**
-     * Persist a builder save into the version; an active version is
-     * re-materialized so flow_nodes/flow_edges stay in sync with the editor.
+     * Persist a builder save into the version and re-materialize its
+     * flow_nodes/flow_edges so they stay in sync with the editor.
      *
      * $extra may carry agents/generator/plan_intent/cost_usd/duration_ms when
      * the save follows a fresh generation (overwrite) — null keys are kept as-is.
@@ -88,13 +88,11 @@ class FlowVersionService
                 'duration_ms' => $extra['duration_ms'] ?? null,
             ], fn ($v) => $v !== null));
 
-            if ($version->is_active) {
-                $this->materialize($version);
-            }
+            $this->materialize($version->refresh());
         });
 
         if ($version->is_active) {
-            $this->captureForPlanLibrary($version->flow);
+            $this->captureForPlanLibrary($version);
         }
     }
 
@@ -107,6 +105,12 @@ class FlowVersionService
     {
         if ($version->is_active) {
             throw ValidationException::withMessages(['version' => 'Активният шаблон не може да бъде изтрит — първо активирай друг.']);
+        }
+
+        // The version's node rows are what its in-flight run executes — deleting
+        // them mid-run would break the executing jobs.
+        if ($version->flowRuns()->whereIn('status', ['pending', 'running'])->exists()) {
+            throw ValidationException::withMessages(['version' => 'Шаблонът има активно изпълнение — изчакай го да приключи.']);
         }
 
         $version->delete();
@@ -135,12 +139,13 @@ class FlowVersionService
             if ($isActive) {
                 $flow->versions()->whereKeyNot($version->id)->update(['is_active' => false]);
                 $version->update(['is_active' => true]);
-                $this->materialize($version);
             }
+
+            $this->materialize($version);
         });
 
         if ($isActive) {
-            $this->captureForPlanLibrary($flow);
+            $this->captureForPlanLibrary($version);
         }
 
         return $version;
@@ -148,21 +153,18 @@ class FlowVersionService
 
     private function materialize(FlowVersion $version): void
     {
-        $flow = $version->flow;
+        if (! is_array($version->graph_layout)) {
+            return;
+        }
 
-        $flow->update(array_filter([
-            'graph_layout' => $version->graph_layout,
-            'plan_intent' => $version->plan_intent,
-        ], fn ($v) => $v !== null));
-
-        $this->normalizer->sync($flow, $version->graph_layout);
+        $this->normalizer->sync($version, $version->graph_layout);
     }
 
     /** Plan-library snapshot is best-effort — it must never fail the save. */
-    private function captureForPlanLibrary(Flow $flow): void
+    private function captureForPlanLibrary(FlowVersion $version): void
     {
         try {
-            $this->planLibrary->captureApprovedPlan($flow->fresh());
+            $this->planLibrary->captureApprovedPlan($version->fresh());
         } catch (Throwable $e) {
             report($e);
         }

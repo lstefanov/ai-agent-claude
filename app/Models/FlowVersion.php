@@ -25,6 +25,16 @@ class FlowVersion extends Model
         return $this->belongsTo(Flow::class);
     }
 
+    public function nodes(): HasMany
+    {
+        return $this->hasMany(FlowNode::class);
+    }
+
+    public function edges(): HasMany
+    {
+        return $this->hasMany(FlowEdge::class);
+    }
+
     public function flowRuns(): HasMany
     {
         return $this->hasMany(FlowRun::class);

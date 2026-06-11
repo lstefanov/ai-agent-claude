@@ -21,13 +21,12 @@ class FlowGraphController extends Controller
 
     /**
      * Persist a Drawflow export into the flow's SELECTED version (version_id,
-     * default: the active one). Saving the active version materializes it into
-     * flows.graph_layout + flow_nodes/flow_edges and feeds the plan library
+     * default: the active one). Every save re-materializes the version's own
+     * flow_nodes/flow_edges; saving the active one also feeds the plan library
      * (saving IS the plan approval).
      *
      * A flow with zero versions bootstraps a "Default" active version from
-     * this save — covers both the new-flow ?generate=1 auto-save and legacy
-     * flows on their first save.
+     * this save — covers the new-flow ?generate=1 auto-save and first saves.
      */
     public function store(Request $request, Flow $flow): JsonResponse
     {
@@ -44,7 +43,7 @@ class FlowGraphController extends Controller
         try {
             if ($flow->versions()->doesntExist()) {
                 $version = $this->versions->createFromLayout($flow, $graph, 'Default', true, $agents, [
-                    'intent' => $intent ?? $flow->plan_intent,
+                    'intent' => $intent,
                     'generator' => $generator ?? ['label' => PlannerPhases::label(app(GeneratorService::class)->resolveAllPhases())],
                 ]);
             } else {
@@ -90,10 +89,15 @@ class FlowGraphController extends Controller
             $nodeKeys = array_map(fn ($n) => $n['node_key'], $nodes);
             $edgeList = array_map(fn ($e) => ['from' => $e['from_node_key'], 'to' => $e['to_node_key']], $edges);
         } else {
-            $nodeKeys = $flow->nodes()->pluck('node_key')->all();
-            $edgeList = $flow->edges()->get(['from_node_key', 'to_node_key'])
-                ->map(fn ($e) => ['from' => $e->from_node_key, 'to' => $e->to_node_key])
-                ->all();
+            $version = $request->filled('version_id')
+                ? $flow->versions()->find($request->integer('version_id'))
+                : $flow->activeVersion;
+            $nodeKeys = $version ? $version->nodes()->pluck('node_key')->all() : [];
+            $edgeList = $version
+                ? $version->edges()->get(['from_node_key', 'to_node_key'])
+                    ->map(fn ($e) => ['from' => $e->from_node_key, 'to' => $e->to_node_key])
+                    ->all()
+                : [];
         }
 
         $result = GraphTopology::analyze($nodeKeys, $edgeList);

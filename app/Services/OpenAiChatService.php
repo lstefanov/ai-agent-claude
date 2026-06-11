@@ -112,6 +112,15 @@ class OpenAiChatService
             throw new \RuntimeException(ucfirst($this->provider).' refused the structured request: '.$refusal);
         }
 
+        // Output-cap truncation would otherwise surface as a confusing
+        // "not valid JSON" — name the real cause.
+        if ($response->json('choices.0.finish_reason') === 'length') {
+            throw new \RuntimeException(
+                ucfirst($this->provider).' отговорът е срязан на output-token капа — структурираният резултат «'
+                .$schemaName.'» е непълен. Увеличи бюджета (num_predict) или опрости заданието.'
+            );
+        }
+
         $raw = (string) ($response->json('choices.0.message.content') ?? '');
         $decoded = json_decode($raw, true);
 

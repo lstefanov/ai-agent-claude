@@ -2,15 +2,16 @@
 
 namespace App\Services;
 
-use App\Models\Flow;
+use App\Models\FlowVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
  * The ONLY place that understands the Drawflow export format.
  *
  * Normalizes a raw Drawflow export (`editor.export()`) into our library-agnostic
- * flow_nodes + flow_edges model. If the graph library is ever swapped, only this
- * class changes.
+ * flow_nodes + flow_edges model, scoped to ONE FlowVersion — every version owns
+ * its own materialized node/edge rows. If the graph library is ever swapped,
+ * only this class changes.
  *
  * Drawflow export shape:
  *   { "drawflow": { "Home": { "data": {
@@ -34,30 +35,30 @@ class GraphNormalizer
     ];
 
     /**
-     * Persist the Drawflow export into flow_nodes + flow_edges.
+     * Persist the Drawflow export into the version's flow_nodes + flow_edges.
      */
-    public function sync(Flow $flow, array $export): void
+    public function sync(FlowVersion $version, array $export): void
     {
         [$nodes, $edges] = $this->parse($export);
 
-        DB::transaction(function () use ($flow, $nodes, $edges) {
+        DB::transaction(function () use ($version, $nodes, $edges) {
             $keptKeys = [];
 
             foreach ($nodes as $node) {
-                $flow->nodes()->updateOrCreate(
+                $version->nodes()->updateOrCreate(
                     ['node_key' => $node['node_key']],
-                    $node,
+                    $node + ['flow_id' => $version->flow_id],
                 );
                 $keptKeys[] = $node['node_key'];
             }
 
             // Drop nodes removed in the editor (cascades their historical node_runs).
-            $flow->nodes()->whereNotIn('node_key', $keptKeys ?: [''])->delete();
+            $version->nodes()->whereNotIn('node_key', $keptKeys ?: [''])->delete();
 
             // Edges have no run-history references — recreate wholesale.
-            $flow->edges()->delete();
+            $version->edges()->delete();
             foreach ($edges as $edge) {
-                $flow->edges()->create($edge);
+                $version->edges()->create($edge + ['flow_id' => $version->flow_id]);
             }
         });
     }

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class FlowNode extends Model
 {
     protected $fillable = [
-        'flow_id', 'node_key', 'name', 'role', 'type', 'icon', 'prompt_template', 'system_prompt',
+        'flow_id', 'flow_version_id', 'node_key', 'name', 'role', 'type', 'icon', 'prompt_template', 'system_prompt',
         'model', 'config', 'output_language', 'output_tone', 'output_style', 'output_format',
         'output_role', 'pos_x', 'pos_y', 'is_active',
     ];
@@ -24,6 +24,11 @@ class FlowNode extends Model
     public function flow(): BelongsTo
     {
         return $this->belongsTo(Flow::class);
+    }
+
+    public function version(): BelongsTo
+    {
+        return $this->belongsTo(FlowVersion::class, 'flow_version_id');
     }
 
     public function nodeRuns(): HasMany

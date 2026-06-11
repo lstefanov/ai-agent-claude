@@ -187,7 +187,10 @@ class BuilderAssistantService
         if (is_array($export) && $export !== []) {
             [$nodes, $edges] = $this->normalizer->parse($export);
         } else {
-            $nodes = $flow->nodes()->get()->map(fn ($n) => [
+            // No canvas export with the request → fall back to the saved graph
+            // of the flow's default (active) template.
+            $version = $flow->activeVersion;
+            $nodes = ($version?->nodes()->get() ?? collect())->map(fn ($n) => [
                 'node_key' => $n->node_key,
                 'name' => $n->name, 'role' => $n->role, 'type' => $n->type, 'icon' => $n->icon,
                 'prompt_template' => $n->prompt_template, 'system_prompt' => $n->system_prompt,
@@ -197,7 +200,7 @@ class BuilderAssistantService
                 'config' => $n->config ?? [], 'is_active' => $n->is_active,
                 'pos_x' => $n->pos_x, 'pos_y' => $n->pos_y,
             ])->all();
-            $edges = $flow->edges()->get()
+            $edges = ($version?->edges()->get() ?? collect())
                 ->map(fn ($e) => ['from_node_key' => $e->from_node_key, 'to_node_key' => $e->to_node_key])
                 ->all();
         }
@@ -551,7 +554,7 @@ PROMPT;
             'описание' => $this->excerpt((string) $flow->description, 1500),
             'topic' => $flow->topic,
             'settings' => $flow->settings ?? [],
-            'plan_intent' => $flow->plan_intent,
+            'plan_intent' => $flow->activeVersion?->plan_intent,
             'версии' => $flow->versions()->latest()->get()
                 ->map(fn ($v) => ['id' => $v->id, 'име' => $v->name, 'активна' => (bool) $v->is_active])->all(),
             'график' => $flow->schedule_cron,

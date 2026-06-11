@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\Flow;
 use App\Models\FlowRun;
+use App\Models\FlowVersion;
 use App\Models\PlanLibraryEntry;
 use App\Support\LlmContext;
 use App\Support\PaidModel;
@@ -14,39 +14,40 @@ use Illuminate\Support\Facades\Log;
  * The planner's long-term memory (Фаза 2 — учене от успешни планове).
  *
  * Lifecycle:
- *  1. captureApprovedPlan() — saving the graph in the builder IS the approval:
- *     the flow's nodes/edges + the stored intent are snapshotted as a
+ *  1. captureApprovedPlan() — saving/activating the ACTIVE version IS the
+ *     approval: its nodes/edges + stored intent are snapshotted as a
  *     'candidate' entry (one per flow, refreshed on every save).
- *  2. recordRunOutcome() — after a successful run the entry becomes 'proven'
- *     and accumulates run count + average step-QA score.
+ *  2. recordRunOutcome() — after a successful run of the active version the
+ *     entry becomes 'proven' and accumulates run count + average step-QA score.
  *  3. fewShotBlock() — at planning time the 1-2 most similar proven plans are
  *     injected into the pipeline-design prompt as worked examples.
  */
 class PlanLibraryService
 {
     /**
-     * Snapshot the flow's approved plan (its current graph + stored intent).
-     * Called from FlowGraphController::store after a successful sync.
+     * Snapshot the flow's approved plan — the ACTIVE version's graph + intent.
+     * Called from FlowVersionService when the active version is saved/created
+     * or another version is activated.
      */
-    public function captureApprovedPlan(Flow $flow): void
+    public function captureApprovedPlan(FlowVersion $version): void
     {
-        $intent = $flow->plan_intent;
+        $intent = $version->plan_intent;
 
         // No planner intent (e.g. hand-built graph) → nothing to learn from yet.
         if (! is_array($intent) || $intent === []) {
             return;
         }
 
-        $agents = $this->compactAgentsFromGraph($flow);
+        $agents = $this->compactAgentsFromGraph($version);
 
         if (count($agents) < 3) {
             return;
         }
 
         PlanLibraryEntry::updateOrCreate(
-            ['flow_id' => $flow->id],
+            ['flow_id' => $version->flow_id],
             [
-                'company_id' => $flow->company_id,
+                'company_id' => $version->flow->company_id,
                 'intent' => $intent,
                 'agents' => $agents,
                 'embedding' => $this->embedIntent($intent),
@@ -72,6 +73,12 @@ class PlanLibraryService
      */
     public function recordRunOutcome(FlowRun $flowRun): void
     {
+        // The library snapshots the ACTIVE version's plan — a successful run of
+        // another template must not "prove" it.
+        if (! $flowRun->flowVersion?->is_active) {
+            return;
+        }
+
         $entry = PlanLibraryEntry::where('flow_id', $flowRun->flow_id)->first();
 
         if (! $entry) {
@@ -295,16 +302,16 @@ class PlanLibraryService
     }
 
     /**
-     * Rebuild a compact planner-spec view of the approved graph from
-     * flow_nodes + flow_edges (uid = node_key, depends_on from edges).
+     * Rebuild a compact planner-spec view of the approved graph from the
+     * version's flow_nodes + flow_edges (uid = node_key, depends_on from edges).
      * Prompts are trimmed — examples teach structure and style, not content.
      *
      * @return array<int, array<string, mixed>>
      */
-    private function compactAgentsFromGraph(Flow $flow): array
+    private function compactAgentsFromGraph(FlowVersion $version): array
     {
-        $nodes = $flow->nodes()->where('is_active', true)->get();
-        $edges = $flow->edges()->get(['from_node_key', 'to_node_key']);
+        $nodes = $version->nodes()->where('is_active', true)->get();
+        $edges = $version->edges()->get(['from_node_key', 'to_node_key']);
 
         $dependsOn = [];
         foreach ($edges as $edge) {

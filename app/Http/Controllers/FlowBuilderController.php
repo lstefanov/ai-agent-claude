@@ -90,11 +90,37 @@ class FlowBuilderController extends Controller
             $viewRun = $flow->flowRuns()->find($request->integer('run'));
         }
 
-        // Latest still-active run → builder colors nodes live for it.
-        $activeRun = $flow->flowRuns()
-            ->whereIn('status', ['pending', 'running'])
+        // Graph versions ("шаблони"): the dropdown switches which version the
+        // editor edits; ?version= selects a non-active one, ?run= follows the
+        // run's pinned version.
+        $versions = $flow->versions()
             ->latest()
-            ->first();
+            ->get()
+            ->map(fn ($v) => [
+                'id' => $v->id,
+                'name' => $v->name,
+                'is_active' => $v->is_active,
+                'generator_label' => $v->generatorLabel(),
+            ])
+            ->values();
+
+        $activeVersion = $flow->activeVersion;
+        $selectedVersion = $request->filled('version')
+            ? $flow->versions()->find($request->integer('version'))
+            : null;
+        $selectedVersion ??= $viewRun?->flowVersion;
+        $selectedVersion ??= $activeVersion;
+
+        // Latest still-active run OF THE VIEWED TEMPLATE → builder colors nodes
+        // live for it. Runs of other versions don't lock this tab, so several
+        // templates can run (and be watched) in parallel.
+        $activeRun = $selectedVersion
+            ? $flow->flowRuns()
+                ->whereIn('status', ['pending', 'running'])
+                ->where('flow_version_id', $selectedVersion->id)
+                ->latest()
+                ->first()
+            : null;
 
         // Mode: run (if ?run= points to a still-active run) > view (historical) > run (latest active) > edit.
         if ($viewRun && in_array($viewRun->status, ['pending', 'running'])) {
@@ -111,30 +137,7 @@ class FlowBuilderController extends Controller
             $pollRun = null;
         }
 
-        // Graph versions ("шаблони"): the dropdown switches which version the
-        // editor edits; ?version= selects a non-active one.
-        $versions = $flow->versions()
-            ->latest()
-            ->get()
-            ->map(fn ($v) => [
-                'id' => $v->id,
-                'name' => $v->name,
-                'is_active' => $v->is_active,
-                'generator_label' => $v->generatorLabel(),
-            ])
-            ->values();
-
-        $activeVersion = $flow->activeVersion;
-        $selectedVersion = $request->filled('version')
-            ? $flow->versions()->find($request->integer('version'))
-            : null;
-        $selectedVersion ??= $activeVersion;
-
-        // Editing a non-active version loads ITS layout; the run/view snapshot
-        // logic below still wins in those modes.
-        $editLayout = $selectedVersion && ! $selectedVersion->is_active
-            ? $selectedVersion->graph_layout
-            : $flow->graph_layout;
+        $editLayout = $selectedVersion?->graph_layout;
 
         $config = [
             'saveUrl' => route('flows.graph.store', $flow),
@@ -170,7 +173,6 @@ class FlowBuilderController extends Controller
             'assistantStatusUrlBase' => url('flows/assistant-status'),
             'assistantHistoryUrl' => route('flows.assistant.history', $flow),
             'generationLogsUrl' => route('flows.generation-logs', $flow),
-            'activeRunId' => $activeRun?->id,
             'mode' => $mode,
             'autoOpenFinal' => $mode === 'view',
             'generate' => (bool) $request->boolean('generate'),
@@ -191,10 +193,11 @@ class FlowBuilderController extends Controller
             'templateIcons' => $templateIcons,
             'models' => $models,
             'paidModels' => $paidModels,
-            // In view mode, use the snapshot taken at run start so the historical
-            // viewer shows the graph exactly as it was when the run executed.
-            'graphLayout' => $mode === 'view' && $viewRun?->graph_snapshot
-                ? $viewRun->graph_snapshot
+            // In run/view modes, show the polled run's graph: the snapshot taken
+            // at run start (exact graph that executed), else the pinned
+            // version's layout (pending runs have no snapshot yet — identical).
+            'graphLayout' => $mode !== 'edit'
+                ? ($pollRun->graph_snapshot ?? $pollRun->flowVersion?->graph_layout ?? $editLayout)
                 : $editLayout,
             'outputPrefs' => config('output_preferences'),
         ];

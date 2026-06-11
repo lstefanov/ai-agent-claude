@@ -253,7 +253,7 @@ class FinalComposerService
     {
         $completed = array_fill_keys($completedKeys, true);
 
-        $edges = $flowRun->flow->edges()
+        $edges = $flowRun->flowVersion->edges()
             ->get(['from_node_key', 'to_node_key'])
             ->map(fn ($e) => ['from' => (string) $e->from_node_key, 'to' => (string) $e->to_node_key])
             ->filter(fn ($e) => isset($completed[$e['from']], $completed[$e['to']]))

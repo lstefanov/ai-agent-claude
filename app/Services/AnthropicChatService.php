@@ -22,11 +22,22 @@ use Illuminate\Support\Facades\Log;
  *
  * Ollama-style options map onto the Messages API:
  *   temperature → temperature, top_p → top_p,
- *   num_predict (>0) → max_tokens, num_predict -1 → generous default.
+ *   num_predict (>0) → max_tokens (×OUTPUT_HEADROOM), num_predict -1 → generous default.
  */
 class AnthropicChatService
 {
-    private const DEFAULT_MAX_TOKENS = 8192;
+    /**
+     * num_predict бюджетите в планера/агентите са калибрирани по OpenAI/локални
+     * токенизатори; Claude харчи ~3× повече токени за същия български текст,
+     * затова капът получава headroom. Таванът остава под output лимита на
+     * всички модерни Claude модели (opus 32K, sonnet/haiku 64K) и под
+     * http_timeout 600s при ~50 tok/s.
+     */
+    private const OUTPUT_HEADROOM = 3;
+
+    private const MAX_OUTPUT_TOKENS = 30000;
+
+    private const DEFAULT_MAX_TOKENS = 16384;
 
     public function chat(
         string $model,
@@ -40,6 +51,11 @@ class AnthropicChatService
         }
 
         $response = $this->post($model, $systemPrompt, $userMessage, $options);
+
+        // Срязан свободен текст е деградация, не фатална грешка — само следа в лога.
+        if ($response->json('stop_reason') === 'max_tokens') {
+            Log::warning('[AnthropicChat] '.$model.' output truncated at max_tokens ('.$response->json('usage.output_tokens').').');
+        }
 
         $content = '';
         foreach ($response->json('content', []) as $block) {
@@ -79,6 +95,15 @@ class AnthropicChatService
             ]],
             'tool_choice' => ['type' => 'tool', 'name' => $schemaName],
         ], 'chat_json');
+
+        // При stop_reason=max_tokens API-то спасява от срязания tool input само
+        // завършените полета — частичен резултат НИКОГА не се връща мълчаливо.
+        if ($response->json('stop_reason') === 'max_tokens') {
+            throw new \RuntimeException(
+                'Anthropic отговорът е срязан на max_tokens ('.$response->json('usage.output_tokens')
+                .') — структурираният резултат «'.$schemaName.'» е непълен. Увеличи бюджета (num_predict) или опрости заданието.'
+            );
+        }
 
         foreach ($response->json('content', []) as $block) {
             if (($block['type'] ?? '') === 'tool_use' && is_array($block['input'] ?? null)) {
@@ -217,7 +242,7 @@ class AnthropicChatService
     {
         $numPredict = $options['num_predict'] ?? null;
         $maxTokens = (is_numeric($numPredict) && (int) $numPredict > 0)
-            ? (int) $numPredict
+            ? min((int) $numPredict * self::OUTPUT_HEADROOM, self::MAX_OUTPUT_TOKENS)
             : self::DEFAULT_MAX_TOKENS;
 
         $payload = array_merge([

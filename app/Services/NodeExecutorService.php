@@ -470,7 +470,7 @@ class NodeExecutorService
     ): array {
         $verifierKey = (string) ($qaConfig['verifier_node_key'] ?? '');
         $verifierNode = $verifierKey !== ''
-            ? FlowNode::where('flow_id', $node->flow_id)->where('node_key', $verifierKey)->first()
+            ? FlowNode::where('flow_version_id', $node->flow_version_id)->where('node_key', $verifierKey)->first()
             : null;
 
         // Build context for the verifier: include the subject node's output.
@@ -572,14 +572,14 @@ class NodeExecutorService
      */
     private function buildNodeInput(FlowRun $flowRun, FlowNode $node): array
     {
-        $predecessorKeys = FlowEdge::where('flow_id', $node->flow_id)
+        $predecessorKeys = FlowEdge::where('flow_version_id', $node->flow_version_id)
             ->where('to_node_key', $node->node_key)
             ->pluck('from_node_key')
             ->all();
 
         $upstream = [];
         if (! empty($predecessorKeys)) {
-            $names = FlowNode::where('flow_id', $node->flow_id)
+            $names = FlowNode::where('flow_version_id', $node->flow_version_id)
                 ->whereIn('node_key', $predecessorKeys)
                 ->pluck('name', 'node_key');
 

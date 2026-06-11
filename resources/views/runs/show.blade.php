@@ -7,8 +7,10 @@ $qaThresholdOptions = range(0, 100, 5);
 $stepQaResults = $flowRun->context['step_qa_results'] ?? [];
 $failureMessage = $flowRun->context['failure_message'] ?? null;
 
-// Graph run: FlowNodes → unified "agents" shape, NodeRuns → "runs" shape.
-$initialAgents = $flowRun->flow->nodes
+// Graph run: the run's template (version) nodes → unified "agents" shape,
+// NodeRuns → "runs" shape.
+$versionNodes = $flowRun->flowVersion?->nodes ?? collect();
+$initialAgents = $versionNodes
     ->map(fn($n) => [
         'id'             => $n->id,
         'name'           => $n->name,
@@ -66,7 +68,7 @@ $initialCostUsd = round((float) $flowRun->nodeRuns->sum('cost_usd'), 4) ?: null;
 
 // Фаза 3: adaptive revisions per node_key + node names for display.
 $initialReplans = $flowRun->context['replan'] ?? [];
-$nodeNames = $flowRun->flow->nodes->pluck('name', 'node_key');
+$nodeNames = $versionNodes->pluck('name', 'node_key');
 
 // WS3: result delivery outcome (set after a successful run by DeliveryService).
 $initialDelivery = $flowRun->context['delivery'] ?? null;

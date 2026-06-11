@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Flow;
 use App\Models\FlowRun;
-use App\Services\FlowVersionService;
 use App\Services\GraphFlowExecutor;
 use App\Support\PaidModel;
 use Illuminate\Http\JsonResponse;
@@ -12,44 +11,26 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 class FlowRunController extends Controller
 {
-    public function store(Request $request, Flow $flow, GraphFlowExecutor $executor, FlowVersionService $versions)
+    public function store(Request $request, Flow $flow, GraphFlowExecutor $executor)
     {
-        // Run with a specific template (run-popup dropdown): a non-active
-        // choice is activated first, which materializes its graph. Forbidden
-        // while another run is in flight — execution reads the materialized
-        // flow_nodes, so swapping templates mid-run would corrupt it.
-        if ($request->filled('version_id')) {
-            $version = $flow->versions()->find($request->integer('version_id'));
+        // The run is PINNED to a template (run-popup dropdown, defaulting to the
+        // one open in the builder) — it executes that version's own node rows
+        // without touching the active flag, so several templates can run in
+        // parallel.
+        $version = $request->filled('version_id')
+            ? $flow->versions()->find($request->integer('version_id'))
+            : $flow->activeVersion;
 
-            if (! $version) {
-                return redirect()->route('flows.builder', $flow)
-                    ->with('error', 'Избраният шаблон не е намерен.');
-            }
-
-            if (! $version->is_active) {
-                $runInFlight = $flow->flowRuns()->whereIn('status', ['pending', 'running'])->exists();
-                if ($runInFlight) {
-                    return redirect()->route('flows.builder', $flow)
-                        ->with('error', 'Шаблонът не може да се сменя, докато тече изпълнение.');
-                }
-
-                try {
-                    $versions->activate($version);
-                } catch (ValidationException $e) {
-                    return redirect()->route('flows.builder', $flow)
-                        ->with('error', collect($e->errors())->flatten()->implode(' '));
-                }
-            }
+        if (! $version) {
+            return redirect()->route('flows.builder', $flow)
+                ->with('error', 'Избраният шаблон не е намерен.');
         }
 
-        $activeNodes = $flow->nodes()->where('is_active', true)->count();
-
-        if ($activeNodes === 0) {
-            return redirect()->route('flows.builder', $flow)
+        if ($version->nodes()->where('is_active', true)->doesntExist()) {
+            return redirect()->route('flows.builder', ['flow' => $flow, 'version' => $version->id])
                 ->with('error', 'Графът няма активни възли.');
         }
 
@@ -66,7 +47,7 @@ class FlowRunController extends Controller
         // Queue workers process the waves in parallel — the request returns at once.
         $flowRun = FlowRun::create([
             'flow_id' => $flow->id,
-            'flow_version_id' => $flow->activeVersion()->value('id'),
+            'flow_version_id' => $version->id,
             'status' => 'pending',
             'triggered_by' => 'manual',
             'context' => $inputs ? ['inputs' => $inputs] : [],
@@ -76,12 +57,12 @@ class FlowRunController extends Controller
 
         // Land back in the Graph Editor, which detects the active run and switches
         // into locked "run" mode with live per-node progress/result/log.
-        return redirect()->route('flows.builder', [$flow, 'run' => $flowRun->id]);
+        return redirect()->route('flows.builder', ['flow' => $flow, 'run' => $flowRun->id]);
     }
 
     public function show(FlowRun $flowRun)
     {
-        $flowRun->load(['flow.company', 'flow.nodes', 'nodeRuns.flowNode']);
+        $flowRun->load(['flow.company', 'flowVersion.nodes', 'nodeRuns.flowNode']);
 
         return view('runs.show', compact('flowRun'));
     }
@@ -95,10 +76,10 @@ class FlowRunController extends Controller
     }
 
     /**
-     * Persist a SUCCEEDED Фаза-3 revision into the flow itself (with the
+     * Persist a SUCCEEDED Фаза-3 revision into the run's template (with the
      * user's explicit confirmation from the run viewer): updates both the
-     * flow_nodes row and the Drawflow graph_layout so the builder shows the
-     * revised prompts on next open.
+     * version's flow_nodes row and its Drawflow graph_layout so the builder
+     * shows the revised prompts on next open.
      */
     public function applyRevision(Request $request, FlowRun $flowRun): JsonResponse
     {
@@ -113,8 +94,13 @@ class FlowRunController extends Controller
             return response()->json(['ok' => false, 'error' => 'Няма успешна ревизия за този възел.'], 422);
         }
 
-        $flow = $flowRun->flow;
-        $node = $flow->nodes()->where('node_key', $nodeKey)->first();
+        $version = $flowRun->flowVersion;
+
+        if (! $version) {
+            return response()->json(['ok' => false, 'error' => 'Шаблонът на това изпълнение вече не съществува.'], 404);
+        }
+
+        $node = $version->nodes()->where('node_key', $nodeKey)->first();
 
         if (! $node) {
             return response()->json(['ok' => false, 'error' => 'Възелът вече не съществува в графа.'], 404);
@@ -131,7 +117,7 @@ class FlowRunController extends Controller
         ]);
 
         // Keep the Drawflow layout in sync — the builder loads from graph_layout.
-        $layout = $flow->graph_layout;
+        $layout = $version->graph_layout;
         if (is_array($layout)) {
             foreach ($layout['drawflow'] ?? [] as $moduleName => $module) {
                 if (isset($module['data'][$nodeKey]['data'])) {
@@ -143,7 +129,7 @@ class FlowRunController extends Controller
                     $layout['drawflow'][$moduleName]['data'][$nodeKey]['data'] = $data;
                 }
             }
-            $flow->update(['graph_layout' => $layout]);
+            $version->update(['graph_layout' => $layout]);
         }
 
         // Mark as applied in the run context so the button collapses.
@@ -322,7 +308,7 @@ class FlowRunController extends Controller
     }
 
     /**
-     * Persist a winning test attempt onto the flow's CURRENT node (with the
+     * Persist a winning test attempt onto the run's template node (with the
      * user's explicit confirmation from the test popup): model always, system
      * prompt only when it was edited. The user message is never persisted —
      * it is the rendered template, not the template itself.
@@ -334,8 +320,13 @@ class FlowRunController extends Controller
             'system_prompt' => ['nullable', 'string', 'max:60000'],
         ]);
 
-        $flow = $flowRun->flow;
-        $node = $flow->nodes()->where('node_key', $nodeKey)->first();
+        $version = $flowRun->flowVersion;
+
+        if (! $version) {
+            return response()->json(['ok' => false, 'error' => 'Шаблонът на това изпълнение вече не съществува.'], 404);
+        }
+
+        $node = $version->nodes()->where('node_key', $nodeKey)->first();
 
         if (! $node) {
             return response()->json(['ok' => false, 'error' => 'Възелът вече не съществува в графа.'], 404);
@@ -352,7 +343,7 @@ class FlowRunController extends Controller
         $node->update($updates);
 
         // Keep the Drawflow layout in sync — the builder loads from graph_layout.
-        $layout = $flow->graph_layout;
+        $layout = $version->graph_layout;
         if (is_array($layout)) {
             foreach ($layout['drawflow'] ?? [] as $moduleName => $module) {
                 if (isset($module['data'][$nodeKey]['data'])) {
@@ -364,7 +355,7 @@ class FlowRunController extends Controller
                     $layout['drawflow'][$moduleName]['data'][$nodeKey]['data'] = $data;
                 }
             }
-            $flow->update(['graph_layout' => $layout]);
+            $version->update(['graph_layout' => $layout]);
         }
 
         return response()->json(['ok' => true]);
