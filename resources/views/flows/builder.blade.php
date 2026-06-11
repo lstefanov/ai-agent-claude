@@ -639,7 +639,7 @@
         <span class="text-amber-500 text-base">⚠️</span>
         <span><strong>Изпълнението виси.</strong> Провери дали
             <code class="bg-amber-100 px-1 rounded font-mono text-xs">composer dev</code> или
-            <code class="bg-amber-100 px-1 rounded font-mono text-xs">php artisan queue:work --queue=flows</code>
+            <code class="bg-amber-100 px-1 rounded font-mono text-xs">php artisan horizon</code>
             е стартиран в терминала.</span>
     </div>
 

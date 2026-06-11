@@ -20,8 +20,8 @@ The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each ex
 
 - **Backend:** Laravel 12, PHP 8.2
 - **Frontend:** Blade views + Vite + Tailwind CSS v4, Alpine.js, Drawflow (graph builder) — no SPA framework
-- **DB:** SQLite (default), database-backed queue, cache, and sessions
-- **Queue:** database driver — background jobs need a running worker
+- **DB:** SQLite (default) for app data + `job_batches`/`failed_jobs`; sessions are file-based
+- **Queue + Cache:** Redis (Homebrew daemon, `predis` client) — queue is managed by **Laravel Horizon** (supervisors in `config/horizon.php`: `supervisor-flows` 1-3 procs, `supervisor-default` 1 proc). Cache (worker heartbeat + `OllamaSemaphore` locks) is also Redis. Background jobs need a running Horizon (`/horizon` dashboard). See `docs/HORIZON-REDIS.md`.
 - **LLM (planning):** `GENERATOR_PROVIDER=openai|anthropic|deepseek|gemini|xai|qwen` (cloud, API key) or `ollama` (free local planning via Ollama structured outputs on `OLLAMA_PLANNER_MODEL`) — `GeneratorService::resolve()` picks per phase (`services.planner.phases` overrides); OpenAI/DeepSeek/Gemini/xAI/Qwen share one OpenAI-compatible client (`OpenAiChatService::for($provider)`)
 - **LLM (runtime):** Ollama (`OLLAMA_URL`) with a model-selector layer; `openai/<model>` / `anthropic/<model>` / `deepseek/<model>` / `gemini/<model>` / `xai/<model>` / `qwen/<model>` prefixes route a node to that paid provider (`App\Support\PaidModel` owns the prefixes and the cheap/premium tier split)
 - **External services:** Brave Search, ComfyUI, internal crawl service (`CRAWL_SERVICE_URL`), Google Places (reviews)
@@ -57,9 +57,10 @@ The domain hierarchy: `Company → Flow → FlowNode[]/FlowEdge[]`, with each ex
 
 ## Common commands
 
-- `composer dev` — runs server + queue worker + log tailer (`pail`) + Vite concurrently. **Use this for local dev** so queued jobs actually process.
+- `composer dev` — runs server + **Horizon** (in a self-healing loop) + scheduler + log tailer (`pail`) + Vite concurrently. **Use this for local dev** so queued jobs actually process. Requires Redis running (`brew services start redis`).
 - `php artisan serve` — web server only
-- `php artisan queue:listen` — queue worker only
+- `php artisan horizon` — start the queue workers (replaces `queue:work`/`queue:listen`); `php artisan horizon:terminate` gracefully restarts them to pick up new code (replaces `queue:restart`); `php artisan horizon:status` shows running/paused
+- `php artisan flows:watchdog` / `php artisan flows:cancel-stuck` — fail/clean stuck runs and purge their Redis queue payloads
 - `npm run dev` / `npm run build` — Vite
 - `php artisan migrate` — apply migrations; `php artisan migrate:fresh --seed` — reset DB (seeds LLM models + system agent templates)
 

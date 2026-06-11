@@ -18,8 +18,8 @@ use Throwable;
  * message + pending reply, seeds the assistant_{token} cache entry and
  * dispatches this job; the builder polls the token until completed/failed.
  *
- * Runs on the DEFAULT queue (the queue:listen worker) — the flows queue stays
- * dedicated to node execution so a long chat turn can't starve a run.
+ * Runs on the DEFAULT queue (Horizon's supervisor-default) — the flows queue
+ * stays dedicated to node execution so a long chat turn can't starve a run.
  */
 class AssistantTurnJob implements ShouldQueue
 {

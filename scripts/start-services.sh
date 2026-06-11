@@ -41,12 +41,17 @@
 #     сайтът се обслужва и оттам; artisan serve на :8000 е алтернативният
 #     dev достъп, който composer dev също вдига.
 #
-#  5) Queue workers      (опашки: flows + default)
-#     Опашката е database-backed, затова БЕЗ работещ worker нито един flow не
-#     тръгва. Агентските задачи (ExecuteAgentJob и т.н.) се пускат на опашка
-#     'flows'; scheduler/webhook задачите (ExecuteFlowJob, SyncOllamaModelsJob)
-#     отиват на 'default'. Затова стартираме И flows worker(и), И listener за
-#     всички опашки — точно както прави composer dev.
+#  5) Horizon            (опашки: flows + default, през Redis)
+#     Опашката е Redis-backed и се управлява от Laravel Horizon. БЕЗ работещ
+#     Horizon нито един flow не тръгва. Агентските задачи (ExecuteNodeJob и т.н.)
+#     се пускат на опашка 'flows' (supervisor-flows, 1-3 процеса); scheduler/
+#     webhook задачите (ExecuteFlowJob, SyncOllamaModelsJob) отиват на 'default'
+#     (supervisor-default). Един Horizon master вдига и двата supervisor-а —
+#     точно както прави composer dev. Dashboard: /horizon.
+#
+#  0) Redis              (:6379)
+#     Backend за опашката (Horizon) и за cache-а (worker heartbeat + Ollama
+#     semaphore locks). Управлява се през `brew services` (autostart).
 #
 #  6) Vite dev server    :5173  (npm run dev)
 #     Frontend dev сървърът (Tailwind v4 + JS, с HMR). Обслужва компилираните
@@ -95,28 +100,30 @@ spawn_loop() {  # spawn_loop <лог-файл> <команда...>
 # -----------------------------------------------------------------------------
 stop_all() {
     echo "🛑 Спиране на услугите, пуснати от този скрипт..."
-    # Спираме само нашите процеси. Ollama НЕ го пипаме — той е споделен daemon.
+    # Спираме само нашите процеси. Ollama и Redis НЕ ги пипаме — споделени daemon-и.
     pkill -f "uvicorn crawl_service:app"          2>/dev/null && echo "  ✓ Crawl4AI спрян"
     pkill -f "artisan serve"                      2>/dev/null && echo "  ✓ Web server спрян"
-    # Първо рестарт цикли (spawn_loop), после самите worker-и — иначе
-    # цикълът ще рестартира worker-а веднага след pkill.
-    pkill -f "while true; do.*artisan queue:"     2>/dev/null && echo "  ✓ queue рестарт цикли спрени"
-    pkill -f "artisan queue:work"                 2>/dev/null && echo "  ✓ queue:work спрян"
-    pkill -f "artisan queue:listen"               2>/dev/null && echo "  ✓ queue:listen спрян"
+    # Първо рестарт цикъла (spawn_loop), после самия Horizon — иначе цикълът ще
+    # рестартира Horizon веднага след pkill. horizon:terminate спира воркърите
+    # грациозно (изчаква текущия job), pkill маха master-а и loop-а.
+    pkill -f "while true; do.*artisan horizon"    2>/dev/null && echo "  ✓ Horizon рестарт цикъл спрян"
+    "$PHP_BIN" "$ARTISAN" horizon:terminate       >/dev/null 2>&1 && echo "  ✓ Horizon terminate изпратен"
+    pkill -f "artisan horizon"                    2>/dev/null && echo "  ✓ Horizon master спрян"
     pkill -f "$COMFY_DIR/main.py"                 2>/dev/null && echo "  ✓ ComfyUI спрян"
     pkill -f "vite"                               2>/dev/null && echo "  ✓ Vite спрян"
     echo "ℹ️  Ollama НЕ е спиран (споделен daemon). За да го спреш: pkill -x ollama"
+    echo "ℹ️  Redis НЕ е спиран (споделен brew service). За да го спреш: brew services stop redis"
     exit 0
 }
 
 status_all() {
     echo "📊 Статус на услугите:"
+    [ "$(redis-cli ping 2>/dev/null)" = "PONG" ]   && echo "  ✓ Redis         :6379"  || echo "  ✗ Redis         :6379"
     http_ok "http://localhost:11434/api/tags"      && echo "  ✓ Ollama        :11434" || echo "  ✗ Ollama        :11434"
     http_ok "http://localhost:8188/system_stats"   && echo "  ✓ ComfyUI       :8188"  || echo "  ✗ ComfyUI       :8188"
     http_ok "http://localhost:8189/health"         && echo "  ✓ Crawl4AI      :8189"  || echo "  ✗ Crawl4AI      :8189"
     http_ok "http://localhost:8000"                && echo "  ✓ Web server    :8000"  || echo "  ✗ Web server    :8000"
-    running "artisan queue:work.*flows"            && echo "  ✓ Queue (flows)"        || echo "  ✗ Queue (flows)"
-    running "artisan queue:listen"                 && echo "  ✓ Queue (default)"      || echo "  ✗ Queue (default)"
+    running "artisan horizon"                       && echo "  ✓ Horizon (flows+default)" || echo "  ✗ Horizon (flows+default)"
     port_listening 5173                            && echo "  ✓ Vite          :5173"  || echo "  ✗ Vite          :5173"
     exit 0
 }
@@ -133,6 +140,25 @@ echo "🚀 Стартиране на FlowAI услугите..."
 echo "   PHP:     $PHP_BIN"
 echo "   Проект:  $PROJECT_DIR"
 echo ""
+
+# -----------------------------------------------------------------------------
+#  0) Redis  (:6379) — queue (опашки flows/default) + cache (heartbeat, locks)
+# -----------------------------------------------------------------------------
+# Redis е гръбнакът на опашката (Horizon чете оттам) и на cache-а (worker
+# heartbeat + OllamaSemaphore). БЕЗ него нито един flow не тръгва. Управлява се
+# през brew services (autostart след reboot); тук само го вдигаме, ако спи.
+if [ "$(redis-cli ping 2>/dev/null)" = "PONG" ]; then
+    echo "✓ Redis вече върви"
+elif ! command -v redis-cli >/dev/null 2>&1; then
+    echo "✗ Redis не е инсталиран — изпълни: brew install redis"
+else
+    echo "Стартиране на Redis (brew services)..."
+    brew services start redis >"$LOG_DIR/redis.log" 2>&1
+    sleep 2
+    [ "$(redis-cli ping 2>/dev/null)" = "PONG" ] \
+        && echo "✓ Redis стартиран" \
+        || echo "✗ Redis не тръгна — виж $LOG_DIR/redis.log"
+fi
 
 # -----------------------------------------------------------------------------
 #  1) Ollama  (:11434) — LLM inference
@@ -214,34 +240,22 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-#  5) Queue workers — flows (агенти) + default (scheduler/webhook)
+#  5) Horizon — управлява опашките flows (агенти) + default (scheduler/webhook)
 # -----------------------------------------------------------------------------
-# 5a) Два worker-а за опашка 'flows' (паралелно изпълнение на агенти).
-if running "artisan queue:work.*flows"; then
-    echo "✓ Queue worker(и) за 'flows' вече вървят"
+# Един Horizon master process вдига двата supervisor-а (config/horizon.php):
+# supervisor-flows (1-3 процеса, queue=flows) и supervisor-default (1 процес,
+# queue=default). Пуска се в self-healing loop, за да преживее horizon:terminate
+# (deploy на нов код) или crash. БЕЗ Horizon опашката 'flows' не се обработва.
+if running "artisan horizon"; then
+    echo "✓ Horizon вече върви"
 else
-    echo "Стартиране на queue worker-и за 'flows'..."
-    for n in 1 2; do
-        spawn_loop "$LOG_DIR/queue-flows-$n.log" \
-            "$PHP_BIN" "$ARTISAN" queue:work --queue=flows --tries=1 --timeout=0
-    done
-    sleep 1
-    running "artisan queue:work.*flows" \
-        && echo "✓ Queue 'flows' worker-и стартирани (2 бр.)" \
-        || echo "✗ Queue 'flows' не тръгна — виж $LOG_DIR/queue-flows-*.log"
-fi
-
-# 5b) Listener за останалите опашки (default) — scheduler/webhook задачи.
-if running "artisan queue:listen"; then
-    echo "✓ Queue listener (default) вече върви"
-else
-    echo "Стартиране на queue listener (default)..."
-    spawn_loop "$LOG_DIR/queue-default.log" \
-        "$PHP_BIN" "$ARTISAN" queue:listen --tries=1 --timeout=0
-    sleep 1
-    running "artisan queue:listen" \
-        && echo "✓ Queue listener стартиран" \
-        || echo "✗ Queue listener не тръгна — виж $LOG_DIR/queue-default.log"
+    echo "Стартиране на Horizon..."
+    spawn_loop "$LOG_DIR/horizon.log" \
+        "$PHP_BIN" "$ARTISAN" horizon
+    sleep 2
+    running "artisan horizon" \
+        && echo "✓ Horizon стартиран (supervisor-flows + supervisor-default)" \
+        || echo "✗ Horizon не тръгна — виж $LOG_DIR/horizon.log"
 fi
 
 # -----------------------------------------------------------------------------
@@ -266,12 +280,12 @@ fi
 echo ""
 echo "──────────────────────────────────────────────"
 echo "Услуги:"
+echo "  Redis:         redis://localhost:6379   ($LOG_DIR/redis.log)"
 echo "  Ollama:        http://localhost:11434   ($LOG_DIR/ollama.log)"
 echo "  ComfyUI:       http://localhost:8188    ($LOG_DIR/comfyui.log)"
 echo "  Crawl4AI:      http://localhost:8189    ($LOG_DIR/crawl4ai.log)"
 echo "  Web server:    http://localhost:8000    ($LOG_DIR/laravel-serve.log)"
-echo "  Queue flows:   $LOG_DIR/queue-flows-*.log"
-echo "  Queue default: $LOG_DIR/queue-default.log"
+echo "  Horizon:       http://flowai.local/horizon  ($LOG_DIR/horizon.log)"
 echo "  Vite:          http://localhost:5173    ($LOG_DIR/vite.log)"
 echo "  FlowAI (vhost):http://flowai.local      (MAMP PRO, ако е конфигуриран)"
 echo "──────────────────────────────────────────────"

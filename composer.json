@@ -8,7 +8,9 @@
     "require": {
         "php": "^8.2",
         "laravel/framework": "^12.0",
-        "laravel/tinker": "^2.10.1"
+        "laravel/horizon": "^5.47",
+        "laravel/tinker": "^2.10.1",
+        "predis/predis": "^3.5"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -42,7 +44,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74,#a7f3d0,#fcd34d,#f9a8d4,#86efac\" \"php artisan serve\" \"sh -c 'while true; do php artisan queue:work --queue=flows --tries=3 --timeout=900 --max-time=3600 --sleep=3; sleep 2; done'\" \"sh -c 'while true; do php artisan queue:work --queue=flows --tries=3 --timeout=900 --max-time=3600 --sleep=3; sleep 2; done'\" \"sh -c 'while true; do php artisan queue:work --queue=flows --tries=3 --timeout=900 --max-time=3600 --sleep=3; sleep 2; done'\" \"sh -c 'while true; do php artisan queue:work --queue=default --tries=3 --timeout=900 --max-time=3600 --sleep=3; sleep 2; done'\" \"php artisan schedule:work\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,flows1,flows2,flows3,queue,schedule,logs,vite"
+            "npx concurrently -c \"#93c5fd,#fb7185,#fdba74,#a7f3d0,#86efac\" \"php artisan serve\" \"sh -c 'while true; do php artisan horizon; sleep 2; done'\" \"php artisan schedule:work\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,horizon,schedule,logs,vite"
         ],
         "test": [
             "@php artisan config:clear --ansi",
@@ -76,6 +78,9 @@
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "sort-packages": true,
+        "platform": {
+            "php": "8.2.0"
+        },
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true

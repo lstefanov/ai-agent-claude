@@ -40,7 +40,7 @@ class FlowRunController extends Controller
 
         if (! $this->flowsWorkerAlive()) {
             return redirect()->route('flows.builder', ['flow' => $flow, 'version' => $version->id])
-                ->with('error', 'Няма активен queue worker за изпълнение на flow-ове. Стартирай composer dev или php artisan queue:work --queue=flows.');
+                ->with('error', 'Няма активен queue worker за изпълнение на flow-ове. Стартирай composer dev или php artisan horizon.');
         }
 
         // Per-run inputs ({{topic}} + arbitrary placeholders) — one flow can serve

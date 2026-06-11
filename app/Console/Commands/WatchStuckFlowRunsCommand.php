@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\FlowRun;
 use App\Models\NodeRun;
+use App\Support\FlowsQueueInspector;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -16,8 +17,12 @@ class WatchStuckFlowRunsCommand extends Command
 
     private const FLOWS_QUEUE_HEARTBEAT_KEY = 'queue.heartbeat.flows';
 
+    private FlowsQueueInspector $queue;
+
     public function handle(): int
     {
+        $this->queue = new FlowsQueueInspector('flows');
+
         $minutes = max(1, (int) $this->option('minutes'));
         $cutoff = now()->subMinutes($minutes);
         $heartbeatAlive = Cache::has(self::FLOWS_QUEUE_HEARTBEAT_KEY);
@@ -36,7 +41,7 @@ class WatchStuckFlowRunsCommand extends Command
                         continue;
                     }
 
-                    $queuedJobIds = $this->queuedJobIdsForRun($flowRun->id);
+                    $hasQueuedJobs = $this->queue->hasJobsForRun($flowRun->id);
                     $latestNodeRun = NodeRun::where('flow_run_id', $flowRun->id)->latest('updated_at')->first();
 
                     if ($latestNodeRun && $latestNodeRun->updated_at?->gt($cutoff)) {
@@ -47,7 +52,7 @@ class WatchStuckFlowRunsCommand extends Command
                         continue;
                     }
 
-                    if ($heartbeatAlive && $queuedJobIds !== []) {
+                    if ($heartbeatAlive && $hasQueuedJobs) {
                         continue;
                     }
 
@@ -55,7 +60,7 @@ class WatchStuckFlowRunsCommand extends Command
                         ? 'Изпълнението е прекъснато: няма чакащи queue jobs за този run.'
                         : 'Изпълнението е прекъснато: няма активен flows queue worker.';
 
-                    $this->failRun($flowRun, $reason, $queuedJobIds);
+                    $this->failRun($flowRun, $reason);
                     $failed++;
                 }
             });
@@ -63,21 +68,6 @@ class WatchStuckFlowRunsCommand extends Command
         $this->info("Watchdog marked {$failed} stuck flow run(s) as failed.");
 
         return Command::SUCCESS;
-    }
-
-    /**
-     * @return array<int, int>
-     */
-    private function queuedJobIdsForRun(int $flowRunId): array
-    {
-        $needle = 's:9:"flowRunId";i:'.$flowRunId.';';
-
-        return DB::table('jobs')
-            ->where('queue', 'flows')
-            ->where('payload', 'like', '%'.$needle.'%')
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
     }
 
     private function runningNodeTimedOut(NodeRun $nodeRun): bool
@@ -89,12 +79,9 @@ class WatchStuckFlowRunsCommand extends Command
             && $nodeRun->started_at->lte(now()->subSeconds($timeout + $buffer));
     }
 
-    /**
-     * @param  array<int, int>  $queuedJobIds
-     */
-    private function failRun(FlowRun $run, string $reason, array $queuedJobIds): void
+    private function failRun(FlowRun $run, string $reason): void
     {
-        DB::transaction(function () use ($run, $reason, $queuedJobIds) {
+        DB::transaction(function () use ($run, $reason) {
             $context = (array) ($run->context ?? []);
             $context['failure_message'] = $reason;
 
@@ -112,13 +99,13 @@ class WatchStuckFlowRunsCommand extends Command
                     'completed_at' => now(),
                 ]);
 
-            if ($queuedJobIds !== []) {
-                DB::table('jobs')->whereIn('id', $queuedJobIds)->delete();
-            }
-
+            // job_batches stay in the relational DB (config/queue.php batching).
             DB::table('job_batches')
                 ->where('name', 'like', 'flow-run-'.$run->id.'-wave-%')
                 ->delete();
         });
+
+        // Purge the run's Redis queue payloads (pending/delayed/reserved).
+        $this->queue->removeRun($run->id);
     }
 }
