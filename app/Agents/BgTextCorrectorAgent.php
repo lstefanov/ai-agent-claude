@@ -65,13 +65,21 @@ class BgTextCorrectorAgent extends BaseAgent
     }
 
     /**
-     * Pick the body text to correct from the upstream context: the last
-     * substantial text that is not an image output, hashtag list or QA score.
-     * This prevents correcting appendix content (hashtags, image prompts, etc.)
-     * which would cause duplication in the UI's finalOutput display.
+     * Pick the body text to correct from the upstream context.
+     *
+     * Primary signal is the GRAPH, not the content: a predecessor tagged
+     * output_role='body' is the body to correct — even if it embeds an
+     * SD-prompt/image section (a composite final post). Sniffing the content
+     * instead (run 106) wrongly discarded the whole body because it contained
+     * "**SD Prompt:**", leaving the model an empty document. Content filters
+     * stay only as a defensive fallback when no body role is available, and a
+     * safety net guarantees we never return '' when a substantial body exists.
      */
     private function findBodyContent(Agent $agent, array $context): string
     {
+        $roles = (array) ($agent->config['predecessor_roles'] ?? []);
+
+        // Substantial, non-system candidates keyed by label (so roles can be looked up).
         $candidates = [];
         foreach ($context as $key => $value) {
             if (in_array($key, self::SYSTEM_KEYS, true)) {
@@ -80,20 +88,51 @@ class BgTextCorrectorAgent extends BaseAgent
             if (! is_string($value) || mb_strlen($value) < 50) {
                 continue;
             }
-            if ($this->isImageOutput($value)) {
-                continue;
-            }
-            if ($this->isHashtagList($value)) {
-                continue;
-            }
-            if ($this->isQaOutput($value)) {
-                continue;
-            }
-
-            $candidates[] = $value;
+            $candidates[$key] = $value;
         }
 
-        return end($candidates) ?: '';
+        if ($candidates === []) {
+            return '';
+        }
+
+        // Primary: correct the predecessor the graph marks as body. Role is
+        // authoritative — no content-sniffing on this branch.
+        $body = array_filter(
+            $candidates,
+            fn ($label) => ($roles[$label] ?? null) === 'body',
+            ARRAY_FILTER_USE_KEY
+        );
+        if ($body !== []) {
+            return (string) end($body);
+        }
+
+        // Secondary (no body role — unknown/legacy graph): defensively skip
+        // appendix-looking content (image prompts, hashtag lists, QA JSON).
+        $filtered = array_filter(
+            $candidates,
+            fn ($value) => ! $this->isImageOutput($value)
+                && ! $this->isHashtagList($value)
+                && ! $this->isQaOutput($value)
+        );
+        if ($filtered !== []) {
+            return (string) end($filtered);
+        }
+
+        // Safety net: never hand the model an empty document when a body exists.
+        return $this->longest($candidates);
+    }
+
+    /** @param  array<string,string>  $values */
+    private function longest(array $values): string
+    {
+        $longest = '';
+        foreach ($values as $value) {
+            if (mb_strlen($value) > mb_strlen($longest)) {
+                $longest = $value;
+            }
+        }
+
+        return $longest;
     }
 
     private function isImageOutput(string $content): bool

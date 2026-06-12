@@ -15,8 +15,8 @@ use App\Models\NodeRun;
 class NodePromptBuilder
 {
     /**
-     * @return array{seed: array<string,mixed>, upstream: array<string,string>}
-     *                                                                          upstream keyed by predecessor node NAME (falling back to node_key).
+     * @return array{seed: array<string,mixed>, upstream: array<string,string>, upstream_roles: array<string,?string>}
+     *                                                                                                                 upstream + upstream_roles keyed by predecessor node NAME (falling back to node_key).
      */
     public function buildNodeInput(FlowRun $flowRun, FlowNode $node): array
     {
@@ -26,10 +26,13 @@ class NodePromptBuilder
             ->all();
 
         $upstream = [];
+        $upstreamRoles = [];
         if (! empty($predecessorKeys)) {
-            $names = FlowNode::where('flow_version_id', $node->flow_version_id)
+            $predecessors = FlowNode::where('flow_version_id', $node->flow_version_id)
                 ->whereIn('node_key', $predecessorKeys)
-                ->pluck('name', 'node_key');
+                ->get(['node_key', 'name', 'output_role']);
+            $names = $predecessors->pluck('name', 'node_key');
+            $roles = $predecessors->pluck('output_role', 'node_key');
 
             $runs = NodeRun::where('flow_run_id', $flowRun->id)
                 ->whereIn('node_key', $predecessorKeys)
@@ -42,12 +45,14 @@ class NodePromptBuilder
                 }
                 $label = $names[$run->node_key] ?? $run->node_key;
                 $upstream[$label] = $run->output;
+                $upstreamRoles[$label] = $roles[$run->node_key] ?? null;
             }
         }
 
         return [
             'seed' => $flowRun->context['seed'] ?? [],
             'upstream' => $upstream,
+            'upstream_roles' => $upstreamRoles,
         ];
     }
 

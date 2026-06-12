@@ -345,6 +345,7 @@ class NodeExecutorService
             'company_id' => $flowRun->flow?->company_id,
             'flow_run_id' => $flowRun->id,
             'node_key' => $node->node_key,
+            'predecessor_roles' => $ctx['upstream_roles'] ?? [],
         ]);
         $this->bridge->ensureModelInstalled($agent);
 
