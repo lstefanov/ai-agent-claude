@@ -62,6 +62,12 @@ class EmbeddingService
             return $this->modelOverride;
         }
 
+        // Без изричен override (= паметта) MEMORY_EMBEDDING_MODEL има думата.
+        $memoryModel = trim((string) config('services.memory.embedding_model', ''));
+        if ($this->providerOverride === null && $memoryModel !== '') {
+            return $memoryModel;
+        }
+
         return match ($this->provider()) {
             'ollama' => (string) config('services.ollama.embedding_model', 'bge-m3'),
             'gemini' => (string) config('services.gemini.embedding_model', 'gemini-embedding-001'),

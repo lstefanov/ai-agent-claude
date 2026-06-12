@@ -137,6 +137,7 @@ class AgentGeneratorService
         $agents = $this->ensureQaVerifierLast($agents);
         $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
         $agents = $this->dedupeAgents($agents);
+        $agents = $this->groundKnowledgeTools($agents);
         $agents = $this->finalizeDependencyGraph($agents);
         // A capable planner (qwen) emits a correct dependency CHAIN (discoverer →
         // crawler → extractors → analysis → report) — keep it. Only a weak planner
@@ -156,6 +157,50 @@ class AgentGeneratorService
         // Localise English copy to Bulgarian (structure already final, ids
         // untouched). No-op when the planner already wrote Bulgarian.
         return $this->translateAgentsToBulgarian($agents);
+    }
+
+    /**
+     * Знанието е ДОПЪЛНИТЕЛЕН източник, никога замяна на интернет — планерът
+     * ПРЕДЛАГА, кодът ГАРАНТИРА:
+     *  - custom агент САМО с knowledge_search получава и web_search (за да не
+     *    остане заключен към базата и да връща "не е намерено");
+     *  - промпт, който ограничава търсенето "(само) в базата знания", се
+     *    пренаписва механично да позволи и интернет.
+     */
+    private function groundKnowledgeTools(array $agents): array
+    {
+        $webTools = ['web_search', 'pro_search', 'scrape_page', 'crawl_site', 'discover_urls', 'google_reviews'];
+
+        foreach ($agents as &$agent) {
+            $config = is_array($agent['config'] ?? null) ? $agent['config'] : [];
+            $tools = array_values(array_map('strval', (array) ($config['tools'] ?? [])));
+
+            if (in_array('knowledge_search', $tools, true)
+                && array_intersect($tools, $webTools) === []) {
+                $config['tools'] = array_merge($tools, ['web_search']);
+                $agent['config'] = $config;
+            }
+
+            foreach (['prompt_template', 'system_prompt'] as $field) {
+                $text = (string) ($agent[$field] ?? '');
+                if ($text === '' || ! preg_match('/база(та)?\s+(със\s+)?знания/iu', $text)) {
+                    continue;
+                }
+
+                $rewritten = preg_replace(
+                    '/(потърси|търси|провери)\s+(само\s+)?(в|във)\s+база(та)?\s+(със\s+)?знания(\s+на\s+[^\s,.;:]+)?/iu',
+                    'провери в базата знания И потърси в интернет',
+                    $text,
+                );
+
+                if (is_string($rewritten) && $rewritten !== $text) {
+                    $agent[$field] = $rewritten;
+                }
+            }
+        }
+        unset($agent);
+
+        return $agents;
     }
 
     /**

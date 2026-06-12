@@ -107,6 +107,81 @@ class KnowledgeSynthesizer
         return ['digest' => $result['digest'], 'facts' => $result['facts'], 'reused' => false];
     }
 
+    /**
+     * Извличане САМО на факти (без digest) — за изходите на агентите след
+     * успешен run. Агентският текст може да съдържа и генерирано съдържание,
+     * затова промптът изисква консервативност: само твърдения, представени
+     * като реални данни за фирмата.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function extractFacts(Company $company, string $sourceContext, string $content, array $llmContext = []): array
+    {
+        $content = trim(mb_substr(trim($content), 0, self::MAX_INPUT_CHARS));
+        $provider = $this->provider();
+
+        if ($provider === null || $content === '') {
+            return [];
+        }
+
+        $categories = implode('|', KnowledgeFact::CATEGORIES);
+
+        $system = <<<PROMPT
+Ти си екстрактор на фирмени знания. Получаваш ИЗХОДИ ОТ AI АГЕНТИ, работили по задача за фирмата "{$company->name}". Извлечи само КОНКРЕТНИТЕ, проверими факти за самата фирма (category: {$categories}): услуги, цени, контакти, локации, условия, конкуренти.
+
+Правила:
+- name: кратко нормализирано име на факта; value: пълната стойност с валута/единици;
+- location: град/обект, ако фактът важи само за конкретна локация (иначе null);
+- БЪДИ КОНСЕРВАТИВЕН: текстът съдържа и ГЕНЕРИРАНО съдържание (постове, идеи, предложения) — то НЕ е факт. Взимай само твърдения, представени като реални данни за фирмата (извлечени от сайта ѝ, ревюта, документи);
+- confidence: 0–1 (генерирано/несигурно → под 0.5, то ще бъде отхвърлено);
+- нищо измислено; празен списък е валиден отговор.
+PROMPT;
+
+        $schema = [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'facts' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'properties' => [
+                            'category' => ['type' => 'string', 'enum' => KnowledgeFact::CATEGORIES],
+                            'location' => ['type' => ['string', 'null']],
+                            'name' => ['type' => 'string'],
+                            'value' => ['type' => 'string'],
+                            'confidence' => ['type' => 'number'],
+                        ],
+                        'required' => ['category', 'location', 'name', 'value', 'confidence'],
+                    ],
+                ],
+            ],
+            'required' => ['facts'],
+        ];
+
+        LlmContext::set(array_merge(['purpose' => 'knowledge_fact_harvest'], $llmContext));
+
+        try {
+            $json = OpenAiChatService::for($provider)->chatJson(
+                $this->model(),
+                $system,
+                $sourceContext."\n\n--- ИЗХОДИ ---\n".$content,
+                'knowledge_facts',
+                $schema,
+                ['temperature' => 0.1, 'num_predict' => 2500, 'http_timeout' => 180],
+            );
+
+            return $this->sanitizeFacts((array) ($json['facts'] ?? []));
+        } catch (\Throwable $e) {
+            Log::warning('[KnowledgeSynthesizer] Fact extraction failed ('.$provider.'): '.$e->getMessage());
+
+            return [];
+        } finally {
+            LlmContext::clear();
+        }
+    }
+
     public function provider(): ?string
     {
         $provider = (string) config('services.knowledge.synth_provider', 'gemini');

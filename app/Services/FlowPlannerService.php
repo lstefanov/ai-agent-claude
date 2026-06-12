@@ -12,7 +12,6 @@ use App\Support\ModelLevel;
 use App\Support\PaidModel;
 use App\Support\TypographicQuotes;
 use App\Support\UrlExtractor;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -48,7 +47,7 @@ class FlowPlannerService
         'discover_urls' => 'Открива списъка от вътрешни URL адреси на даден сайт (без да ги скрейпва)',
         'extract_document' => 'Извлича текст и таблици от PDF/сканиран документ/изображение по URL (Mistral OCR) — ценоразписи, каталози, фактури',
         'google_reviews' => 'Намира Google ревюта и рейтинг за бизнес по име/локация (Google Places API)',
-        'knowledge_search' => 'Търси във вътрешната база знания на фирмата (качени документи, ценоразписи, съдържание от сайта) — фирмени цени, продукти, услуги, условия',
+        'knowledge_search' => 'Търси във вътрешната база знания на фирмата (ресурси: документи, бележки, обходени страници, натрупани факти) — ДОПЪЛНИТЕЛЕН източник за наши цени/продукти/условия; НЕ замества търсенето в интернет',
     ];
 
     /** The intent of the most recent plan() call — persisted on the flow for the plan library. */
@@ -150,8 +149,9 @@ PROMPT;
         $user = "Описание на flow (това е ЕДИНСТВЕНИЯТ източник на задачата):\n\"{$flow->description}\"";
 
         $kb = $flow->company ? app(KnowledgeService::class)->summary($flow->company) : null;
-        if (! empty($kb['documents'])) {
-            $user .= "\nЗабележка: фирмата има вътрешна база знания ({$kb['documents']} документа).";
+        if (! empty($kb['documents']) || ! empty($kb['facts'])) {
+            $user .= "\nЗабележка: фирмата има вътрешна база знания ({$kb['documents']} ресурса, {$kb['facts']} факта) — "
+                .'тя е ДОПЪЛНИТЕЛЕН източник и не променя нуждата от външно проучване (web/crawl).';
         }
 
         $result = $this->runPhase('intent_analysis', $system, $user, $this->intentSchema(), [
@@ -270,6 +270,11 @@ qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. 
     trend_researcher НИКОГА не води сайт-анализ pipeline.
 13. qa_custom_prompt: конкретна проверка за изхода НА ТОЗИ агент (2-3 изречения, български).
 14. rationale: 1 изречение ЗАЩО този агент съществува (връзка с key_tasks).
+15. БАЗА ЗНАНИЯ: knowledge_search (ако е наличен) е САМО ДОПЪЛНЕНИЕ към интернет
+    инструментите — research/extraction агентите ВИНАГИ пазят web_search/scrape_page/
+    crawl_site, независимо какво има в базата. НИКОГА не пиши prompt_template, който
+    ограничава агента да търси САМО в базата знания — релевантното фирмено знание се
+    инжектира автоматично в промпта на всеки агент.
 
 ПРИМЕРНИ ТОПОЛОГИИ (само структура; имената са ориентировъчни):
 - Доклад за сайт: site_context → [deep_researcher, review_analyzer] (паралелно) →
@@ -828,19 +833,15 @@ PROMPT;
 
         if ($kbReady) {
             $folders = empty($kb['folders']) ? '' : ' (папки: '.implode(', ', $kb['folders']).')';
-            $titles = empty($kb['titles']) ? '' : ' Примерни документи: «'.implode('», «', array_slice($kb['titles'], 0, 5)).'».';
+            $titles = empty($kb['titles']) ? '' : ' Примерни ресурси: «'.implode('», «', array_slice($kb['titles'], 0, 5)).'».';
             $lines[] = '';
-            $lines[] = "БАЗА ЗНАНИЯ НА ФИРМАТА: {$kb['documents']} документа, {$kb['chunks']} откъса{$folders}.{$titles}";
-            $lines[] = 'Когато заданието иска фирмени факти (наши цени/продукти/услуги/условия), добави агент '
-                .'type=custom с custom_tools=["knowledge_search"] вместо да търси в интернет.';
-
-            // Свеж сайт в базата → не пращай агенти да обхождат СОБСТВЕНИЯ сайт.
-            if (($kb['by_source']['site'] ?? 0) > 0) {
-                $syncedAt = $flow?->company?->settings['knowledge']['site_synced_at'] ?? null;
-                $synced = $syncedAt ? ' (синхронизиран '.Carbon::parse($syncedAt)->format('d.m.Y').')' : '';
-                $lines[] = "САЙТЪТ НА ФИРМАТА е вече в базата знания{$synced}. За факти от СОБСТВЕНИЯ сайт "
-                    .'предпочитай knowledge_search пред crawl_site/scrape_page — по-бързо и без повторно обхождане.';
-            }
+            $lines[] = "БАЗА ЗНАНИЯ НА ФИРМАТА: {$kb['documents']} ресурса, {$kb['facts']} факта, {$kb['chunks']} откъса{$folders}.{$titles}";
+            $lines[] = 'Знанието е ДОПЪЛНИТЕЛЕН източник, НЕ замяна на интернет: релевантните факти се '
+                .'инжектират АВТОМАТИЧНО в промпта на всеки съдържателен агент, а custom агент може да '
+                .'добави knowledge_search КЪМ другите си tools за наши цени/продукти/условия.';
+            $lines[] = 'ЗАБРАНЕНО: агент, чийто промпт казва да търси САМО в базата знания, или '
+                .'research/extraction агент само с knowledge_search без интернет инструменти '
+                .'(web_search/scrape_page/crawl_site) — независимо какво вече има в базата.';
         }
 
         $models = LlmModel::where('is_available', true)
