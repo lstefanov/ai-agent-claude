@@ -61,6 +61,15 @@ class GenericAgent extends BaseAgent
 
         $material = [];
 
+        // Фирмената база знания първа — вътрешните факти (цени, услуги, условия)
+        // имат приоритет пред това, което интернет твърди за фирмата.
+        if (in_array('knowledge_search', $enabled, true) && $query !== '') {
+            $result = $this->useTool('knowledge_search', ['query' => $query]);
+            if ($this->usable($result)) {
+                $material['Фирмена база знания ('.$query.')'] = $result;
+            }
+        }
+
         if (in_array('web_search', $enabled, true) && $query !== '') {
             $result = $this->useTool('web_search', ['query' => $query]);
             if ($this->usable($result)) {

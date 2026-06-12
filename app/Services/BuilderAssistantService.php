@@ -465,7 +465,7 @@ PROMPT;
             return match ($tool) {
                 'get_node' => $this->toolGetNode($args),
                 'get_flow_info' => $this->toolGetFlowInfo($flow),
-                'get_capabilities' => $this->toolGetCapabilities(),
+                'get_capabilities' => $this->toolGetCapabilities($flow),
                 'list_runs' => $this->toolListRuns($flow, $args),
                 'get_run' => $this->toolGetRun($flow, $args),
                 'get_node_run_output' => $this->toolGetNodeRunOutput($flow, $args),
@@ -531,14 +531,14 @@ PROMPT;
         ]);
     }
 
-    private function toolGetCapabilities(): string
+    private function toolGetCapabilities(Flow $flow): string
     {
         $types = collect(config('agent_types', []))->keys()
             ->merge(AgentTemplate::whereNull('company_id')->where('is_active', true)->pluck('type'))
             ->unique()->values()->all();
 
         return $this->json([
-            'каталог' => $this->planner->capabilityCatalogText(),
+            'каталог' => $this->planner->capabilityCatalogText($flow),
             'валидни_типове' => $types,
         ]);
     }

@@ -36,6 +36,14 @@
             </div>
 
             <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Уебсайт</label>
+                <input type="url" name="website_url" value="{{ old('website_url', $company->website_url) }}"
+                       placeholder="https://example.bg"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <p class="text-xs text-gray-400 mt-1">Ползва се от „База знания“ за автоматично извличане на съдържанието на сайта.</p>
+            </div>
+
+            <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Описание</label>
                 <textarea name="description" rows="4" required
                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('description', $company->description) }}</textarea>

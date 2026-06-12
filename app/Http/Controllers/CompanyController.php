@@ -26,6 +26,7 @@ class CompanyController extends Controller
             'description' => 'required|string',
             'industry' => 'required|string|max:255',
             'language' => 'required|in:bg,en',
+            'website_url' => 'nullable|url|max:2048',
         ]);
 
         $company = Company::create($validated);
@@ -43,7 +44,12 @@ class CompanyController extends Controller
         $flows = $company->flows()->withCount($activeNodes)->where('is_archived', false)->latest()->get();
         $archivedFlows = $company->flows()->withCount($activeNodes)->where('is_archived', true)->latest()->get();
 
-        return view('companies.show', compact('company', 'flows', 'archivedFlows'));
+        $knowledgeStats = [
+            'documents' => $company->knowledgeDocuments()->count(),
+            'chunks' => $company->knowledgeChunks()->count(),
+        ];
+
+        return view('companies.show', compact('company', 'flows', 'archivedFlows', 'knowledgeStats'));
     }
 
     public function edit(Company $company)
@@ -58,6 +64,7 @@ class CompanyController extends Controller
             'description' => 'required|string',
             'industry' => 'required|string|max:255',
             'language' => 'required|in:bg,en',
+            'website_url' => 'nullable|url|max:2048',
         ]);
 
         $company->update($validated);

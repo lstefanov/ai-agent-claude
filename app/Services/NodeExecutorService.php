@@ -59,6 +59,7 @@ class NodeExecutorService
     public function __construct(
         private AgentFactory $factory,
         private FlowMemoryService $memory,
+        private KnowledgeService $knowledge,
         private FlowNodeAgentBridge $bridge,
         private StepQaGate $qaGate,
         private AdaptiveReplanner $replanner,
@@ -300,6 +301,22 @@ class NodeExecutorService
             }
         }
 
+        // Знание: фактологичен RAG блок от базата знания на фирмата — само за
+        // content нодове и само от grounding колекциите (документи/сайт, НЕ
+        // история). Работи и за локални модели, които не могат tool-calling.
+        if (KnowledgeService::enabledForFlow($flowRun->flow)
+            && ($node->config['knowledge']['enabled'] ?? true) !== false
+            && $this->memory->isContentNode($node)) {
+            $knowledgeBlock = $this->knowledge->knowledgeBlock($flowRun->flow->company, $input, [
+                'company_id' => $flowRun->flow->company_id,
+                'flow_id' => $node->flow_id,
+                'flow_run_id' => $flowRun->id,
+            ]);
+            if ($knowledgeBlock !== '') {
+                $input .= "\n\n".$knowledgeBlock;
+            }
+        }
+
         if ($dedupFeedback !== null) {
             $input .= "\n\n".$dedupFeedback;
         }
@@ -320,9 +337,13 @@ class NodeExecutorService
         RunLog::append($flowRun->id, "STEP {$stepNo}/{$totalSteps}: {$node->name}");
 
         $agent = $this->bridge->bridgeAgent($node);
-        // Времевият бюджет пътува през transient DTO-то (никога не се persist-ва)
-        // до GenericAgent::runAgentic → AgentLoop.
-        $agent->config = array_merge((array) $agent->config, ['deadline_ts' => $this->jobDeadlineTs]);
+        // Времевият бюджет и фирменият контекст пътуват през transient DTO-то
+        // (никога не се persist-ват) — deadline_ts до GenericAgent::runAgentic →
+        // AgentLoop, company_id до KnowledgeSearchTool през AgentFactory.
+        $agent->config = array_merge((array) $agent->config, [
+            'deadline_ts' => $this->jobDeadlineTs,
+            'company_id' => $flowRun->flow?->company_id,
+        ]);
         $this->bridge->ensureModelInstalled($agent);
 
         $bridgeRun = $this->bridge->bridgeRun($flowRun, $input);

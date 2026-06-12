@@ -16,9 +16,25 @@ use Illuminate\Support\Facades\Log;
  */
 class EmbeddingService
 {
+    private ?string $providerOverride = null;
+
+    /**
+     * Clone with a pinned provider — the knowledge base can run on its own
+     * provider while flow memory keeps reading the memory config. Invalid or
+     * null overrides fall back to the default behavior.
+     */
+    public function withProvider(?string $provider): static
+    {
+        $clone = clone $this;
+        $clone->providerOverride = in_array($provider, ['openai', 'ollama'], true) ? $provider : null;
+
+        return $clone;
+    }
+
     public function provider(): string
     {
-        $provider = (string) config('services.memory.embedding_provider', 'openai');
+        $provider = $this->providerOverride
+            ?? (string) config('services.memory.embedding_provider', 'openai');
 
         return in_array($provider, ['openai', 'ollama'], true) ? $provider : 'openai';
     }

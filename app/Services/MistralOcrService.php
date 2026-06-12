@@ -17,9 +17,48 @@ class MistralOcrService
     public function extract(string $url): ?string
     {
         $url = trim($url);
+
+        if ($url === '' || ! preg_match('#^https?://#i', $url)) {
+            return null;
+        }
+
+        return $this->request($this->documentPayload($url), $url);
+    }
+
+    /**
+     * Extract a LOCAL file (knowledge-base upload) by sending it as a base64
+     * data: URI — Mistral OCR accepts those in the same document field.
+     */
+    public function extractFile(string $absolutePath, string $mime): ?string
+    {
+        if (! is_file($absolutePath)) {
+            return null;
+        }
+
+        $maxBytes = (int) config('services.mistral.ocr_max_file_mb', 25) * 1024 * 1024;
+        if (filesize($absolutePath) > $maxBytes) {
+            Log::warning("[MistralOCR] File too large for OCR: {$absolutePath}");
+
+            return null;
+        }
+
+        $dataUri = 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($absolutePath));
+
+        $payload = str_starts_with($mime, 'image/')
+            ? ['type' => 'image_url', 'image_url' => $dataUri]
+            : ['type' => 'document_url', 'document_url' => $dataUri];
+
+        return $this->request($payload, basename($absolutePath));
+    }
+
+    /**
+     * @param  array<string, string>  $documentPayload
+     */
+    private function request(array $documentPayload, string $label): ?string
+    {
         $apiKey = config('services.mistral.api_key');
 
-        if ($url === '' || ! preg_match('#^https?://#i', $url) || empty($apiKey)) {
+        if (empty($apiKey)) {
             return null;
         }
 
@@ -29,11 +68,11 @@ class MistralOcrService
                 ->timeout((int) config('services.mistral.ocr_timeout', 120))
                 ->post((string) config('services.mistral.ocr_url', self::ENDPOINT), [
                     'model' => config('services.mistral.ocr_model', 'mistral-ocr-latest'),
-                    'document' => $this->documentPayload($url),
+                    'document' => $documentPayload,
                 ]);
 
             if (! $response->successful()) {
-                Log::warning("[MistralOCR] HTTP {$response->status()} for {$url}");
+                Log::warning("[MistralOCR] HTTP {$response->status()} for {$label}");
 
                 return null;
             }
@@ -48,7 +87,7 @@ class MistralOcrService
                 LlmUsage::addFlatCost($pages * (float) config('services.mistral.ocr_page_cost_usd', 0.002));
             }
 
-            return $this->markdownFromResponse($json, $url);
+            return $this->markdownFromResponse($json, $label);
         } catch (\Throwable $e) {
             Log::warning('[MistralOCR] '.$e->getMessage());
 

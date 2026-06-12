@@ -5,6 +5,7 @@ namespace App\Agents;
 use App\Agents\Tools\BraveSearchTool;
 use App\Agents\Tools\DocumentOcrTool;
 use App\Agents\Tools\GoogleReviewsTool;
+use App\Agents\Tools\KnowledgeSearchTool;
 use App\Agents\Tools\PeopleSearchTool;
 use App\Agents\Tools\PerplexitySearchTool;
 use App\Agents\Tools\SiteCrawlerTool;
@@ -16,6 +17,7 @@ use App\Services\BraveSearchService;
 use App\Services\ComfyUIService;
 use App\Services\CrawlService;
 use App\Services\GooglePlacesService;
+use App\Services\KnowledgeService;
 use App\Services\MistralOcrService;
 use App\Services\OllamaService;
 use App\Services\PerplexitySearchService;
@@ -85,6 +87,7 @@ class AgentFactory
             // runs the tools whitelisted in its config['tools'] (see GenericAgent).
             // The AgentLoop powers its agentic mode on paid models.
             'custom' => new GenericAgent($this->ollama, [
+                new KnowledgeSearchTool(app(KnowledgeService::class), ((int) ($agent->config['company_id'] ?? 0)) ?: null),
                 new BraveSearchTool($this->braveSearch),
                 new PerplexitySearchTool(new PerplexitySearchService),
                 new PeopleSearchTool(new PerplexitySearchService),
