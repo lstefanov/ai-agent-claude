@@ -51,6 +51,11 @@ class NodeExecutorService
     // че QA retry-тата делят ЕДИН бюджет и job-ът никога не гони своя timeout.
     private ?float $jobDeadlineTs = null;
 
+    // Най-дългият upstream вход на последния runOnce() — watchdog-ът сравнява
+    // изхода на трансформерен възел срещу него (run 102: коректорът върна
+    // 85-знакова „присъда" върху 26K доклад).
+    private int $lastUpstreamMaxLen = 0;
+
     public function __construct(
         private AgentFactory $factory,
         private FlowMemoryService $memory,
@@ -171,7 +176,7 @@ class NodeExecutorService
 
             // Watchdog: degenerate output (empty/placeholder boilerplate) is a
             // failure even before QA — try one planner revision immediately.
-            if ($revision === null && $this->replanner->looksDegenerate($output, $node)) {
+            if ($revision === null && $this->replanner->looksDegenerate($output, $node, $this->lastUpstreamMaxLen)) {
                 $revision = $this->replanner->requestRevision($flowRun, $node, $nodeRun, $output, 'Изходът е изроден: празен/твърде кратък или съдържа шаблонен placeholder текст.');
                 if ($revision !== null) {
                     RunLog::append($flowRun->id, "[REPLAN] {$node->name}: изроден изход — повторен опит с ревизия от планера");
@@ -281,6 +286,7 @@ class NodeExecutorService
 
         $ctx = $this->promptBuilder->buildNodeInput($flowRun, $node);
         $input = $this->promptBuilder->renderPrompt($node, $ctx);
+        $this->lastUpstreamMaxLen = (int) max([0, ...array_map('mb_strlen', $ctx['upstream'])]);
 
         // Памет: steer content nodes away from already-produced content and
         // give every node its distilled lessons. The blocks land in
@@ -346,8 +352,11 @@ class NodeExecutorService
                 }
                 $agentInstance = $this->factory->make($agent);
                 $returned = $agentInstance->run($agent, $bridgeRun, $agentContext);
+                // The agent's return value is canonical — it carries the agent's
+                // post-processing (guardCorrection, sanitizeModelOutput …). The
+                // raw model reply is kept ONLY for the raw_output audit column.
                 $rawOutput = $agentInstance->rawOutput() ?? $returned;
-                $output = ReasoningStripper::strip($rawOutput);
+                $output = ReasoningStripper::strip($returned);
                 $lastError = null;
                 break;
             } catch (Throwable $e) {

@@ -14,16 +14,27 @@ class QaVerifierAgent extends BaseAgent
         // Build a clean content summary from all previous agents
         $content = $this->buildContentForReview($context);
 
+        $userMessage = "Review the following content and provide your quality score:\n\n{$content}";
+        $userMessage .= $this->buildSourceSection($context);
+
+        $systemPrompt = $this->buildQaSystemPrompt($agent);
+        $options = array_merge($this->buildOptions($agent), [
+            'temperature' => 0.1, // Low temperature for consistent, structured output
+        ]);
+        // Direct ollama->chat bypasses BaseAgent::chat's silent-truncation guard —
+        // size num_ctx to the prompt or a local model quietly cuts the source block.
+        if (! isset($options['num_ctx'])) {
+            $options['num_ctx'] = $this->estimateNumCtx($systemPrompt, $userMessage, $options['num_predict'] ?? null);
+        }
+
         // IMPORTANT: We bypass buildOutputInstructions() completely.
         // The QA verifier must ALWAYS respond in English — score parsing depends on it.
         // Small models (phi3.5, phi3:mini) fail hard with language instructions in Romanian/other.
         $response = $this->ollama->chat(
             model: $agent->model,
-            systemPrompt: $this->buildQaSystemPrompt($agent),
-            userMessage: "Review the following content and provide your quality score:\n\n{$content}",
-            options: array_merge($this->buildOptions($agent), [
-                'temperature' => 0.1, // Low temperature for consistent, structured output
-            ])
+            systemPrompt: $systemPrompt,
+            userMessage: $userMessage,
+            options: $options
         );
 
         $score = $this->parseScore($response);
@@ -120,6 +131,29 @@ PROMPT;
 
         // Cap so the local QA model's context window isn't blown on huge reports.
         return mb_substr($content, 0, 12000);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // The inline step-QA gate (StepQaGate::verify) also passes the material the
+    // gated node sent to its model. Without it, completeness is unjudgeable —
+    // a 85-char "no errors found" verdict over a 26K report scored 90/100.
+    // ──────────────────────────────────────────────────────────────────────
+    private function buildSourceSection(array $context): string
+    {
+        $source = trim((string) ($context['source_input'] ?? ''));
+
+        if ($source === '') {
+            return '';
+        }
+
+        $sourceLen = (int) ($context['source_len'] ?? mb_strlen($source));
+        $outputLen = mb_strlen(trim((string) ($context['input'] ?? '')));
+
+        return "\n\n--- SOURCE INPUT the node was asked to work from (may be truncated) ---\n"
+            .$source
+            ."\n--- END SOURCE INPUT ---\n"
+            ."\nSource input length: {$sourceLen} chars. Output length: {$outputLen} chars."
+            ."\nIf the task was to transform, correct or compose the source material but the output drops or ignores most of it (e.g. a short meta-verdict instead of the full text), score it below the passing threshold.";
     }
 
     // ──────────────────────────────────────────────────────────────────────

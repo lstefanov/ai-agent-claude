@@ -663,7 +663,7 @@
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden relative shadow-sm flex-1 min-h-0">
         <div id="drawflow" class="w-full h-full"></div>
         @include('flows.partials.assistant-panel')
-        <div class="absolute left-4 bottom-4 rounded-xl bg-white/90 backdrop-blur border border-gray-200 px-3 py-2 text-xs text-gray-500 shadow-sm">
+        <div class="hidden absolute left-4 bottom-4 rounded-xl bg-white/90 backdrop-blur border border-gray-200 px-3 py-2 text-xs text-gray-500 shadow-sm">
             Свържи син изход към зелен вход. “Контекст” означава междинен резултат, който се подава към следващи агенти, но не влиза директно във финалния output.
         </div>
     </div>

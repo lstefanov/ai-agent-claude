@@ -49,14 +49,35 @@ class FinalComposerService
         // duplicate content without a connecting edge.
         $effectiveParts = $this->dropContainedParts($parts);
 
+        [$output, $model] = $this->assembleText($effectiveParts);
+
+        // Guarantee generated media artifacts (a ComfyUI image, a future
+        // PDF/Excel export saved to /storage) reach the report. A text agent
+        // can't reproduce an ![](url), and structural dedup drops a media node
+        // once it feeds a downstream body node — so the artifact would
+        // otherwise vanish. Applied AFTER the guarded LLM pass so media can
+        // never be reworded or dropped.
+        $output = $this->appendMediaArtifacts($output, $flowRun);
+
+        return ['output' => $output, 'model' => $model];
+    }
+
+    /**
+     * Deterministic + guarded-LLM assembly of the surviving text parts.
+     *
+     * @param  list<string>  $effectiveParts
+     * @return array{0: string, 1: ?string} [output, model]
+     */
+    private function assembleText(array $effectiveParts): array
+    {
         // Nothing to compose.
         if (count($effectiveParts) === 0) {
-            return ['output' => '', 'model' => null];
+            return ['', null];
         }
 
         // Single deliverable — no assembly needed, return it verbatim.
         if (count($effectiveParts) === 1) {
-            return ['output' => $effectiveParts[0], 'model' => null];
+            return [$effectiveParts[0], null];
         }
 
         // Deterministic, verbatim assembly is the source of truth — the robust
@@ -79,14 +100,104 @@ class FinalComposerService
                 && $this->allPartsPresentVerbatim($formatted, $effectiveParts)
                 && $this->withinLengthBudget($formatted, $deterministic)
                 && ! $this->containsPlaceholder($formatted)) {
-                return ['output' => $formatted, 'model' => $model];
+                return [$formatted, $model];
             }
         } catch (Throwable) {
             // fall through to the deterministic assembly
         }
 
         // Safety net — guaranteed complete, verbatim content.
-        return ['output' => $deterministic, 'model' => null];
+        return [$deterministic, null];
+    }
+
+    /**
+     * Append every media artifact produced in the run that is missing from the
+     * composed output, as a trailing section.
+     *
+     * Generated media (a ComfyUI image, a future PDF/Excel export saved to the
+     * public disk) lives in a node's markdown output. A downstream text agent
+     * can't reproduce it, and structural dedup drops the producing node once it
+     * feeds a body node — so without this guard the artifact never reaches the
+     * final report.
+     */
+    private function appendMediaArtifacts(string $output, FlowRun $flowRun): string
+    {
+        $missing = [];
+        foreach ($this->collectMediaArtifacts($flowRun) as $url => $snippet) {
+            // Skip artifacts already present (e.g. an image that legitimately
+            // survived assembly) — keyed by URL so we never duplicate.
+            if (mb_strpos($output, (string) $url) === false) {
+                $missing[] = $snippet;
+            }
+        }
+
+        if ($missing === []) {
+            return $output;
+        }
+
+        $media = implode("\n\n", $missing);
+
+        return trim($output) === '' ? $media : trim($output)."\n\n---\n\n".$media;
+    }
+
+    /**
+     * Distinct media artifacts (URL => markdown snippet) across ALL completed
+     * node outputs of the run, in execution order — including nodes dropped by
+     * dedup, which is exactly where a consumed image node lives.
+     *
+     * @return array<string, string>
+     */
+    private function collectMediaArtifacts(FlowRun $flowRun): array
+    {
+        $artifacts = [];
+
+        $runs = $flowRun->nodeRuns()
+            ->where('status', 'completed')
+            ->orderBy('id')
+            ->get(['output']);
+
+        foreach ($runs as $run) {
+            if (! is_string($run->output) || trim($run->output) === '') {
+                continue;
+            }
+            foreach ($this->extractMediaArtifacts($run->output) as $url => $snippet) {
+                $artifacts[$url] ??= $snippet;
+            }
+        }
+
+        return $artifacts;
+    }
+
+    /**
+     * Extract media artifacts from a markdown string as URL => snippet:
+     *  - every image embed ![alt](url) (always a deliverable), and
+     *  - links [label](url) to files on the app's public storage (/storage/…),
+     *    e.g. future PDF/Excel/zip exports. Plain links (research citations)
+     *    are ignored so the report isn't polluted with source URLs.
+     *
+     * @return array<string, string>
+     */
+    private function extractMediaArtifacts(string $text): array
+    {
+        $artifacts = [];
+
+        // Image embeds — always media.
+        if (preg_match_all('/!\[[^\]]*\]\(([^)\s]+)\)/u', $text, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $artifacts[$match[1]] ??= $match[0];
+            }
+        }
+
+        // Non-image links pointing at the public storage disk.
+        if (preg_match_all('/(?<!!)\[[^\]]*\]\(([^)\s]+)\)/u', $text, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                if (str_contains($match[1], '/storage/')) {
+                    $artifacts[$match[1]] ??= $match[0];
+                }
+            }
+        }
+
+        return $artifacts;
     }
 
     // Every part must keep at least this fraction of its sampled verbatim

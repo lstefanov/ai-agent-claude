@@ -63,10 +63,19 @@ class StepQaGate
             ? FlowNode::where('flow_version_id', $node->flow_version_id)->where('node_key', $verifierKey)->first()
             : null;
 
-        // Build context for the verifier: include the subject node's output.
+        // Build context for the verifier: the subject node's output PLUS the
+        // material the node actually sent to its model (params_snapshot is
+        // persisted by runOnce before the gate runs). Without the source,
+        // "пълнота спрямо подадените данни" is unjudgeable — run 102 scored a
+        // 85-char verdict 90/100 because the verifier never saw the 26K input.
+        $sourceInput = (string) (data_get($nodeRun->params_snapshot, 'user_message') ?: $nodeRun->input);
         $agentContext = array_merge(
             $flowRun->context['seed'] ?? [],
-            ['input' => $nodeOutput]
+            [
+                'input' => $nodeOutput,
+                'source_input' => mb_substr($sourceInput, 0, 6000),
+                'source_len' => mb_strlen($sourceInput),
+            ]
         );
 
         // Use a dedicated verifier node when one is referenced; otherwise

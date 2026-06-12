@@ -250,6 +250,20 @@ class GraphFlowExecutor
 
         RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} COMPLETED — краен output ".mb_strlen($output).' chars');
 
+        // Tripwire: краен output многократно по-кратък от най-дългото
+        // произведено body съдържание значи, че последният възел е изпуснал
+        // материала (run 102: 85-знакова „присъда" погреба 26K доклад).
+        $bodyKeys = FlowNode::where('flow_version_id', $flowRun->flow_version_id)
+            ->where('output_role', 'body')
+            ->pluck('node_key');
+        $maxBodyLen = (int) NodeRun::where('flow_run_id', $flowRun->id)
+            ->where('status', 'completed')
+            ->whereIn('node_key', $bodyKeys)
+            ->max(DB::raw('CHAR_LENGTH(output)'));
+        if ($maxBodyLen > 0 && mb_strlen($output) < (int) ($maxBodyLen * 0.2)) {
+            RunLog::append($flowRun->id, '[WARN] Краен output ('.mb_strlen($output).' chars) е многократно по-кратък от произведеното съдържание ('.$maxBodyLen.' chars) — провери изхода на последния възел');
+        }
+
         $flowRun->flow->update(['last_run_at' => now()]);
 
         // Plan library (Фаза 2): a successful run proves the approved plan —

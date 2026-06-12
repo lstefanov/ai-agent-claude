@@ -135,7 +135,7 @@ class AdaptiveReplanner
      * Watchdog: an output that is empty, suspiciously short, or contains the
      * classic placeholder boilerplate is treated as a failure before QA.
      */
-    public function looksDegenerate(string $output, FlowNode $node): bool
+    public function looksDegenerate(string $output, FlowNode $node, int $upstreamMaxLen = 0): bool
     {
         // Utility nodes legitimately emit terse confirmations — don't watchdog them.
         if (in_array($node->type, ['webhook_sender', 'slack_notifier'], true)) {
@@ -145,6 +145,23 @@ class AdaptiveReplanner
         $trimmed = trim($output);
 
         if ($trimmed === '' || mb_strlen($trimmed) < 20) {
+            return true;
+        }
+
+        // Кратка „присъда" вместо самия deliverable (run 102: gpt-4o върна
+        // „Текстът е прегледан и няма правописни грешки" вместо доклада).
+        if (mb_strlen($trimmed) < 200 && preg_match(
+            '/няма\s+(правописни\s+|граматически\s+)?грешки|текстът\s+е\s+прегледан|всичко\s+е\s+(написано\s+)?правилно|no\s+(spelling\s+|grammar\s+)?errors/iu',
+            $trimmed,
+        )) {
+            return true;
+        }
+
+        // Трансформер (коригира/превежда) трябва да възпроизведе горе-долу
+        // входа си — драстично свиване значи резюме/отказ вместо трансформация.
+        if ($upstreamMaxLen > 0
+            && in_array($node->type, ['bg_text_corrector', 'translator'], true)
+            && mb_strlen($trimmed) < (int) ($upstreamMaxLen * 0.5)) {
             return true;
         }
 
