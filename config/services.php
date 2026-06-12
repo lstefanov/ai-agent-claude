@@ -148,6 +148,12 @@ return [
         'chunk_overlap' => (int) env('KNOWLEDGE_CHUNK_OVERLAP', 150),
         // Колко чанка връща търсенето / влизат в "ЗНАНИЕ" блока.
         'top_k' => (int) env('KNOWLEDGE_TOP_K', 5),
+        // Диверсификация: максимум чанкове от ЕДНА страница/ресурс в topK
+        // (фактите не се броят) — иначе една страница запълва целия резултат.
+        'max_per_source' => (int) env('KNOWLEDGE_MAX_PER_SOURCE', 2),
+        // Тегло на keyword канала в RRF сливането (векторният е 1.0) — чист
+        // TF match на честа дума не бива да бие семантично уцелен чанк.
+        'rrf_keyword_weight' => (float) env('KNOWLEDGE_RRF_KEYWORD_WEIGHT', 0.75),
         'block_max_chars' => (int) env('KNOWLEDGE_BLOCK_MAX_CHARS', 2500),
         // Под този cosine score чанкът не влиза в "ЗНАНИЕ" блока.
         'min_score' => (float) env('KNOWLEDGE_MIN_SCORE', 0.25),

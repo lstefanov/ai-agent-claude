@@ -471,9 +471,14 @@ class KnowledgeService
             $items[$key] = $hit;
         }
 
+        // Keyword каналът тежи по-малко: той е тук за точните низове (цени,
+        // имена), но чист TF match на честа дума (напр. "ограничение" в GDPR
+        // страница) не бива да изпреварва семантично уцелен чанк. Истинските
+        // exact попадения така или иначе са и в двата списъка ('both').
+        $keywordWeight = (float) config('services.knowledge.rrf_keyword_weight', 0.75);
         $rank = 0;
         foreach ($keywordHits as $key => $hit) {
-            $scores[$key] = ($scores[$key] ?? 0) + 1 / (self::RRF_K + ++$rank);
+            $scores[$key] = ($scores[$key] ?? 0) + $keywordWeight / (self::RRF_K + ++$rank);
             if (isset($items[$key])) {
                 $items[$key]['match'] = 'both';
                 if ($hit['score'] > $items[$key]['score']) {
@@ -492,9 +497,37 @@ class KnowledgeService
 
         arsort($scores);
 
+        // Диверсификация: digest + content чанковете на ЕДНА страница често са
+        // почти еднакви и без cap могат да напълнят целия topK. Максимум N
+        // чанка per страница/ресурс; изместените се връщат само ако няма с
+        // какво друго да се допълни. Фактите са едноредови и дедупнати — без cap.
+        $maxPerSource = max(1, (int) config('services.knowledge.max_per_source', 2));
         $out = [];
-        foreach (array_keys(array_slice($scores, 0, $topK, true)) as $key) {
-            $out[] = $items[$key];
+        $overflow = [];
+        $perSource = [];
+
+        foreach (array_keys($scores) as $key) {
+            $item = $items[$key];
+            if ($item['kind'] === 'chunk') {
+                $source = $item['resource_id'].':'.($item['page_id'] ?? 0);
+                if (($perSource[$source] ?? 0) >= $maxPerSource) {
+                    $overflow[] = $item;
+
+                    continue;
+                }
+                $perSource[$source] = ($perSource[$source] ?? 0) + 1;
+            }
+            $out[] = $item;
+            if (count($out) >= $topK) {
+                return $out;
+            }
+        }
+
+        foreach ($overflow as $item) {
+            if (count($out) >= $topK) {
+                break;
+            }
+            $out[] = $item;
         }
 
         return $out;

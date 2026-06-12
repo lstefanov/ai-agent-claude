@@ -29,6 +29,14 @@ class KnowledgeIngestor
     /** Бюджет за BFS фазата — останалото от timeout-а отива за синтез/embeddings. */
     private const CRAWL_BUDGET_SECONDS = 660;
 
+    /**
+     * Версия на embedding входа (контекст + съдържание). Bump-ва се при
+     * промяна на това КАКВО се embed-ва — старите чанкове спират да минават
+     * "unchanged" проверките и следващият re-ingest ги преизчислява (digest
+     * кешът остава валиден → струва само локални bge-m3 calls, не LLM).
+     */
+    private const EMBED_VERSION = 2;
+
     private const MAX_CONTENT_CHUNKS_PER_PAGE = 30;
 
     private EmbeddingService $embeddings;
@@ -78,7 +86,10 @@ class KnowledgeIngestor
         $unchanged = $hash === ($resource->meta['content_hash'] ?? null)
             && $resource->chunk_count > 0
             && ! empty($resource->meta['digest'])
-            && $resource->chunks()->where('embedding_provider', $tag)->exists();
+            && $resource->chunks()
+                ->where('embedding_provider', $tag)
+                ->where('meta->embed_v', self::EMBED_VERSION)
+                ->exists();
 
         if ($unchanged) {
             LlmUsage::take();
@@ -201,7 +212,10 @@ class KnowledgeIngestor
                 && $existing
                 && $existing->content_hash === $page['content_hash']
                 && trim((string) $existing->digest) !== ''
-                && $existing->chunks()->where('embedding_provider', $tag)->exists()) {
+                && $existing->chunks()
+                    ->where('embedding_provider', $tag)
+                    ->where('meta->embed_v', self::EMBED_VERSION)
+                    ->exists()) {
                 continue;
             }
 
@@ -330,7 +344,17 @@ class KnowledgeIngestor
         $vectors = [];
 
         foreach ($sections as $seq => $section) {
-            $vector = $this->embeddings->embed($section['content'], $llmContext);
+            // Контекстуален embedding: векторът кодира и заглавието на
+            // страницата/ресурса, не само текста на чанка — иначе чанк като
+            // "Възрастово ограничение: 18+" от страница "Лазерна епилация
+            // подмишници" е семантично откачен от услугата си и заявка за
+            // услугата не го намира. Съхраненото съдържание остава чисто.
+            $context = trim((string) ((($section['meta']['title'] ?? null) ?: $resource->title)));
+            $embedInput = $context !== '' && ! str_starts_with($section['content'], $context)
+                ? $context."\n".$section['content']
+                : $section['content'];
+
+            $vector = $this->embeddings->embed($embedInput, $llmContext);
             if ($vector !== null) {
                 $vectors[] = $vector;
             }
@@ -343,7 +367,7 @@ class KnowledgeIngestor
                 'content' => $section['content'],
                 'embedding' => $vector !== null ? json_encode($vector) : null,
                 'embedding_provider' => $vector !== null ? $tag : null,
-                'meta' => $section['meta'] !== [] ? json_encode($section['meta'], JSON_UNESCAPED_UNICODE) : null,
+                'meta' => json_encode($section['meta'] + ['embed_v' => self::EMBED_VERSION], JSON_UNESCAPED_UNICODE),
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
