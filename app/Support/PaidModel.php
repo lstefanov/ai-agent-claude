@@ -85,6 +85,25 @@ class PaidModel
         return (self::PREFIXES[$provider] ?? self::PREFIXES['openai']).$runtime;
     }
 
+    /**
+     * The prefixed string for the provider's most expensive FLAGSHIP model —
+     * used only by the GOD level. pinTop('openai') → "openai/gpt-4o".
+     * Non-premium providers have no flagship and fall back to pin().
+     */
+    public static function pinTop(string $provider): string
+    {
+        if (! self::isPremium($provider)) {
+            return self::pin($provider);
+        }
+
+        $flagship = match ($provider) {
+            'anthropic' => (string) config('services.anthropic.flagship_model', 'claude-sonnet-4-6'),
+            default => (string) config('services.openai.flagship_model', 'gpt-4o'),
+        };
+
+        return self::PREFIXES[$provider].$flagship;
+    }
+
     /** True when the provider has an API key configured. */
     public static function available(string $provider): bool
     {

@@ -7,6 +7,7 @@ use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Horizon\Events\SupervisorLooped;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -27,6 +28,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Worker-ите стрелят Looping само МЕЖДУ jobs — при един зает worker с
+        // дълъг node (crawl/LLM) heartbeat-ът би изтекъл. Supervisor процесът
+        // на Horizon обаче се върти непрекъснато, независимо от заетостта.
+        Event::listen(SupervisorLooped::class, function (SupervisorLooped $event): void {
+            if ($this->queueIncludesFlows((string) $event->supervisor->options->queue)) {
+                $this->markFlowsWorkerAlive();
+            }
+        });
+
         Event::listen(Looping::class, function (Looping $event): void {
             if ($this->queueIncludesFlows((string) $event->queue)) {
                 $this->markFlowsWorkerAlive();

@@ -33,7 +33,7 @@ class FlowVersionController extends Controller
             'agents' => 'nullable|array',
             'generator' => 'nullable|array',
             'intent' => 'nullable|array',
-            'model_level' => ['nullable', Rule::in(['low', 'medium', 'high', 'ultra', 'custom'])],
+            'model_level' => ['nullable', Rule::in(['low', 'medium', 'high', 'ultra', 'god', 'custom'])],
             'cost_usd' => 'nullable|numeric',
             'duration_ms' => 'nullable|integer',
         ]);

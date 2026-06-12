@@ -95,6 +95,24 @@ spawn_loop() {  # spawn_loop <лог-файл> <команда...>
     ( set -m; nohup sh -c "while true; do $*; sleep 2; done" >"$log" 2>&1 & )
 }
 
+# Опашката се обработва САМО от Horizon. Стари `queue:work`/`queue:listen`
+# процеси (от пре-Horizon версии на този скрипт или ръчни пускания) са boot-нати
+# със стар .env/код и се конкурират с Horizon за jobs — източник на "забили"
+# run-ове. Чистим ги при start и stop. Шаблоните НЕ закачат Horizon: неговите
+# процеси са `artisan horizon`, `horizon:supervisor` и `horizon:work`.
+kill_legacy_workers() {
+    local strays
+    strays=$(pgrep -fl "artisan queue:(work|listen)" 2>/dev/null)
+    [ -z "$strays" ] && return 0
+    echo "  ⚠️  Засечени legacy queue worker-и (убивам ги — опашката е само за Horizon):"
+    echo "$strays" | sed 's/^/      /'
+    # Първо рестарт цикли (иначе respawn-ват децата), после самите worker-и.
+    pkill -f "while true; do.*artisan queue:work" 2>/dev/null
+    pkill -f "artisan queue:work"                 2>/dev/null
+    pkill -f "artisan queue:listen"               2>/dev/null
+    echo "  ✓ Legacy queue worker-и спрени"
+}
+
 # -----------------------------------------------------------------------------
 #  stop / status подкоманди
 # -----------------------------------------------------------------------------
@@ -109,6 +127,9 @@ stop_all() {
     pkill -f "while true; do.*artisan horizon"    2>/dev/null && echo "  ✓ Horizon рестарт цикъл спрян"
     "$PHP_BIN" "$ARTISAN" horizon:terminate       >/dev/null 2>&1 && echo "  ✓ Horizon terminate изпратен"
     pkill -f "artisan horizon"                    2>/dev/null && echo "  ✓ Horizon master спрян"
+    pkill -f "while true; do.*schedule:work"      2>/dev/null && echo "  ✓ Scheduler рестарт цикъл спрян"
+    pkill -f "artisan schedule:work"              2>/dev/null && echo "  ✓ Scheduler спрян"
+    kill_legacy_workers
     pkill -f "$COMFY_DIR/main.py"                 2>/dev/null && echo "  ✓ ComfyUI спрян"
     pkill -f "vite"                               2>/dev/null && echo "  ✓ Vite спрян"
     echo "ℹ️  Ollama НЕ е спиран (споделен daemon). За да го спреш: pkill -x ollama"
@@ -124,7 +145,13 @@ status_all() {
     http_ok "http://localhost:8189/health"         && echo "  ✓ Crawl4AI      :8189"  || echo "  ✗ Crawl4AI      :8189"
     http_ok "http://localhost:8000"                && echo "  ✓ Web server    :8000"  || echo "  ✗ Web server    :8000"
     running "artisan horizon"                       && echo "  ✓ Horizon (flows+default)" || echo "  ✗ Horizon (flows+default)"
+    running "artisan schedule:work"                 && echo "  ✓ Scheduler (watchdog + scheduled flows)" || echo "  ✗ Scheduler (watchdog + scheduled flows)"
     port_listening 5173                            && echo "  ✓ Vite          :5173"  || echo "  ✗ Vite          :5173"
+    if pgrep -f "artisan queue:(work|listen)" >/dev/null 2>&1; then
+        echo "  ⚠️  Stray legacy queue worker-и (конкурират се с Horizon!):"
+        pgrep -fl "artisan queue:(work|listen)" | sed 's/^/      /'
+        echo "      Изчисти ги: ./scripts/start-services.sh   (или stop)"
+    fi
     exit 0
 }
 
@@ -246,6 +273,7 @@ fi
 # supervisor-flows (1-3 процеса, queue=flows) и supervisor-default (1 процес,
 # queue=default). Пуска се в self-healing loop, за да преживее horizon:terminate
 # (deploy на нов код) или crash. БЕЗ Horizon опашката 'flows' не се обработва.
+kill_legacy_workers
 if running "artisan horizon"; then
     echo "✓ Horizon вече върви"
 else
@@ -256,6 +284,24 @@ else
     running "artisan horizon" \
         && echo "✓ Horizon стартиран (supervisor-flows + supervisor-default)" \
         || echo "✗ Horizon не тръгна — виж $LOG_DIR/horizon.log"
+fi
+
+# -----------------------------------------------------------------------------
+#  5б) Scheduler — flows:watchdog + flows:run-scheduled (всяка минута)
+# -----------------------------------------------------------------------------
+# routes/console.php закача watchdog-а (чисти РЕАЛНО забили run-ове) и
+# стартирането на scheduled flow-ове. Без schedule:work те просто не се
+# изпълняват (composer dev го пуска, но този скрипт е алтернативният път).
+if running "artisan schedule:work"; then
+    echo "✓ Scheduler вече върви"
+else
+    echo "Стартиране на Scheduler..."
+    spawn_loop "$LOG_DIR/scheduler.log" \
+        "$PHP_BIN" "$ARTISAN" schedule:work
+    sleep 2
+    running "artisan schedule:work" \
+        && echo "✓ Scheduler стартиран (flows:watchdog + flows:run-scheduled)" \
+        || echo "✗ Scheduler не тръгна — виж $LOG_DIR/scheduler.log"
 fi
 
 # -----------------------------------------------------------------------------
@@ -286,6 +332,7 @@ echo "  ComfyUI:       http://localhost:8188    ($LOG_DIR/comfyui.log)"
 echo "  Crawl4AI:      http://localhost:8189    ($LOG_DIR/crawl4ai.log)"
 echo "  Web server:    http://localhost:8000    ($LOG_DIR/laravel-serve.log)"
 echo "  Horizon:       http://flowai.local/horizon  ($LOG_DIR/horizon.log)"
+echo "  Scheduler:     schedule:work             ($LOG_DIR/scheduler.log)"
 echo "  Vite:          http://localhost:5173    ($LOG_DIR/vite.log)"
 echo "  FlowAI (vhost):http://flowai.local      (MAMP PRO, ако е конфигуриран)"
 echo "──────────────────────────────────────────────"

@@ -51,7 +51,7 @@ class PlanAbCommand extends Command
         {--token= : Cache token for UI polling}
         {--provider= : Plan with a single provider (ollama|openai|anthropic|deepseek|gemini|xai|qwen)}
         {--variant=* : "label:provider[:model]" или "label:phase=provider[:model],..." (фази: intent|design|critique|revision); само име → preset от services.planner.ab_presets}
-        {--level= : Ниво на runtime моделите за агентите (low|medium|high|ultra); празно → medium}';
+        {--level= : Ниво на runtime моделите за агентите (low|medium|high|ultra|god); празно → medium}';
 
     protected $description = 'Plan the same flow with different providers / hybrid per-phase combos and compare the resulting pipelines';
 

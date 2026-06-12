@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Agents\AgentFactory;
 use App\Agents\DecisionAgent;
+use App\Jobs\ExecuteNodeJob;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\NodeRun;
@@ -13,8 +14,10 @@ use App\Services\Execution\NodePromptBuilder;
 use App\Services\Execution\StepQaGate;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
+use App\Support\NodeDeadline;
 use App\Support\PricingOutputMetrics;
 use App\Support\ReasoningStripper;
+use App\Support\RunLog;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
@@ -40,6 +43,14 @@ class NodeExecutorService
 {
     private const MAX_ATTEMPTS = 3;
 
+    // Колко от job timeout-а оставяме за wrap-up call + QA gate СЛЕД agentic
+    // tool loop-а. Останалото е времевият бюджет на агента (deadline_ts).
+    private const TIME_HEADROOM_SECONDS = 200;
+
+    // Котва на времевия бюджет — задава се при влизане в executeNode(), така
+    // че QA retry-тата делят ЕДИН бюджет и job-ът никога не гони своя timeout.
+    private ?float $jobDeadlineTs = null;
+
     public function __construct(
         private AgentFactory $factory,
         private FlowMemoryService $memory,
@@ -55,30 +66,39 @@ class NodeExecutorService
 
     public function executeNode(int $flowRunId, int $flowNodeId): void
     {
-        $flowRun = FlowRun::findOrFail($flowRunId);
-        $node = FlowNode::findOrFail($flowNodeId);
+        $this->jobDeadlineTs = microtime(true) + max(60, ExecuteNodeJob::TIMEOUT_SECONDS - self::TIME_HEADROOM_SECONDS);
+        // Ambient копие за дълбоките tool цикли (CrawlService, DeepResearcher),
+        // които нямат достъп до agent config-а.
+        NodeDeadline::set($this->jobDeadlineTs);
 
-        $nodeRun = NodeRun::firstOrNew([
-            'flow_run_id' => $flowRunId,
-            'flow_node_id' => $flowNodeId,
-        ]);
+        try {
+            $flowRun = FlowRun::findOrFail($flowRunId);
+            $node = FlowNode::findOrFail($flowNodeId);
 
-        // Idempotency — a re-dispatched job must not re-run a completed node,
-        // and a paused approval node stays paused until the approval endpoint
-        // settles it.
-        if ($nodeRun->exists && in_array($nodeRun->status, ['completed', 'paused'], true)) {
-            return;
+            $nodeRun = NodeRun::firstOrNew([
+                'flow_run_id' => $flowRunId,
+                'flow_node_id' => $flowNodeId,
+            ]);
+
+            // Idempotency — a re-dispatched job must not re-run a completed node,
+            // and a paused approval node stays paused until the approval endpoint
+            // settles it.
+            if ($nodeRun->exists && in_array($nodeRun->status, ['completed', 'paused'], true)) {
+                return;
+            }
+
+            // Human-in-the-loop: the node never executes an agent — it pauses the
+            // run until a person approves/rejects via the run UI.
+            if ($node->type === 'human_approval') {
+                $this->pauseForApproval($flowRun, $node, $nodeRun);
+
+                return;
+            }
+
+            $this->runWithQaRetry($flowRun, $node, $nodeRun);
+        } finally {
+            NodeDeadline::clear();
         }
-
-        // Human-in-the-loop: the node never executes an agent — it pauses the
-        // run until a person approves/rejects via the run UI.
-        if ($node->type === 'human_approval') {
-            $this->pauseForApproval($flowRun, $node, $nodeRun);
-
-            return;
-        }
-
-        $this->runWithQaRetry($flowRun, $node, $nodeRun);
     }
 
     /**
@@ -125,6 +145,7 @@ class NodeExecutorService
             ->update(['status' => 'waiting_approval']);
 
         Log::info("[NodeExecutor] {$node->name} чака одобрение от човек (run {$flowRun->id})");
+        RunLog::append($flowRun->id, "[PAUSE] {$node->name} чака одобрение от човек");
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -153,6 +174,7 @@ class NodeExecutorService
             if ($revision === null && $this->replanner->looksDegenerate($output, $node)) {
                 $revision = $this->replanner->requestRevision($flowRun, $node, $nodeRun, $output, 'Изходът е изроден: празен/твърде кратък или съдържа шаблонен placeholder текст.');
                 if ($revision !== null) {
+                    RunLog::append($flowRun->id, "[REPLAN] {$node->name}: изроден изход — повторен опит с ревизия от планера");
                     $this->resetForRetry($nodeRun);
 
                     continue;
@@ -180,6 +202,9 @@ class NodeExecutorService
             // Историята за model router-а: финалният QA score остава на
             // node_run-а (при retry следващата оценка го презаписва).
             $nodeRun->update(['qa_score' => max(0, min(100, (int) ($qaResult['score'] ?? 0)))]);
+
+            RunLog::append($flowRun->id, "[QA] {$node->name}: score {$qaResult['score']} (праг {$qaConfig['threshold']}) — "
+                .($qaResult['passed'] ? 'OK' : 'под прага'));
 
             if ($qaResult['passed']) {
                 // Dedup gate AFTER the QA gate — no point embedding an output
@@ -209,6 +234,9 @@ class NodeExecutorService
                     );
                 }
 
+                RunLog::append($flowRun->id, "[QA] {$node->name}: повторен опит {$qaRetriesUsed}/{$maxQaRetries}"
+                    .($revision !== null ? ' с ревизия от планера' : ''));
+
                 $this->resetForRetry($nodeRun);
 
                 continue;
@@ -233,13 +261,9 @@ class NodeExecutorService
 
     private function failFlowRun(FlowRun $flowRun, string $message): void
     {
-        $context = $flowRun->fresh()->context ?? [];
-        $context['failure_message'] = $message;
-        $flowRun->update([
-            'status' => 'failed',
-            'context' => $context,
-            'completed_at' => now(),
-        ]);
+        // Единственото място, което знае как се проваля run (вкл. помитането на
+        // осиротели node_runs + RunLog FAILED реда), е GraphFlowExecutor::fail().
+        app(GraphFlowExecutor::class)->fail($flowRun, $message);
     }
 
     /**
@@ -283,7 +307,16 @@ class NodeExecutorService
             'started_at' => $nodeRun->started_at ?? now(),
         ])->save();
 
+        // "STEP n/total: име" — parseRunProgress() реже live-прогреса по
+        // последния такъв маркер. При паралелна вълна номерата са приблизителни.
+        $totalSteps = max(1, count(array_merge(...(array) ($flowRun->context['waves'] ?? [[]]))));
+        $stepNo = min($totalSteps, NodeRun::where('flow_run_id', $flowRun->id)->where('status', 'completed')->count() + 1);
+        RunLog::append($flowRun->id, "STEP {$stepNo}/{$totalSteps}: {$node->name}");
+
         $agent = $this->bridge->bridgeAgent($node);
+        // Времевият бюджет пътува през transient DTO-то (никога не се persist-ва)
+        // до GenericAgent::runAgentic → AgentLoop.
+        $agent->config = array_merge((array) $agent->config, ['deadline_ts' => $this->jobDeadlineTs]);
         $this->bridge->ensureModelInstalled($agent);
 
         $bridgeRun = $this->bridge->bridgeRun($flowRun, $input);
@@ -340,6 +373,8 @@ class NodeExecutorService
                 'completed_at' => now(),
             ]));
 
+            RunLog::append($flowRun->id, "[NODE] ✗ {$node->name} — {$message}");
+
             throw new RuntimeException($message, previous: $lastError);
         }
 
@@ -354,6 +389,9 @@ class NodeExecutorService
             'duration_ms' => $durationMs,
             'completed_at' => now(),
         ]));
+
+        RunLog::append($flowRun->id, "[NODE] ✓ {$node->name} — ".mb_strlen($output).' chars, '
+            .round($durationMs / 1000, 1).'s, модел '.($agentInstance?->chatParams()['model'] ?? $node->model));
 
         // WS4: a decision node records which branch it picked so GraphFlowExecutor
         // can prune the not-taken branches in later waves.
@@ -445,11 +483,13 @@ class NodeExecutorService
 
         if ($action === 'accepted_flagged') {
             Log::info("[NodeExecutor] Памет: {$node->name} е {$pct}% подобен на „{$match['title']}“ — приет с предупреждение (изчерпани retry-та)");
+            RunLog::append($flowRun->id, "[ПАМЕТ] {$node->name}: {$pct}% подобие с „{$match['title']}“ — приет с предупреждение");
 
             return null;
         }
 
         Log::info("[NodeExecutor] Памет: {$node->name} е {$pct}% подобен на „{$match['title']}“ — повторен опит с feedback");
+        RunLog::append($flowRun->id, "[ПАМЕТ] {$node->name}: {$pct}% подобие с „{$match['title']}“ — повторен опит с feedback");
 
         return "ВНИМАНИЕ: Предишният ти вариант е {$pct}% подобен на вече създадено съдържание: "
             ."„{$match['title']}“ ({$match['summary']}). Това надхвърля допустимите 30-40% припокриване. "

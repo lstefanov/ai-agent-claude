@@ -11,6 +11,7 @@ use App\Models\FlowRun;
 use App\Models\FlowVersion;
 use App\Models\NodeRun;
 use App\Support\GraphTopology;
+use App\Support\RunLog;
 use App\Support\UrlExtractor;
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
@@ -106,6 +107,9 @@ class GraphFlowExecutor
             'graph_snapshot' => $version->graph_layout,
         ]);
 
+        RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} STARTED — „{$flow->name}“ (тригер: {$triggeredBy}, версия #{$version->id}, "
+            .count($analysis['waves']).' вълни, '.count($nodeKeys).' възела)');
+
         $this->dispatchWave($flowRun->id, $analysis['waves'], 0);
 
         return $flowRun;
@@ -158,6 +162,7 @@ class GraphFlowExecutor
             [$waveKeys, $skipped] = $this->resolveActiveNodes($flowRun, $waveKeys);
             if (! empty($skipped)) {
                 $this->markSkipped($flowRun, $skipped);
+                RunLog::append($flowRunId, '[SKIP] извън избрания branch: '.implode(', ', $skipped));
             }
         }
 
@@ -175,6 +180,8 @@ class GraphFlowExecutor
 
         // best_effort → failed nodes don't cancel the batch; later waves still run.
         $bestEffort = ($flowRun->context['failure_policy'] ?? 'fail_fast') === 'best_effort';
+
+        RunLog::append($flowRunId, 'WAVE '.($index + 1).'/'.count($waves).': '.implode(', ', $waveKeys));
 
         // Wave chaining strategy:
         // - `then` fires when all jobs in the wave succeed → proceed to next wave.
@@ -240,6 +247,8 @@ class GraphFlowExecutor
             'final_output_model' => $composed['model'],
             'completed_at' => now(),
         ]);
+
+        RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} COMPLETED — краен output ".mb_strlen($output).' chars');
 
         $flowRun->flow->update(['last_run_at' => now()]);
 
@@ -431,6 +440,8 @@ class GraphFlowExecutor
             'completed_at' => null,
         ]);
 
+        RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} RESUMED от вълна ".($resumeIndex + 1).'/'.count($waves));
+
         $this->dispatchWave($flowRun->id, $waves, $resumeIndex);
     }
 
@@ -455,6 +466,8 @@ class GraphFlowExecutor
         if (! $updated) {
             return;
         }
+
+        RunLog::append($flowRun->id, "[APPROVAL] „{$nodeKey}“ одобрен — изпълнението продължава");
 
         $flowRun = $flowRun->fresh();
         $waves = $flowRun->context['waves'] ?? [];
@@ -487,6 +500,14 @@ class GraphFlowExecutor
             'context' => $context,
             'completed_at' => now(),
         ]);
+
+        // Осиротели node_runs (напр. worker, убит от job timeout, не е успял да
+        // отбележи реда си) иначе се въртят вечно в run viewer-а.
+        NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('status', ['pending', 'running'])
+            ->update(['status' => 'failed', 'error' => $message, 'completed_at' => now()]);
+
+        RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} FAILED — {$message}");
     }
 
     /**

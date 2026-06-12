@@ -177,6 +177,8 @@ return [
         // Default model for agents the planner pins to Anthropic at runtime
         // (their node model becomes "anthropic/<runtime_model>").
         'runtime_model' => env('ANTHROPIC_RUNTIME_MODEL', 'claude-haiku-4-5'),
+        // The most expensive flagship — used ONLY by the GOD level (PaidModel::pinTop).
+        'flagship_model' => env('ANTHROPIC_FLAGSHIP_MODEL', 'claude-sonnet-4-6'),
         'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
         'version' => env('ANTHROPIC_VERSION', '2023-06-01'),
         // USD per 1M tokens (in = prompt, out = completion) — for cost tracking.
@@ -199,6 +201,8 @@ return [
         // Default model for agents the planner pins to OpenAI at runtime
         // (their node model becomes "openai/<runtime_model>").
         'runtime_model' => env('OPENAI_RUNTIME_MODEL', 'gpt-4o-mini'),
+        // The most expensive flagship — used ONLY by the GOD level (PaidModel::pinTop).
+        'flagship_model' => env('OPENAI_FLAGSHIP_MODEL', 'gpt-4o'),
         'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
         'structured_output' => 'json_schema',
         'max_tokens_param' => 'max_completion_tokens',

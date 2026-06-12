@@ -49,7 +49,11 @@ class SiteCrawlerTool implements AgentTool
             return '';
         }
 
-        $max = isset($params['max']) ? (int) $params['max'] : null;
+        // LLM-ът ПРЕДЛАГА брой страници, кодът ГАРАНТИРА тавана: без клампа
+        // един tool call може да поиска стотици страници (~10s скрейп всяка)
+        // и да надхвърли job timeout-а на ExecuteNodeJob (1200s).
+        $ceiling = (int) config('services.crawl.max_pages', 20);
+        $max = isset($params['max']) ? max(1, min((int) $params['max'], $ceiling)) : null;
         $pages = $this->service->crawlSite($url, $max);
 
         if (empty($pages)) {

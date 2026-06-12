@@ -187,6 +187,7 @@
                         <option value="medium">⚖️ Средно — евтини cloud, поне 3 на Ollama (по подразбиране)</option>
                         <option value="high">🚀 Високо — всичко на евтин cloud, до 3 на OpenAI</option>
                         <option value="ultra">💎 Ултра — всичко на OpenAI, до 2 на Claude</option>
+                        <option value="god">👑 GOD — флагмани на OpenAI + Claude, без лимит</option>
                     </select>
                 </div>
                 @include('flows.partials.phase-picker')
@@ -256,7 +257,7 @@ function planAb() {
         savedAs: {},         // label → име на записания шаблон
         savePopup: { open: false, label: null, name: '', isActive: false, error: '' },
         hybridCfgOpen: false,
-        // Ниво на runtime моделите за агентите (low|medium|high|ultra) —
+        // Ниво на runtime моделите за агентите (low|medium|high|ultra|god) —
         // важи за стартирания A/B run; default medium.
         level: 'medium',
         error: null,

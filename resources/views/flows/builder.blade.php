@@ -601,6 +601,7 @@
                     <option value="medium">⚖️ Средно</option>
                     <option value="high">🚀 Високо</option>
                     <option value="ultra">💎 Ултра</option>
+                    <option value="god">👑 GOD</option>
                 </select>
             </div>
             <div x-show="versions.length" class="h-6 w-px bg-gray-200"></div>
@@ -1921,7 +1922,7 @@ function flowBuilder(config) {
         // Ниво на runtime моделите на разглеждания шаблон ('custom' след ръчна
         // смяна на модел; null при стари версии). levelSelect е dropdown mirror.
         modelLevel: config.modelLevel || null,
-        levelSelect: ['low', 'medium', 'high', 'ultra'].includes(config.modelLevel) ? config.modelLevel : '',
+        levelSelect: ['low', 'medium', 'high', 'ultra', 'god'].includes(config.modelLevel) ? config.modelLevel : '',
         relevel: { open: false, loading: false, applying: false, level: null, nodes: [], total: 0, basis: 'assumptions', error: null },
         // Нива на разходите за runtime моделите на агентите (enforce-ва се в
         // FlowPlannerService::resolveProviderPins; default: medium).
@@ -1930,6 +1931,7 @@ function flowBuilder(config) {
             { value: 'medium', icon: '⚖️', label: 'Средно', hint: 'Повечето агенти на евтини cloud модели (Gemini/DeepSeek/Qwen/Grok), поне 3 остават на Ollama. Балансът по подразбиране.' },
             { value: 'high', icon: '🚀', label: 'Високо', hint: 'Всички агенти на евтини cloud модели; до 3 критични стъпки на OpenAI. Българският текст остава на BgGPT.' },
             { value: 'ultra', icon: '💎', label: 'Ултра', hint: 'Всички агенти на OpenAI (вкл. българското писане); до 2 критични стъпки на Claude. Най-високо качество, най-скъпо.' },
+            { value: 'god', icon: '👑', label: 'GOD', hint: 'Всеки агент на най-скъпите флагмани — GPT-4o или Claude Sonnet, task-aware, без лимит. Максимално качество, максимална цена.' },
         ],
         saveDlg: { open: false, mode: 'new', name: '', isActive: true, agents: null, meta: null, saving: false, error: '' },
 
@@ -2864,12 +2866,13 @@ function flowBuilder(config) {
                 medium: { label: 'Средно', icon: '⚖️', cls: 'bg-blue-100 text-blue-700 border-blue-300' },
                 high:   { label: 'Високо', icon: '🚀', cls: 'bg-orange-100 text-orange-700 border-orange-300' },
                 ultra:  { label: 'Ултра',  icon: '💎', cls: 'bg-violet-100 text-violet-700 border-violet-300' },
+                god:    { label: 'GOD',    icon: '👑', cls: 'bg-amber-100 text-amber-800 border-amber-400' },
                 custom: { label: 'Custom', icon: '✎',  cls: 'bg-gray-100 text-gray-600 border-gray-300' },
             }[lv] || { label: '—', icon: '·', cls: 'bg-gray-100 text-gray-400 border-gray-200' };
         },
 
         isStandardLevel(lv) {
-            return ['low', 'medium', 'high', 'ultra'].includes(lv);
+            return ['low', 'medium', 'high', 'ultra', 'god'].includes(lv);
         },
 
         onLevelSelect() {
@@ -4157,7 +4160,7 @@ function flowBuilder(config) {
                     description: config.flowDescription,
                     // null → планира на .env defaults; иначе per-phase изборът от попъпа.
                     phases: phases || undefined,
-                    // Ниво на runtime моделите за агентите (low|medium|high|ultra).
+                    // Ниво на runtime моделите за агентите (low|medium|high|ultra|god).
                     level,
                 }),
             })

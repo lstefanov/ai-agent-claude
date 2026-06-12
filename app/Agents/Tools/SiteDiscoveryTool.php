@@ -43,7 +43,9 @@ class SiteDiscoveryTool implements AgentTool
             return '';
         }
 
-        $max = isset($params['max']) ? (int) $params['max'] : null;
+        // Списъкът е евтин текст (sitemap-driven), но клампваме срещу
+        // дегенеративни заявки от LLM-а (max=10000 и т.н.).
+        $max = isset($params['max']) ? max(1, min((int) $params['max'], 100)) : null;
         $urls = $this->service->discoverUrls($url, $max);
 
         return implode("\n", $urls);

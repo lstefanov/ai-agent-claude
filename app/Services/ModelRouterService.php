@@ -117,7 +117,9 @@ class ModelRouterService
 
         // Premium слотовете на high/ultra отиват при най-тежкия СИНТЕЗ (не при
         // голия fan-in) — verifier-ът никога не взима premium слот.
-        if ($level === ModelLevel::Ultra) {
+        if ($level === ModelLevel::God) {
+            $this->assignGod($out, $pinnable, $cloudKeys, $cheap, $history);
+        } elseif ($level === ModelLevel::Ultra) {
             $this->assignUltra($out, $pinnable, $cloudKeys, $level, $cheap);
         } else {
             $premium = $level === ModelLevel::High && PaidModel::available('openai')
@@ -147,6 +149,57 @@ class ModelRouterService
     // ──────────────────────────────────────────────────────────────────────
     // Per-level разпределяне
     // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * GOD: всеки нод отива на ФЛАГМАН на OpenAI или Anthropic (gpt-4o /
+     * claude-sonnet-4-6) — по-силният по задачата. Cost_penalty['god']=0 →
+     * чист task-fit; spread тук е само лек tiebreaker (не дели 50/50, за да не
+     * убива task-aware избора). Без лимит за нито един от двата.
+     *
+     * @param  array<string, array<string, mixed>>  $pinnable
+     */
+    private function assignGod(array &$out, array $pinnable, array $cloudKeys, array $cheap, array $history): void
+    {
+        $premium = array_values(array_filter(['openai', 'anthropic'], fn ($p) => PaidModel::available($p)));
+
+        if ($premium === []) {
+            // Няма премиум ключ → евтин fallback (или локално, ако и той липсва).
+            $this->assignCheap($out, $pinnable, $cloudKeys, ModelLevel::God, $cheap, $history);
+
+            return;
+        }
+
+        $assigned = [];
+        foreach ($cloudKeys as $key) {
+            if (isset($out[$key])) {
+                continue;
+            }
+
+            $p = $pinnable[$key];
+            $best = null;
+            $bestScore = -INF;
+
+            foreach ($premium as $provider) {
+                // Чист task-fit (spread вътре в score изключен), минус лек локален
+                // tiebreaker за баланс и context guard (openai 128K / anthropic 200K).
+                $score = $this->score($p, $provider, ModelLevel::God, $history, 0)
+                    - 0.5 * ($assigned[$provider] ?? 0)
+                    - ($this->fitsContext($p, $provider) ? 0 : 1000);
+
+                if ($score > $bestScore + 1e-9) {
+                    $bestScore = $score;
+                    $best = $provider;
+                }
+            }
+
+            $best ??= $premium[0];
+            $assigned[$best] = ($assigned[$best] ?? 0) + 1;
+            $out[$key] = [
+                'model' => PaidModel::pinTop($best),
+                'reason' => $this->reason($p, $best, 'ниво GOD — флагман'),
+            ];
+        }
+    }
 
     /** @param array<string, array<string, mixed>> $pinnable */
     private function assignUltra(array &$out, array $pinnable, array $cloudKeys, ModelLevel $level, array $cheap): void

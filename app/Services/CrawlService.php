@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\NodeDeadline;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -129,6 +130,12 @@ class CrawlService
         $pages = [];
         foreach ($urls as $pageUrl) {
             if (count($pages) >= $max) {
+                break;
+            }
+            // Времевият бюджет на node job-а изтича → връщаме събраното дотук:
+            // частичен crawl е по-добър от job, умрял с TimeoutExceededException.
+            // Буфер 45s — типична страница е ~10s, worst е httpTimeout-ът (90s).
+            if (NodeDeadline::passed(45)) {
                 break;
             }
             $markdown = $this->scrape($pageUrl);

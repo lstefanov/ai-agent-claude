@@ -260,6 +260,7 @@ function copyWebhookUrl() {
                                         'medium' => ['⚖️ Средно', 'bg-blue-100 text-blue-700 border-blue-300'],
                                         'high' => ['🚀 Високо', 'bg-orange-100 text-orange-700 border-orange-300'],
                                         'ultra' => ['💎 Ултра', 'bg-violet-100 text-violet-700 border-violet-300'],
+                                        'god' => ['👑 GOD', 'bg-amber-100 text-amber-800 border-amber-400'],
                                         'custom' => ['✎ Custom', 'bg-gray-100 text-gray-600 border-gray-300'],
                                         default => ['—', 'bg-gray-100 text-gray-400 border-gray-200'],
                                     };
@@ -584,6 +585,7 @@ function runsHistory(url, versions) {
                 medium: { label: '⚖️ Средно', cls: 'bg-blue-100 text-blue-700 border-blue-300' },
                 high:   { label: '🚀 Високо', cls: 'bg-orange-100 text-orange-700 border-orange-300' },
                 ultra:  { label: '💎 Ултра',  cls: 'bg-violet-100 text-violet-700 border-violet-300' },
+                god:    { label: '👑 GOD',    cls: 'bg-amber-100 text-amber-800 border-amber-400' },
                 custom: { label: '✎ Custom',  cls: 'bg-gray-100 text-gray-600 border-gray-300' },
             }[lv] || { label: lv, cls: 'bg-gray-100 text-gray-400 border-gray-200' };
         },

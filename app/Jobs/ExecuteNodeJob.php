@@ -30,9 +30,15 @@ class ExecuteNodeJob implements ShouldQueue
 {
     use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 1200;
+    public const TIMEOUT_SECONDS = 1200;
+
+    public int $timeout = self::TIMEOUT_SECONDS;
 
     public int $tries = 1;
+
+    // При надхвърлен timeout job-ът се проваля ВЕДНАГА (ясен TimeoutExceeded),
+    // вместо да виси в reserved до retry_after и да умре като MaxAttemptsExceeded.
+    public bool $failOnTimeout = true;
 
     public function __construct(
         public int $flowRunId,

@@ -186,12 +186,14 @@ Routing-ът е на едно място (`OllamaService::chat()` делегир
 | `medium` (Средно) | Евтин cloud (gemini/deepseek/qwen/xai) за повечето агенти; поне 3 остават на Ollama; без premium. |
 | `high` (Високо) | Всички агенти на евтин cloud; до 3-те най-критични стъпки на OpenAI. |
 | `ultra` (Ултра) | Всички агенти на OpenAI (runtime модела); до 2-те най-критични на Anthropic. |
+| `god` (GOD) | Всеки агент на най-скъпия ФЛАГМАН — `gpt-4o` или `claude-sonnet-4-6` (`PaidModel::pinTop`), task-aware split между OpenAI и Anthropic, БЕЗ лимит за нито един. |
 
 На всички нива: vision агентите остават на локален multimodal модел, а
 агентите, които пишат български текст за краен потребител, остават на BgGPT
-(`AgentGeneratorService` маха платен pin) — освен на `ultra`, където и те
-отиват на OpenAI. Моделът per провайдър се контролира с
-`<PROVIDER>_RUNTIME_MODEL`.
+(`AgentGeneratorService` маха платен pin) — освен на `ultra`/`god`, където и те
+отиват на платен модел. Моделът per провайдър се контролира с
+`<PROVIDER>_RUNTIME_MODEL` (а флагманът на `god` — с `OPENAI_FLAGSHIP_MODEL` /
+`ANTHROPIC_FLAGSHIP_MODEL`).
 
 Нивото се **персистира на шаблона** (`flow_versions.model_level`) и се вижда
 като цветен badge в toolbar-а на builder-а. Оттам може и да се **сменя**:
@@ -224,6 +226,10 @@ run, иначе допускания) + причина per нод, които bu
 5. Premium слотовете на high/ultra се раздават по **synthesis тежест** (не по
    гол fan-in); verifier-ът никога не взима premium слот. BG/vision
    изключенията важат както при нивата.
+6. **GOD**: всеки нод се пин-ва на флагман на OpenAI или Anthropic
+   (`PaidModel::pinTop` → gpt-4o / claude-sonnet-4-6) — по-силният по задачата
+   (`cost_penalty['god']=0` → чист task-fit, spread е само лек tiebreaker),
+   без квоти; само vision остава локално.
 
 ---
 
@@ -511,12 +517,14 @@ OLLAMA_PLANNER_MODEL=qwen2.5:14b     # локален planner модел при 
 OPENAI_API_KEY=sk-proj-…             # НЕ комитвай! Виж раздел 11
 OPENAI_GENERATOR_MODEL=gpt-4o        # planner модел (смени при нужда)
 OPENAI_RUNTIME_MODEL=gpt-4o-mini     # модел за агенти с provider=openai
+OPENAI_FLAGSHIP_MODEL=gpt-4o         # най-скъпият модел — ползва се само на ниво god
 ANTHROPIC_API_KEY=sk-ant-…           # planner / A-B / runtime с Claude
 ANTHROPIC_GENERATOR_MODEL=claude-sonnet-4-6   # planner модел за Claude
 ANTHROPIC_RUNTIME_MODEL=claude-haiku-4-5      # модел за агенти с provider=anthropic
+ANTHROPIC_FLAGSHIP_MODEL=claude-sonnet-4-6    # най-скъпият модел — само на ниво god
 PLANNER_CRITIQUE=true                # Фаза В вкл/изкл
 # Квотите на provider-ите per план се определят от нивото на моделите
-# (low|medium|high|ultra, избира се в UI при генериране; default medium)
+# (low|medium|high|ultra|god, избира се в UI при генериране; default medium)
 PLANNER_FEW_SHOTS=2                  # Фаза 2: брой примери от plan library
 PLANNER_ADAPTIVE=true                # Фаза 3: ревизия при QA fail/watchdog
 PLANNER_ESCALATION_PROVIDER=openai   # Фаза 3: накъде ескалира провалена стъпка (openai|anthropic)

@@ -7,6 +7,7 @@ use App\Models\AgentRun;
 use App\Services\AgentLoop;
 use App\Services\OllamaService;
 use App\Support\PaidModel;
+use App\Support\RunLog;
 use App\Support\UrlExtractor;
 
 /**
@@ -205,8 +206,16 @@ class GenericAgent extends BaseAgent
             },
             maxSteps: $maxSteps,
             options: $options,
-            wrapUpPrompt: '(Системно: лимитът на стъпки е изчерпан. Дай финалния резултат на базата на събраното дотук — без повече инструменти.)',
+            wrapUpPrompt: '(Системно: лимитът на стъпки/време е изчерпан. Дай финалния резултат на базата на събраното дотук — без повече инструменти.)',
+            // Котва от NodeExecutorService (job timeout минус headroom) — при
+            // наближаване loop-ът приключва с частичен резултат вместо job-ът
+            // да умре с TimeoutExceededException.
+            deadlineTs: isset($agent->config['deadline_ts']) ? (float) $agent->config['deadline_ts'] : null,
         );
+
+        if (($result['deadline_hit'] ?? false) && $agentRun->flow_run_id) {
+            RunLog::append((int) $agentRun->flow_run_id, "[TIME] {$agent->name}: времевият бюджет изтече — приключване с наличните данни");
+        }
 
         $this->lastRawOutput = $result['content'];
 

@@ -2,12 +2,15 @@
 
 namespace App\Agents;
 
+use App\Agents\Tools\AgentTool;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Services\CrawlService;
 use App\Services\OllamaService;
+use App\Support\NodeDeadline;
 use App\Support\PageContent;
 use App\Support\PricingSourceQuality;
+use App\Support\RunLog;
 use Illuminate\Support\Facades\Http;
 
 class DeepResearcherAgent extends BaseAgent
@@ -15,7 +18,7 @@ class DeepResearcherAgent extends BaseAgent
     private CrawlService $crawl;
 
     /**
-     * @param  array<int, \App\Agents\Tools\AgentTool>  $tools
+     * @param  array<int, AgentTool>  $tools
      */
     public function __construct(OllamaService $ollama, array $tools = [], ?CrawlService $crawl = null)
     {
@@ -47,14 +50,14 @@ class DeepResearcherAgent extends BaseAgent
 
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
-        $config    = $agent->config ?? [];
+        $config = $agent->config ?? [];
         $targetUrl = $context['target_url'] ?? $context['url'] ?? null;
 
         // ── Phase 0: Site crawl ──────────────────────────────────────────────
         // When the flow targets a specific site, crawl ALL its pages first.
         // This is the PRIMARY data source; general web searches are skipped to
         // avoid flooding the context with irrelevant results.
-        $siteContent   = '';
+        $siteContent = '';
         $mapReduceUsed = false;
         if (! empty($targetUrl)) {
             $systemPageCap = (int) config('services.crawl.max_pages', 20);
@@ -64,8 +67,8 @@ class DeepResearcherAgent extends BaseAgent
             if (($config['map_reduce'] ?? true) && $this->hasTool('discover_urls')) {
                 // When map_reduce is active, token limits are no longer the bottleneck,
                 // so default to a much higher cap. The agent config can still override.
-                $siteMax       = (int) ($config['max_pages_to_scrape'] ?? 200);
-                $siteContent   = $this->mapReduceCrawl($agent, $agentRun, $targetUrl, $siteMax);
+                $siteMax = (int) ($config['max_pages_to_scrape'] ?? 200);
+                $siteContent = $this->mapReduceCrawl($agent, $agentRun, $targetUrl, $siteMax);
                 $mapReduceUsed = $siteContent !== '';
             }
 
@@ -104,9 +107,9 @@ class DeepResearcherAgent extends BaseAgent
         if (! empty($targetUrl)) {
             // For site-analysis flows the site itself IS the data source, so generic
             // queries ("primelaser.bg услуги") add nothing. Run ONE review search only.
-            $domain      = strtolower(preg_replace('/^www\./i', '', parse_url($targetUrl, PHP_URL_HOST) ?? ''));
+            $domain = strtolower(preg_replace('/^www\./i', '', parse_url($targetUrl, PHP_URL_HOST) ?? ''));
             $reviewQuery = "\"{$domain}\" reviews OR отзиви OR мнения OR ревюта";
-            $reviewRes   = $this->searchWeb($reviewQuery);
+            $reviewRes = $this->searchWeb($reviewQuery);
             if ($reviewRes !== null) {
                 $allResults = "\n\n=== REVIEWS SEARCH: \"{$reviewQuery}\" ===\n"
                     .PricingSourceQuality::filterSearchResults($reviewRes);
@@ -130,7 +133,7 @@ class DeepResearcherAgent extends BaseAgent
             foreach ($queryTemplates as $i => $query) {
                 $results = $this->searchWeb($query);
                 if ($results !== null) {
-                    $num         = $i + 1;
+                    $num = $i + 1;
                     $allResults .= "\n\n=== SEARCH {$num}: \"{$query}\" ===\n"
                         .PricingSourceQuality::filterSearchResults($results);
                 }
@@ -140,7 +143,7 @@ class DeepResearcherAgent extends BaseAgent
         // ── Phase 2: Scrape competitor pricing pages (non-target flows only) ─
         $scrapedContent = '';
         if (empty($targetUrl) && $allResults && ($config['scrape_pricing_pages'] ?? true) && $this->hasTool('scrape_page')) {
-            $maxPages       = (int) ($config['max_pages_to_scrape'] ?? config('services.crawl.max_pages', 3));
+            $maxPages = (int) ($config['max_pages_to_scrape'] ?? config('services.crawl.max_pages', 3));
             $scrapedContent = $this->scrapeTopPricingPages($allResults, $maxPages);
         }
 
@@ -167,7 +170,7 @@ class DeepResearcherAgent extends BaseAgent
         // analyzer consolidates them with an adequate context window.
         if ($mapReduceUsed && $siteContent !== '') {
             $out = "БАЗА ЗНАНИЯ ОТ САЙТА {$targetUrl}"
-                ." (реални данни, извлечени страница по страница — използвай ги ДОСЛОВНО"
+                .' (реални данни, извлечени страница по страница — използвай ги ДОСЛОВНО'
                 ." за услуги, цени, контакти и адрес; не обобщавай и не измисляй):\n\n{$siteContent}";
             if ($allResults !== '') {
                 $out .= "\n\n--- ДОПЪЛНИТЕЛНО: уеб търсене (вторичен източник, без официални цени) ---\n{$allResults}";
@@ -180,7 +183,7 @@ class DeepResearcherAgent extends BaseAgent
         $extraContext = '';
         if ($siteContent) {
             $extraContext .= "\n\n--- ПЪЛНО СЪДЪРЖАНИЕ НА САЙТА {$targetUrl}"
-                ." (ОСНОВЕН и ЕДИНСТВЕН източник за услуги, цени и контакти."
+                .' (ОСНОВЕН и ЕДИНСТВЕН източник за услуги, цени и контакти.'
                 ." Използвай САМО тези реални данни — не измисляй нищо) ---\n{$siteContent}";
         }
         if ($allResults) {
@@ -214,7 +217,7 @@ class DeepResearcherAgent extends BaseAgent
     private function mapReduceCrawl(Agent $agent, AgentRun $agentRun, string $targetUrl, int $maxPages): string
     {
         $urlsRaw = $this->useTool('discover_urls', ['url' => $targetUrl, 'max' => $maxPages]);
-        $urls    = array_values(array_filter(array_map('trim', explode("\n", (string) $urlsRaw))));
+        $urls = array_values(array_filter(array_map('trim', explode("\n", (string) $urlsRaw))));
 
         if (empty($urls)) {
             $this->runLog($agentRun, "[DISCOVERY] няма открити URL-и за {$targetUrl}");
@@ -223,7 +226,7 @@ class DeepResearcherAgent extends BaseAgent
         }
         $this->runLog($agentRun, '[DISCOVERY] открити '.count($urls)." страници (cap {$maxPages})");
 
-        $config        = $agent->config ?? [];
+        $config = $agent->config ?? [];
         // Defaults raised so a price-DENSE page (e.g. a WooCommerce category with
         // 39 services) is neither truncated on input nor cut off on output:
         //  - max_page_chars 30000: a 28K-char pricing page fits whole;
@@ -231,9 +234,9 @@ class DeepResearcherAgent extends BaseAgent
         //    short, only data-rich pages use it, so all 39 services+prices fit;
         //  - num_ctx 16384: ~32K-char context so the 30K input is not clipped.
         $summaryTokens = max(64, (int) ($config['page_summary_tokens'] ?? 1500));
-        $maxPageChars  = max(1000, (int) ($config['max_page_chars'] ?? 30000));
-        $concurrency   = max(1, (int) ($config['map_concurrency'] ?? 4));
-        $numCtx        = max(2048, (int) ($config['num_ctx'] ?? 16384));
+        $maxPageChars = max(1000, (int) ($config['max_page_chars'] ?? 30000));
+        $concurrency = max(1, (int) ($config['map_concurrency'] ?? 4));
+        $numCtx = max(2048, (int) ($config['num_ctx'] ?? 16384));
 
         // Per-page extraction can use a SMALLER/faster model than the agent's main
         // model (the heavy synthesis stays on $agent->model). A small model both
@@ -255,13 +258,21 @@ class DeepResearcherAgent extends BaseAgent
         // the wave's requests SERIALLY, so the last one waits behind the others.
         // The per-request timeout must therefore cover the whole wave, otherwise
         // the queued requests time out and come back empty. Scale it accordingly.
-        $waveTimeout  = max(self::PAGE_SUMMARY_TIMEOUT_S, $concurrency * self::PER_PAGE_BUDGET_S);
+        $waveTimeout = max(self::PAGE_SUMMARY_TIMEOUT_S, $concurrency * self::PER_PAGE_BUDGET_S);
         $systemPrompt = $this->pageSummarySystemPrompt();
-        $summaries    = [];
-        $ok           = 0;
-        $failed       = 0;
+        $summaries = [];
+        $ok = 0;
+        $failed = 0;
 
         foreach (array_chunk($urls, $concurrency) as $wave) {
+            // Времевият бюджет на node job-а изтича → синтезираме от събраното.
+            // Буфер 300s = worst-case на ЕДНА вълна (scrape 90s + LLM wave 240s),
+            // така че започната вълна винаги се събира преди job timeout-а.
+            if (NodeDeadline::passed(300)) {
+                $this->runLog($agentRun, '[MAP] времевият бюджет изтече — продължавам със събраните '.count($summaries).' резюмета');
+                break;
+            }
+
             // Concurrent fetch for this wave.
             $pages = $this->crawl->scrapeMany($wave, $concurrency); // url => markdown
 
@@ -280,13 +291,13 @@ class DeepResearcherAgent extends BaseAgent
                     $content = mb_substr($content, 0, $maxPageChars);
                 }
                 $requests[$url] = [
-                    'model'   => $mapModel,
-                    'system'  => $systemPrompt,
-                    'user'    => "URL: {$url}\n\nСъдържание:\n{$content}",
+                    'model' => $mapModel,
+                    'system' => $systemPrompt,
+                    'user' => "URL: {$url}\n\nСъдържание:\n{$content}",
                     'options' => [
                         'temperature' => 0.2,
                         'num_predict' => $summaryTokens,
-                        'num_ctx'     => $numCtx,
+                        'num_ctx' => $numCtx,
                     ],
                 ];
             }
@@ -309,7 +320,7 @@ class DeepResearcherAgent extends BaseAgent
 
                     continue;
                 }
-                $type        = $this->classifyUrl($url);
+                $type = $this->classifyUrl($url);
                 $summaries[] = "=== {$url} ({$type}) ===\n{$summary}";
                 $ok++;
                 $this->runLog($agentRun, "[MAP] {$url} → резюме ".mb_strlen($summary).' chars (1 chunk)');
@@ -331,13 +342,19 @@ class DeepResearcherAgent extends BaseAgent
     private function mapReduceSequential(Agent $agent, AgentRun $agentRun, array $urls, array $config, int $summaryTokens, int $maxPageChars, string $mapModel, int $numCtx): string
     {
         $chunkSize = max(1000, (int) ($config['chunk_size_chars'] ?? $maxPageChars));
-        $overlap   = max(0, (int) ($config['chunk_overlap_chars'] ?? 500));
+        $overlap = max(0, (int) ($config['chunk_overlap_chars'] ?? 500));
 
         $summaries = [];
-        $ok        = 0;
-        $failed    = 0;
+        $ok = 0;
+        $failed = 0;
 
         foreach ($urls as $url) {
+            // Worst-case на една итерация: scrape 90s + chunk резюме 150s.
+            if (NodeDeadline::passed(240)) {
+                $this->runLog($agentRun, '[MAP] времевият бюджет изтече — продължавам със събраните '.count($summaries).' резюмета');
+                break;
+            }
+
             $markdown = $this->useTool('scrape_page', ['url' => $url]);
             if ($markdown === null || $markdown === '' || $markdown === 'Scraping not available for this page.') {
                 $failed++;
@@ -357,7 +374,7 @@ class DeepResearcherAgent extends BaseAgent
                 $content = mb_substr($content, 0, $maxPageChars);
             }
 
-            $chunks  = $this->chunkText($content, $chunkSize, $overlap);
+            $chunks = $this->chunkText($content, $chunkSize, $overlap);
             $summary = trim($this->summarizePage($agent, $url, $chunks, $summaryTokens, $mapModel, $numCtx));
             if ($summary === '') {
                 $failed++;
@@ -366,7 +383,7 @@ class DeepResearcherAgent extends BaseAgent
                 continue;
             }
 
-            $type        = $this->classifyUrl($url);
+            $type = $this->classifyUrl($url);
             $summaries[] = "=== {$url} ({$type}) ===\n{$summary}";
             $ok++;
             $chunkCount = count($chunks);
@@ -423,13 +440,13 @@ class DeepResearcherAgent extends BaseAgent
 
     private function summarizePage(Agent $agent, string $url, array $chunks, int $maxTokens, ?string $mapModel = null, int $numCtx = 8192): string
     {
-        $model        = $mapModel ?: $agent->model;
+        $model = $mapModel ?: $agent->model;
         $systemPrompt = $this->pageSummarySystemPrompt();
 
         $ollamaOptions = [
-            'temperature'  => 0.2,
-            'num_predict'  => $maxTokens,
-            'num_ctx'      => $numCtx,
+            'temperature' => 0.2,
+            'num_predict' => $maxTokens,
+            'num_ctx' => $numCtx,
             'http_timeout' => self::PAGE_SUMMARY_TIMEOUT_S,
         ];
 
@@ -487,7 +504,7 @@ class DeepResearcherAgent extends BaseAgent
             return [$text];
         }
 
-        $step   = max(1, $size - $overlap);
+        $step = max(1, $size - $overlap);
         $chunks = [];
         for ($start = 0; $start < $len; $start += $step) {
             $chunks[] = mb_substr($text, $start, $size);
@@ -529,7 +546,7 @@ class DeepResearcherAgent extends BaseAgent
 
     /**
      * Append a line to the flow run's log file so map-reduce progress shows up in
-     * the existing run-log viewer. Matches FlowExecutorService's "[H:i:s] msg" style.
+     * the existing run-log viewer.
      */
     private function runLog(AgentRun $agentRun, string $message): void
     {
@@ -537,8 +554,7 @@ class DeepResearcherAgent extends BaseAgent
         if (! $flowRunId) {
             return;
         }
-        $file = storage_path("logs/run-{$flowRunId}.log");
-        @file_put_contents($file, date('[H:i:s]')." {$message}\n", FILE_APPEND | LOCK_EX);
+        RunLog::append((int) $flowRunId, $message);
     }
 
     private function scrapeTopPricingPages(string $searchResults, int $maxPages): string

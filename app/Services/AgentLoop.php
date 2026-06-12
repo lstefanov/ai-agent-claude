@@ -29,7 +29,9 @@ final class AgentLoop
      * @param  ?callable(string $content): void  $onContent  fired with each non-empty model text (per-step pseudo-streaming)
      * @param  ?string  $wrapUpPrompt  appended as a user message for one final no-tools call when the budget runs out
      * @param  array<string, mixed>  $wrapUpOptions  options for the wrap-up call (defaults to $options)
-     * @return array{content: string, steps: int}
+     * @param  ?float  $deadlineTs  Unix timestamp; when reached, tool rounds stop and the loop wraps up,
+     *                              so the caller's job returns a partial result instead of dying on its queue timeout
+     * @return array{content: string, steps: int, deadline_hit: bool}
      */
     public function run(
         string $provider,
@@ -43,11 +45,24 @@ final class AgentLoop
         ?callable $onContent = null,
         ?string $wrapUpPrompt = null,
         array $wrapUpOptions = [],
+        ?float $deadlineTs = null,
     ): array {
         $final = null;
         $steps = 0;
+        $deadlineHit = false;
+        $pastDeadline = function () use ($deadlineTs, &$deadlineHit): bool {
+            if ($deadlineTs !== null && microtime(true) >= $deadlineTs) {
+                $deadlineHit = true;
+            }
+
+            return $deadlineHit;
+        };
 
         for ($step = 1; $step <= $maxSteps; $step++) {
+            if ($pastDeadline()) {
+                break;
+            }
+
             $steps = $step;
             $result = $this->generator->chatTurn($provider, $model, $messages, $tools, $options);
 
@@ -71,15 +86,20 @@ final class AgentLoop
                     $onToolCall($call['name'], $call['arguments']);
                 }
 
+                // Every tool_call_id must get a tool message (provider protocol),
+                // but past the deadline we stop EXECUTING tools — a placeholder
+                // steers the model towards wrapping up with what it has.
                 $messages[] = [
                     'role' => 'tool',
                     'tool_call_id' => $call['id'],
-                    'content' => $executor($call['name'], $call['arguments']),
+                    'content' => $pastDeadline()
+                        ? '(пропуснато: времевият бюджет изтече — приключи с наличните данни)'
+                        : $executor($call['name'], $call['arguments']),
                 ];
             }
         }
 
-        // Step budget exhausted mid-investigation — ask for a wrap-up
+        // Step/time budget exhausted mid-investigation — ask for a wrap-up
         // without tools so the user still gets a useful answer.
         if ($final === null && $wrapUpPrompt !== null) {
             $messages[] = ['role' => 'user', 'content' => $wrapUpPrompt];
@@ -93,6 +113,6 @@ final class AgentLoop
             $final = $result['content'];
         }
 
-        return ['content' => trim((string) $final), 'steps' => $steps];
+        return ['content' => trim((string) $final), 'steps' => $steps, 'deadline_hit' => $deadlineHit];
     }
 }
