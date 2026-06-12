@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\WebPageCache;
 use App\Support\NodeDeadline;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -372,7 +373,7 @@ class CrawlService
     // ──────────────────────────────────────────────────────────────────────
 
     /** @return array{url: string, title: ?string, meta_description: ?string, markdown: string, content_hash: string, links: array<int, string>, from_cache: bool} */
-    private function pageFromCacheEntry(\App\Models\WebPageCache $entry): array
+    private function pageFromCacheEntry(WebPageCache $entry): array
     {
         $links = is_array($entry->links) ? $entry->links : [];
         if ($links === []) {

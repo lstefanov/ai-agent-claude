@@ -5,6 +5,7 @@ namespace App\Services\Knowledge;
 use App\Models\KnowledgeChunk;
 use App\Models\KnowledgeEvent;
 use App\Models\KnowledgeFact;
+use App\Models\KnowledgePage;
 use App\Models\KnowledgeResource;
 use App\Services\CrawlService;
 use App\Services\EmbeddingService;
@@ -192,7 +193,7 @@ class KnowledgeIngestor
             $urlHash = hash('sha256', $page['url']);
             $seenHashes[$urlHash] = true;
 
-            /** @var \App\Models\KnowledgePage|null $existing */
+            /** @var KnowledgePage|null $existing */
             $existing = $existingByHash[$urlHash] ?? null;
 
             // Непроменена страница с готов digest и актуални embeddings → нула работа.

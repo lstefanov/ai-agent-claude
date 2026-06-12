@@ -72,8 +72,8 @@ class KnowledgeService
      * Hybrid top-K търсене върху чанкове + факти.
      *
      * @param  array<int, string>|null  $types  Филтър по тип ресурс за
-     *     чанковете (url|upload|image|note); null = всички. Фактите участват
-     *     винаги, освен ако $includeFacts е false.
+     *                                          чанковете (url|upload|image|note); null = всички. Фактите участват
+     *                                          винаги, освен ако $includeFacts е false.
      * @return array<int, array{kind: string, title: string, content: string,
      *     url: ?string, source_type: ?string, resource_id: ?int, page_id: ?int,
      *     fact_id: ?int, category: ?string, location: ?string, score: float, match: string}>
