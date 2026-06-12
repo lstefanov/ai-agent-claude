@@ -34,10 +34,21 @@
 </div>
 
 @if($company->description)
-<div class="bg-white rounded-xl border border-gray-200 px-6 py-4 mb-8">
+<div class="bg-white rounded-xl border border-gray-200 px-6 py-4 mb-4">
     <p class="text-gray-700 text-sm">{{ $company->description }}</p>
 </div>
 @endif
+
+{{-- ──────────────── База знания ──────────────── --}}
+<a href="{{ route('companies.knowledge.index', $company) }}"
+   class="group flex items-center gap-3 bg-white rounded-xl border border-gray-200 px-6 py-4 mb-8 hover:shadow-sm hover:border-indigo-200 transition">
+    <span class="text-xl">📚</span>
+    <span class="font-semibold text-gray-900">База знания</span>
+    <span class="text-sm text-gray-500">
+        {{ $knowledgeStats['documents'] }} документа · {{ $knowledgeStats['chunks'] }} откъса
+    </span>
+    <span class="ml-auto text-indigo-600 text-sm font-medium group-hover:translate-x-0.5 transition-transform">Отвори →</span>
+</a>
 
 {{-- Flash message --}}
 @if(session('success'))

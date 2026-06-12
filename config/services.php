@@ -115,6 +115,35 @@ return [
         'prompt_entries' => env('MEMORY_PROMPT_ENTRIES', 10),
     ],
 
+    // База знания на фирмата (RAG): качени документи + сайтът ѝ + история на
+    // run-ове. Памет = "какво сме произвели"; знание = "какво е вярно за фирмата".
+    'knowledge' => [
+        // Глобален ключ; всяка фирма (settings.knowledge.enabled) и всеки flow
+        // (flow settings.knowledge.enabled) имат собствен toggle.
+        'enabled' => env('KNOWLEDGE_ENABLED', true),
+        // null → ползва MEMORY_EMBEDDING_PROVIDER (openai | ollama).
+        'embedding_provider' => env('KNOWLEDGE_EMBEDDING_PROVIDER'),
+        'chunk_size' => (int) env('KNOWLEDGE_CHUNK_SIZE', 1200),
+        'chunk_overlap' => (int) env('KNOWLEDGE_CHUNK_OVERLAP', 150),
+        // Колко чанка връща търсенето / влизат в "ЗНАНИЕ" блока.
+        'top_k' => (int) env('KNOWLEDGE_TOP_K', 5),
+        'block_max_chars' => (int) env('KNOWLEDGE_BLOCK_MAX_CHARS', 2500),
+        // Под този cosine score чанкът не влиза в "ЗНАНИЕ" блока.
+        'min_score' => (float) env('KNOWLEDGE_MIN_SCORE', 0.25),
+        // Под този best score grounding търсенето се логва като "пропуск"
+        // (агент е търсил нещо, за което няма покритие в базата).
+        'gap_threshold' => (float) env('KNOWLEDGE_GAP_THRESHOLD', 0.55),
+        'max_gaps_per_company' => (int) env('KNOWLEDGE_MAX_GAPS', 200),
+        'max_file_mb' => (int) env('KNOWLEDGE_MAX_FILE_MB', 20),
+        // Предпазители срещу огромни файлове: редове per Excel лист и общ
+        // таван на извлечения текст преди chunking.
+        'xlsx_max_rows' => (int) env('KNOWLEDGE_XLSX_MAX_ROWS', 2000),
+        'max_extract_chars' => (int) env('KNOWLEDGE_MAX_EXTRACT_CHARS', 600000),
+        // Таван на сканираните чанкове при едно търсене (cursor scan).
+        'max_scan_chunks' => (int) env('KNOWLEDGE_MAX_SCAN_CHUNKS', 8000),
+        'site_max_pages' => (int) env('KNOWLEDGE_SITE_MAX_PAGES', 30),
+    ],
+
     // FlowPlannerService tuning (the "agent that creates agents").
     'planner' => [
         // Phase C: a second LLM pass that reviews + repairs the generated plan.
@@ -342,6 +371,8 @@ return [
         'ocr_timeout' => env('MISTRAL_OCR_TIMEOUT', 120),
         // OCR 3 pricing: $2 / 1K pages.
         'ocr_page_cost_usd' => env('MISTRAL_OCR_PAGE_COST_USD', 0.002),
+        // Cap for locally uploaded files sent as base64 data: URIs.
+        'ocr_max_file_mb' => (int) env('MISTRAL_OCR_MAX_FILE_MB', 25),
     ],
 
     'brave' => [
@@ -367,6 +398,13 @@ return [
         'enabled' => env('CRAWL_SERVICE_ENABLED', true),
         'timeout' => env('CRAWL_SERVICE_TIMEOUT', 35),
         'max_pages' => env('CRAWL_MAX_PAGES', 20),
+        // Глобален markdown кеш на скрейпнати страници (web_page_cache):
+        // в TTL прозореца страницата се връща без HTTP; след него fetch +
+        // content-hash сравнение. Покрива и digest кеша на deep_researcher.
+        'cache_enabled' => env('CRAWL_CACHE_ENABLED', true),
+        'cache_ttl_hours' => (int) env('CRAWL_CACHE_TTL_HOURS', 24),
+        // Неизползвани записи по-стари от това се чистят от knowledge:prune-web-cache.
+        'cache_retention_days' => (int) env('CRAWL_CACHE_RETENTION_DAYS', 90),
     ],
 
 ];

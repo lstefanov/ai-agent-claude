@@ -8,6 +8,7 @@ use App\Models\LlmModel;
 use App\Models\NodeRun;
 use App\Services\FlowMemoryService;
 use App\Services\GeneratorService;
+use App\Services\KnowledgeService;
 use App\Support\PlannerPhases;
 use App\Support\UrlExtractor;
 use Illuminate\Http\Request;
@@ -184,6 +185,11 @@ class FlowBuilderController extends Controller
             'memoryToggleUrl' => route('flows.memory.toggle', $flow),
             'memoryClearUrl' => route('flows.memory.clear', $flow),
             'memoryEnabled' => FlowMemoryService::enabled($flow),
+            // База знания на фирмата: chip "📚 Знание (N)" + per-flow toggle.
+            'knowledgeUrl' => route('companies.knowledge.index', $flow->company_id),
+            'knowledgeCount' => $flow->company ? app(KnowledgeService::class)->summary($flow->company)['documents'] : 0,
+            'knowledgeEnabled' => KnowledgeService::enabledForFlow($flow),
+            'knowledgeToggleUrl' => route('flows.knowledge.toggle', $flow),
             // Resume: present when ?run= points to a failed run so the builder
             // can offer inline editing + "Save and continue" for failed nodes.
             'resumeUrl' => ($pollRun && $pollRun->status === 'failed')

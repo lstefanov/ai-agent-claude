@@ -6,10 +6,12 @@ use App\Http\Controllers\Admin\CostController as AdminCostController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentTemplateController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\CompanyKnowledgeController;
 use App\Http\Controllers\FlowAssistantController;
 use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowGraphController;
+use App\Http\Controllers\FlowKnowledgeController;
 use App\Http\Controllers\FlowMemoryController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\FlowVersionController;
@@ -76,6 +78,26 @@ Route::get('plan-ab-status/{token}', [PlanAbController::class, 'status'])->name(
 Route::get('flows/{flow}/memory', [FlowMemoryController::class, 'show'])->name('flows.memory.show');
 Route::post('flows/{flow}/memory/toggle', [FlowMemoryController::class, 'toggle'])->name('flows.memory.toggle');
 Route::delete('flows/{flow}/memory', [FlowMemoryController::class, 'clear'])->name('flows.memory.clear');
+
+// База знания на фирмата — страница + JSON endpoints (Alpine polling)
+Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->group(function () {
+    Route::get('/', [CompanyKnowledgeController::class, 'index'])->name('index');
+    Route::get('data', [CompanyKnowledgeController::class, 'data'])->name('data');
+    Route::post('toggle', [CompanyKnowledgeController::class, 'toggle'])->name('toggle');
+    Route::post('folders', [CompanyKnowledgeController::class, 'storeFolder'])->name('folders.store');
+    Route::patch('folders/{folder}', [CompanyKnowledgeController::class, 'renameFolder'])->name('folders.rename');
+    Route::delete('folders/{folder}', [CompanyKnowledgeController::class, 'destroyFolder'])->name('folders.destroy');
+    Route::post('documents', [CompanyKnowledgeController::class, 'upload'])->name('documents.upload');
+    Route::delete('documents/{document}', [CompanyKnowledgeController::class, 'destroyDocument'])->name('documents.destroy');
+    Route::post('documents/{document}/reingest', [CompanyKnowledgeController::class, 'reingest'])->name('documents.reingest');
+    Route::post('search-test', [CompanyKnowledgeController::class, 'searchTest'])->name('search-test');
+    Route::post('refresh-site', [CompanyKnowledgeController::class, 'refreshSite'])->name('refresh-site');
+    Route::post('recrawl-setting', [CompanyKnowledgeController::class, 'recrawlSetting'])->name('recrawl-setting');
+    Route::delete('gaps', [CompanyKnowledgeController::class, 'clearGaps'])->name('gaps.clear');
+});
+
+// Знание на ниво flow — toggle от builder-а (огледало на flows.memory.toggle)
+Route::post('flows/{flow}/knowledge/toggle', [FlowKnowledgeController::class, 'toggle'])->name('flows.knowledge.toggle');
 
 // Flow runs
 Route::get('flows/{flow}/runs-history', [FlowController::class, 'runsHistory'])->name('flows.runs-history');

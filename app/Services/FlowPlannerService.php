@@ -12,6 +12,7 @@ use App\Support\ModelLevel;
 use App\Support\PaidModel;
 use App\Support\TypographicQuotes;
 use App\Support\UrlExtractor;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -47,6 +48,7 @@ class FlowPlannerService
         'discover_urls' => 'Открива списъка от вътрешни URL адреси на даден сайт (без да ги скрейпва)',
         'extract_document' => 'Извлича текст и таблици от PDF/сканиран документ/изображение по URL (Mistral OCR) — ценоразписи, каталози, фактури',
         'google_reviews' => 'Намира Google ревюта и рейтинг за бизнес по име/локация (Google Places API)',
+        'knowledge_search' => 'Търси във вътрешната база знания на фирмата (качени документи, ценоразписи, съдържание от сайта) — фирмени цени, продукти, услуги, условия',
     ];
 
     /** The intent of the most recent plan() call — persisted on the flow for the plan library. */
@@ -140,10 +142,17 @@ class FlowPlannerService
 СУБЕКТЪТ на заданието е САМО това, което пише в ОПИСАНИЕТО (включително URL-а в него).
 НЕ въвеждай външни компании, марки или теми, които ги няма в описанието. Ако има URL —
 той е целевият сайт и обектът на анализа.
+Ако описанието реферира СОБСТВЕНАТА фирма (нашата фирма, нашите цени, нашите
+продукти/услуги, нашите условия), включи 'internal_knowledge' в information_sources.
 Отговаряй на български в стойностите.
 PROMPT;
 
         $user = "Описание на flow (това е ЕДИНСТВЕНИЯТ източник на задачата):\n\"{$flow->description}\"";
+
+        $kb = $flow->company ? app(KnowledgeService::class)->summary($flow->company) : null;
+        if (! empty($kb['documents'])) {
+            $user .= "\nЗабележка: фирмата има вътрешна база знания ({$kb['documents']} документа).";
+        }
 
         $result = $this->runPhase('intent_analysis', $system, $user, $this->intentSchema(), [
             'temperature' => 0.1,
@@ -277,7 +286,7 @@ PROMPT;
 
         $user = "INTENT (структурираното разбиране на заданието):\n{$intentJson}\n\n"
             ."ОРИГИНАЛНО ОПИСАНИЕ НА FLOW:\n\"{$flow->description}\"\n\n"
-            .$this->capabilityCatalog()
+            .$this->capabilityCatalog($flow)
             // Фаза 2: most similar PROVEN plans from the library as worked examples.
             .$this->planLibrary->fewShotBlock($intent, (int) config('services.planner.few_shots', 2))
             ."\n\nПроектирай pipeline-а. Върни agents + plan_rationale (кратко обяснение на топологията).";
@@ -378,7 +387,7 @@ PROMPT;
         $user = "INTENT:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
             ."\n\nПЛАН:\n".json_encode($plan, JSON_UNESCAPED_UNICODE)
             ."\n\nКаталогът от типове и tools е същият като при проектирането:\n"
-            .$this->capabilityCatalog();
+            .$this->capabilityCatalog($flow);
 
         $schema = [
             'type' => 'object',
@@ -499,9 +508,9 @@ PROMPT;
      * The capability catalog as the design phase sees it — agent types, tools
      * and models. Exposed for the Builder Copilot's get_capabilities tool.
      */
-    public function capabilityCatalogText(): string
+    public function capabilityCatalogText(?Flow $flow = null): string
     {
-        return $this->capabilityCatalog();
+        return $this->capabilityCatalog($flow);
     }
 
     /**
@@ -533,7 +542,7 @@ PROMPT;
 
         $user = "INTENT/ОПИСАНИЕ:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
             ."\n\nТЕКУЩ ГРАФ (агенти):\n".json_encode($agents, JSON_UNESCAPED_UNICODE)
-            ."\n\n".$this->capabilityCatalog();
+            ."\n\n".$this->capabilityCatalog($flow);
 
         $schema = [
             'type' => 'object',
@@ -600,9 +609,15 @@ PROMPT;
             ];
 
             if ($type === 'custom') {
+                $allowed = array_keys(self::AVAILABLE_TOOLS);
+                // Планерът ПРЕДЛАГА, кодът ГАРАНТИРА: без база знания
+                // knowledge_search се маха детерминистично от плана.
+                if ($flow->company === null || app(KnowledgeService::class)->isEmpty($flow->company)) {
+                    $allowed = array_values(array_diff($allowed, ['knowledge_search']));
+                }
                 $config['tools'] = array_values(array_intersect(
                     array_map('strval', (array) ($spec['custom_tools'] ?? [])),
-                    array_keys(self::AVAILABLE_TOOLS),
+                    $allowed,
                 ));
             }
 
@@ -774,8 +789,13 @@ PROMPT;
     // Capability registry — what the system can actually do
     // ──────────────────────────────────────────────────────────────────────
 
-    private function capabilityCatalog(): string
+    private function capabilityCatalog(?Flow $flow = null): string
     {
+        // Базата знания на фирмата: tool-ът се ПОКАЗВА само когато има какво
+        // да се търси; materialize() е детерминистичната гаранция.
+        $kb = $flow?->company ? app(KnowledgeService::class)->summary($flow->company) : null;
+        $kbReady = ! empty($kb['documents']);
+
         $lines = ['НАЛИЧНИ ТИПОВЕ АГЕНТИ (type → описание):'];
 
         $templates = AgentTemplate::whereNull('company_id')
@@ -800,7 +820,27 @@ PROMPT;
         $lines[] = '';
         $lines[] = 'НАЛИЧНИ TOOLS (за type=custom):';
         foreach (self::AVAILABLE_TOOLS as $name => $desc) {
+            if ($name === 'knowledge_search' && ! $kbReady) {
+                continue; // празна база знания → планерът изобщо не вижда тула
+            }
             $lines[] = "- {$name} → {$desc}";
+        }
+
+        if ($kbReady) {
+            $folders = empty($kb['folders']) ? '' : ' (папки: '.implode(', ', $kb['folders']).')';
+            $titles = empty($kb['titles']) ? '' : ' Примерни документи: «'.implode('», «', array_slice($kb['titles'], 0, 5)).'».';
+            $lines[] = '';
+            $lines[] = "БАЗА ЗНАНИЯ НА ФИРМАТА: {$kb['documents']} документа, {$kb['chunks']} откъса{$folders}.{$titles}";
+            $lines[] = 'Когато заданието иска фирмени факти (наши цени/продукти/услуги/условия), добави агент '
+                .'type=custom с custom_tools=["knowledge_search"] вместо да търси в интернет.';
+
+            // Свеж сайт в базата → не пращай агенти да обхождат СОБСТВЕНИЯ сайт.
+            if (($kb['by_source']['site'] ?? 0) > 0) {
+                $syncedAt = $flow?->company?->settings['knowledge']['site_synced_at'] ?? null;
+                $synced = $syncedAt ? ' (синхронизиран '.Carbon::parse($syncedAt)->format('d.m.Y').')' : '';
+                $lines[] = "САЙТЪТ НА ФИРМАТА е вече в базата знания{$synced}. За факти от СОБСТВЕНИЯ сайт "
+                    .'предпочитай knowledge_search пред crawl_site/scrape_page — по-бързо и без повторно обхождане.';
+            }
         }
 
         $models = LlmModel::where('is_available', true)

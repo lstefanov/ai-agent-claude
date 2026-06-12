@@ -5,8 +5,10 @@ namespace App\Agents;
 use App\Agents\Tools\AgentTool;
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Models\WebPageDigest;
 use App\Services\CrawlService;
 use App\Services\OllamaService;
+use App\Services\WebPageCacheService;
 use App\Support\NodeDeadline;
 use App\Support\PageContent;
 use App\Support\PricingSourceQuality;
@@ -277,10 +279,18 @@ class DeepResearcherAgent extends BaseAgent
             $pages = $this->crawl->scrapeMany($wave, $concurrency); // url => markdown
 
             // Build one capped, boilerplate-stripped request per fetched page.
+            // Непроменена страница със същите параметри → дайджестът се взима
+            // от кеша и страницата изобщо не стига до LLM.
             $requests = [];
+            $cachedSummaries = [];
             foreach ($wave as $url) {
                 $markdown = $pages[$url] ?? null;
                 if (! is_string($markdown) || trim($markdown) === '') {
+                    continue;
+                }
+                if (($cached = $this->cachedDigest($url, $markdown, $mapModel, $summaryTokens)) !== null) {
+                    $cachedSummaries[$url] = $cached;
+
                     continue;
                 }
                 $content = PageContent::stripBoilerplate($markdown);
@@ -307,6 +317,14 @@ class DeepResearcherAgent extends BaseAgent
 
             // Assemble + log each page in this wave before moving on.
             foreach ($wave as $url) {
+                if (isset($cachedSummaries[$url])) {
+                    $type = $this->classifyUrl($url);
+                    $summaries[] = "=== {$url} ({$type}) ===\n{$cachedSummaries[$url]}";
+                    $ok++;
+                    $this->runLog($agentRun, "[MAP] {$url} → резюме ".mb_strlen($cachedSummaries[$url]).' chars (от кеш)');
+
+                    continue;
+                }
                 if (! isset($requests[$url])) {
                     $failed++;
                     $this->runLog($agentRun, "[MAP] {$url} → FAILED (няма съдържание)");
@@ -320,6 +338,7 @@ class DeepResearcherAgent extends BaseAgent
 
                     continue;
                 }
+                $this->storeDigest($url, (string) $pages[$url], $mapModel, $summaryTokens, $summary);
                 $type = $this->classifyUrl($url);
                 $summaries[] = "=== {$url} ({$type}) ===\n{$summary}";
                 $ok++;
@@ -363,6 +382,16 @@ class DeepResearcherAgent extends BaseAgent
                 continue;
             }
 
+            // Непроменена страница със същите параметри → дайджест от кеша.
+            if (($summary = $this->cachedDigest($url, $markdown, $mapModel, $summaryTokens)) !== null) {
+                $type = $this->classifyUrl($url);
+                $summaries[] = "=== {$url} ({$type}) ===\n{$summary}";
+                $ok++;
+                $this->runLog($agentRun, "[MAP] {$url} → резюме ".mb_strlen($summary).' chars (от кеш)');
+
+                continue;
+            }
+
             $content = PageContent::stripBoilerplate($markdown);
             if (trim($content) === '') {
                 $failed++;
@@ -383,6 +412,7 @@ class DeepResearcherAgent extends BaseAgent
                 continue;
             }
 
+            $this->storeDigest($url, $markdown, $mapModel, $summaryTokens, $summary);
             $type = $this->classifyUrl($url);
             $summaries[] = "=== {$url} ({$type}) ===\n{$summary}";
             $ok++;
@@ -393,6 +423,67 @@ class DeepResearcherAgent extends BaseAgent
         $this->runLog($agentRun, "[MERGE] {$ok}/".count($urls)." страници резюмирани ({$failed} неуспешни)");
 
         return implode("\n\n", $summaries);
+    }
+
+    /**
+     * Bump when pageSummarySystemPrompt() changes — naturally invalidates all
+     * cached digests (the version participates in params_hash).
+     */
+    private const PAGE_SUMMARY_PROMPT_VERSION = 1;
+
+    private function digestParamsHash(string $model, int $maxTokens): string
+    {
+        return hash('sha256', $model.'|'.$maxTokens.'|v'.self::PAGE_SUMMARY_PROMPT_VERSION);
+    }
+
+    /**
+     * Cached page digest for (url, content, model, token budget) — the summary
+     * prompt is fixed and task-agnostic, so these fully determine the result.
+     */
+    private function cachedDigest(string $url, string $markdown, string $model, int $maxTokens): ?string
+    {
+        if (! (bool) config('services.crawl.cache_enabled', true)) {
+            return null;
+        }
+
+        $urlHash = app(WebPageCacheService::class)->urlHash($url);
+        if ($urlHash === null) {
+            return null;
+        }
+
+        $digest = WebPageDigest::where('url_hash', $urlHash)
+            ->where('content_hash', hash('sha256', $markdown))
+            ->where('params_hash', $this->digestParamsHash($model, $maxTokens))
+            ->first();
+
+        if (! $digest) {
+            return null;
+        }
+
+        $digest->increment('hit_count');
+
+        return $digest->digest;
+    }
+
+    private function storeDigest(string $url, string $markdown, string $model, int $maxTokens, string $digest): void
+    {
+        if (! (bool) config('services.crawl.cache_enabled', true) || trim($digest) === '') {
+            return;
+        }
+
+        $urlHash = app(WebPageCacheService::class)->urlHash($url);
+        if ($urlHash === null) {
+            return;
+        }
+
+        WebPageDigest::updateOrCreate(
+            [
+                'url_hash' => $urlHash,
+                'content_hash' => hash('sha256', $markdown),
+                'params_hash' => $this->digestParamsHash($model, $maxTokens),
+            ],
+            ['model' => mb_substr($model, 0, 100), 'digest' => $digest],
+        );
     }
 
     private function pageSummarySystemPrompt(): string
