@@ -11,6 +11,7 @@ use App\Http\Controllers\FlowAssistantController;
 use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowGraphController;
+use App\Http\Controllers\FlowKnowledgeController;
 use App\Http\Controllers\FlowMemoryController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\FlowVersionController;
@@ -92,7 +93,11 @@ Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->gr
     Route::post('search-test', [CompanyKnowledgeController::class, 'searchTest'])->name('search-test');
     Route::post('refresh-site', [CompanyKnowledgeController::class, 'refreshSite'])->name('refresh-site');
     Route::post('recrawl-setting', [CompanyKnowledgeController::class, 'recrawlSetting'])->name('recrawl-setting');
+    Route::delete('gaps', [CompanyKnowledgeController::class, 'clearGaps'])->name('gaps.clear');
 });
+
+// Знание на ниво flow — toggle от builder-а (огледало на flows.memory.toggle)
+Route::post('flows/{flow}/knowledge/toggle', [FlowKnowledgeController::class, 'toggle'])->name('flows.knowledge.toggle');
 
 // Flow runs
 Route::get('flows/{flow}/runs-history', [FlowController::class, 'runsHistory'])->name('flows.runs-history');

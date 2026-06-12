@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\Flow;
 use App\Models\KnowledgeChunk;
 use App\Models\KnowledgeDocument;
+use App\Models\KnowledgeGap;
 use App\Services\Knowledge\DocumentTextExtractor;
 use App\Services\Knowledge\TextChunker;
 use App\Support\LlmUsage;
@@ -196,8 +197,33 @@ class KnowledgeService
         }
 
         usort($top, fn ($a, $b) => $b['score'] <=> $a['score']);
+        $top = array_slice($top, 0, $topK);
 
-        return array_slice($top, 0, $topK);
+        // "Пропуск": grounding търсене без добро покритие — сигнал какво да се
+        // качи. Никога не проваля търсенето.
+        if ($logGaps && $sourceTypes === KnowledgeDocument::GROUNDING_TYPES) {
+            $best = $top[0]['score'] ?? null;
+            if ($best === null || $best < (float) config('services.knowledge.gap_threshold', 0.55)) {
+                try {
+                    KnowledgeGap::create([
+                        'company_id' => $company->id,
+                        'flow_run_id' => $flowRunId,
+                        'node_key' => $nodeKey,
+                        'query' => mb_substr($query, 0, 500),
+                        'best_score' => $best,
+                    ]);
+                    $keep = KnowledgeGap::where('company_id', $company->id)
+                        ->latest('id')
+                        ->take((int) config('services.knowledge.max_gaps_per_company', 200))
+                        ->pluck('id');
+                    KnowledgeGap::where('company_id', $company->id)->whereNotIn('id', $keep)->delete();
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+        }
+
+        return $top;
     }
 
     /**

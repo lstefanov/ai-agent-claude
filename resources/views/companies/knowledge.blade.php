@@ -239,6 +239,51 @@
                     </template>
                 </div>
             </div>
+
+            {{-- ─────────── Пропуски ─────────── --}}
+            <div class="bg-white rounded-xl border border-gray-200 p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-gray-700">
+                        🕳 Пропуски в знанието
+                        <span class="ml-1 text-xs font-normal text-gray-400"
+                              x-text="'(' + gaps.length + ')'"></span>
+                    </h2>
+                    <button x-show="gaps.length" @click="clearGaps()"
+                            class="text-xs text-gray-400 hover:text-red-600 transition">Изчисти</button>
+                </div>
+                <p class="text-xs text-gray-400 mb-3">
+                    Агентите са търсили това в базата знания, но не са намерили добро покритие —
+                    качи документ по темата, за да не „гадаят“.
+                </p>
+                <div x-show="!gaps.length" class="text-sm text-gray-400 py-2">
+                    Няма пропуски — агентите намират покритие за търсенията си.
+                </div>
+                <table x-show="gaps.length" x-cloak class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-xs text-gray-400 uppercase border-b border-gray-100">
+                            <th class="py-2 pr-2">Заявка</th>
+                            <th class="py-2 pr-2 text-right">Score</th>
+                            <th class="py-2 pr-2">Run</th>
+                            <th class="py-2">Дата</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="gap in gaps" :key="gap.id">
+                            <tr class="border-b border-gray-50">
+                                <td class="py-2 pr-2 text-gray-700" x-text="gap.query"></td>
+                                <td class="py-2 pr-2 text-right font-mono text-xs text-gray-400"
+                                    x-text="gap.best_score !== null ? gap.best_score.toFixed(2) : '—'"></td>
+                                <td class="py-2 pr-2 text-xs">
+                                    <a x-show="gap.flow_run_id" :href="'/runs/' + gap.flow_run_id"
+                                       class="text-indigo-600 hover:underline" x-text="'#' + gap.flow_run_id"></a>
+                                    <span x-show="!gap.flow_run_id" class="text-gray-300">—</span>
+                                </td>
+                                <td class="py-2 text-xs text-gray-400" x-text="gap.created_at"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -250,7 +295,7 @@ function knowledgePage(config) {
     return {
         config,
         enabled: true, loading: true, error: '', busy: false,
-        folders: [], documents: [], stats: {}, site: {},
+        folders: [], documents: [], stats: {}, site: {}, gaps: [],
         selectedFolder: null, sourceFilter: 'all',
         search: '', sortCol: 'created_at', sortDir: 'desc', page: 1, pageSize: 15,
         uploading: false, newFolderName: '', renaming: null,
@@ -260,6 +305,7 @@ function knowledgePage(config) {
             { key: 'all', label: 'Всички' },
             { key: 'upload', label: 'Документи' },
             { key: 'site', label: 'Сайт' },
+            { key: 'run', label: 'История' },
         ],
 
         init() { this.refresh(); },
@@ -289,6 +335,7 @@ function knowledgePage(config) {
                 this.documents = data.documents;
                 this.stats = data.stats;
                 this.site = data.site || {};
+                this.gaps = data.gaps || [];
                 this.busy = data.busy;
                 this.error = '';
                 clearTimeout(this.pollTimer);
@@ -321,6 +368,11 @@ function knowledgePage(config) {
         formatDate(iso) {
             try { return new Date(iso).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' }); }
             catch { return iso; }
+        },
+        async clearGaps() {
+            if (!confirm('Изчисти всички записани пропуски?')) return;
+            try { await this.api('/gaps', { method: 'DELETE' }); this.refresh(); }
+            catch (e) { this.error = e.message; }
         },
 
         // ── Папки ──

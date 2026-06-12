@@ -7,6 +7,7 @@ use App\Jobs\IngestKnowledgeDocumentJob;
 use App\Models\Company;
 use App\Models\KnowledgeDocument;
 use App\Models\KnowledgeFolder;
+use App\Models\KnowledgeGap;
 use App\Services\KnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -73,6 +74,19 @@ class CompanyKnowledgeController extends Controller
         $busy = $company->knowledgeDocuments()->whereIn('status', ['pending', 'processing'])->exists()
             || $this->siteSyncRunning($company);
 
+        $gaps = KnowledgeGap::where('company_id', $company->id)
+            ->latest('id')
+            ->take(200)
+            ->get()
+            ->map(fn (KnowledgeGap $g) => [
+                'id' => $g->id,
+                'query' => $g->query,
+                'best_score' => $g->best_score,
+                'flow_run_id' => $g->flow_run_id,
+                'node_key' => $g->node_key,
+                'created_at' => $g->created_at->format('d.m.Y H:i'),
+            ]);
+
         return response()->json([
             'enabled' => KnowledgeService::enabled($company),
             'site' => [
@@ -90,8 +104,16 @@ class CompanyKnowledgeController extends Controller
                 'foreign_provider_chunks' => $knowledge->foreignProviderChunks($company),
                 'provider_tag' => $knowledge->providerTag(),
             ],
+            'gaps' => $gaps,
             'busy' => $busy,
         ]);
+    }
+
+    public function clearGaps(Company $company): JsonResponse
+    {
+        $deleted = KnowledgeGap::where('company_id', $company->id)->delete();
+
+        return response()->json(['deleted' => $deleted]);
     }
 
     public function toggle(Company $company): JsonResponse

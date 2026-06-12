@@ -87,7 +87,12 @@ class AgentFactory
             // runs the tools whitelisted in its config['tools'] (see GenericAgent).
             // The AgentLoop powers its agentic mode on paid models.
             'custom' => new GenericAgent($this->ollama, [
-                new KnowledgeSearchTool(app(KnowledgeService::class), ((int) ($agent->config['company_id'] ?? 0)) ?: null),
+                new KnowledgeSearchTool(
+                    app(KnowledgeService::class),
+                    ((int) ($agent->config['company_id'] ?? 0)) ?: null,
+                    ((int) ($agent->config['flow_run_id'] ?? 0)) ?: null,
+                    ($agent->config['node_key'] ?? null) ?: null,
+                ),
                 new BraveSearchTool($this->braveSearch),
                 new PerplexitySearchTool(new PerplexitySearchService),
                 new PeopleSearchTool(new PerplexitySearchService),

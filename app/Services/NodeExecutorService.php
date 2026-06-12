@@ -343,6 +343,8 @@ class NodeExecutorService
         $agent->config = array_merge((array) $agent->config, [
             'deadline_ts' => $this->jobDeadlineTs,
             'company_id' => $flowRun->flow?->company_id,
+            'flow_run_id' => $flowRun->id,
+            'node_key' => $node->node_key,
         ]);
         $this->bridge->ensureModelInstalled($agent);
 

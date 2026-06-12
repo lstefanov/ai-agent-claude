@@ -619,6 +619,19 @@
                 🧠 Памет
             </button>
 
+            <div class="flex items-center rounded-lg" :class="knowledgeEnabled ? '' : 'opacity-50'">
+                <a :href="config.knowledgeUrl" target="_blank"
+                   class="pl-2.5 pr-1 py-1.5 text-sm rounded-l-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                   title="База знания на фирмата — документи, сайт, история (отваря се в нов таб)">
+                    📚 Знание <span class="text-xs opacity-60" x-text="'(' + (config.knowledgeCount ?? 0) + ')'"></span>
+                </a>
+                <button @click="toggleKnowledge()" type="button"
+                        class="pr-2 pl-1 py-1.5 rounded-r-lg hover:bg-gray-50"
+                        :title="knowledgeEnabled ? 'Знанието е ВКЛЮЧЕНО за този flow — клик за изключване' : 'Знанието е ИЗКЛЮЧЕНО за този flow — клик за включване'">
+                    <span class="inline-block w-2 h-2 rounded-full" :class="knowledgeEnabled ? 'bg-green-500' : 'bg-gray-300'"></span>
+                </button>
+            </div>
+
             <button @click="openGenLog()" type="button" class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50" title="Пълен лог на генерирането на агенти">
                 📋 Лог
             </button>
@@ -1969,6 +1982,8 @@ function flowBuilder(config) {
         finalModal: { open: false, body: '' },
         genLogModal: { open: false, loading: false, logs: [], error: '' },
         memoryPanel: { open: false, loading: false, error: '', enabled: config.memoryEnabled ?? true, tab: 'outputs', outputs: [], lessons: [], clearing: false, toggling: false, search: '', sortCol: 'created_at', sortDir: 'desc', page: 1, pageSize: 15, preview: { open: false, nodeName: '', title: '', body: '' } },
+        knowledgeEnabled: config.knowledgeEnabled ?? true,
+        knowledgeToggling: false,
 
         // ── Асистент (Builder Copilot) ──
         chat: { open: false, loaded: false, messages: [], input: '', sending: false, stage: '', partial: '', session: null },
@@ -4038,6 +4053,23 @@ function flowBuilder(config) {
                 // toggle failure is non-critical — the switch simply stays put
             } finally {
                 this.memoryPanel.toggling = false;
+            }
+        },
+
+        // ──────────────── База знания (per-flow toggle) ────────────────
+        async toggleKnowledge() {
+            if (this.knowledgeToggling) return;
+            this.knowledgeToggling = true;
+            try {
+                const res = await fetch(config.knowledgeToggleUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': config.csrf, 'Accept': 'application/json' },
+                });
+                if (res.ok) this.knowledgeEnabled = !!(await res.json()).enabled;
+            } catch (e) {
+                // toggle failure is non-critical — the switch simply stays put
+            } finally {
+                this.knowledgeToggling = false;
             }
         },
 

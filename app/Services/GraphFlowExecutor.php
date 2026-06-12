@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\DistillFlowMemoryJob;
+use App\Jobs\DistillRunKnowledgeJob;
 use App\Jobs\ExecuteNodeJob;
 use App\Models\Flow;
 use App\Models\FlowEdge;
@@ -274,6 +275,12 @@ class GraphFlowExecutor
         // embeddings + lessons) so future runs avoid duplicating it.
         if (FlowMemoryService::enabled($flowRun->flow)) {
             DistillFlowMemoryJob::dispatch($flowRun->id);
+        }
+
+        // Знание: историческата колекция на фирмата получава финала + изходите
+        // на съдържателните агенти (cross-flow, достъпно през knowledge_search).
+        if (KnowledgeService::enabledForFlow($flowRun->flow)) {
+            DistillRunKnowledgeJob::dispatch($flowRun->id);
         }
 
         // Deliver the result to the flow's configured channel (email/Slack/
