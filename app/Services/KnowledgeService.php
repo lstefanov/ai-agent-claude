@@ -119,6 +119,285 @@ class KnowledgeService
     }
 
     /**
+     * Multi-query retrieval за data-collection агенти: чеклиста промптът се
+     * разбива на под-заявки (номерираните/bullet редове са категориите данни),
+     * всяка минава през hybrid search() и резултатите се сливат дедупнато —
+     * фактите първи. Една дифузна заявка с top_k=5 не покрива 8-категорийна
+     * мисия, а под-заявка като "Цени за жени — единична процедура" е точният
+     * embedding за ценовите факти. Непокритите под-заявки логват gap (видим
+     * в таб "Пропуски"). Embeddings са локални → ~8 заявки ≈ 1s, $0.
+     *
+     * @return array{text: string, facts: int, chunks: int, queries: int}
+     */
+    public function searchChecklist(
+        Company $company,
+        string $input,
+        array $llmContext = [],
+        ?int $flowRunId = null,
+        ?string $nodeKey = null,
+    ): array {
+        if (trim($input) === '' || $this->isEmpty($company)) {
+            return ['text' => '', 'facts' => 0, 'chunks' => 0, 'queries' => 0];
+        }
+
+        $queries = $this->checklistQueries($input);
+        $ctx = array_merge(['company_id' => $company->id], $llmContext);
+
+        // Всички заявки се embed-ват в ЕДНА batch заявка, после ЕДИН скан на
+        // чанкове и факти срещу всички вектори (score = max cosine) — N
+        // заявки струват колкото една. Per-query best се пази за gap логването.
+        $vectors = [];
+        foreach ($this->embeddings->embedMany($queries, $ctx) as $i => $vector) {
+            if ($vector !== null) {
+                $vectors[$queries[$i]] = $vector;
+            }
+        }
+
+        $bestPerQuery = array_fill_keys(array_keys($vectors), 0.0);
+        $tag = $this->embeddings->providerTag();
+
+        $chunks = [];
+        if ($vectors !== []) {
+            $rows = KnowledgeChunk::query()
+                ->join('knowledge_resources as kr', 'kr.id', '=', 'knowledge_chunks.knowledge_resource_id')
+                ->where('knowledge_chunks.company_id', $company->id)
+                ->where('knowledge_chunks.embedding_provider', $tag)
+                ->whereNotNull('knowledge_chunks.embedding')
+                ->where('kr.status', 'ready')
+                ->select([
+                    'knowledge_chunks.id', 'knowledge_chunks.content', 'knowledge_chunks.embedding',
+                    'knowledge_chunks.meta', 'knowledge_chunks.knowledge_page_id',
+                    'kr.title as resource_title', 'kr.type as resource_type', 'kr.url as resource_url',
+                ])
+                ->limit((int) config('services.knowledge.max_scan_chunks', 8000))
+                ->cursor();
+
+            foreach ($rows as $chunk) {
+                $embedding = (array) $chunk->embedding;
+                $best = 0.0;
+                foreach ($vectors as $query => $vector) {
+                    $score = EmbeddingService::cosine($vector, $embedding);
+                    if ($score > $bestPerQuery[$query]) {
+                        $bestPerQuery[$query] = $score;
+                    }
+                    if ($score > $best) {
+                        $best = $score;
+                    }
+                }
+
+                $meta = (array) $chunk->meta;
+                $chunks['c'.$chunk->id] = [
+                    'title' => (string) (($meta['title'] ?? null) ?: $chunk->resource_title),
+                    'content' => (string) $chunk->content,
+                    'url' => ($meta['url'] ?? null) ?: $chunk->resource_url,
+                    'source_type' => (string) $chunk->resource_type,
+                    'page_id' => $chunk->knowledge_page_id,
+                    'score' => round($best, 3),
+                ];
+            }
+
+            uasort($chunks, fn ($a, $b) => $b['score'] <=> $a['score']);
+            $chunks = array_slice($chunks, 0, 12, true);
+        }
+
+        $facts = [];
+        $factRows = $company->knowledgeFacts()
+            ->active()
+            ->whereNotNull('embedding')
+            ->where('embedding_provider', $tag)
+            ->latest('id')
+            ->limit(4000)
+            ->get();
+
+        foreach ($factRows as $fact) {
+            $best = 0.0;
+            $embedding = (array) $fact->embedding;
+            foreach ($vectors as $query => $vector) {
+                $score = EmbeddingService::cosine($vector, $embedding);
+                if ($score > $bestPerQuery[$query]) {
+                    $bestPerQuery[$query] = $score;
+                }
+                if ($score > $best) {
+                    $best = $score;
+                }
+            }
+
+            // Дедуп на близнаци ("цена подмишници мъже" ×3 от различни
+            // страници): едно name+location → най-силният екземпляр.
+            $key = 'f'.mb_strtolower(trim((string) $fact->name).'|'.(string) $fact->location);
+            if (! isset($facts[$key]) || $best > $facts[$key]['score']) {
+                $facts[$key] = [
+                    'title' => (string) $fact->name,
+                    'content' => (string) $fact->value,
+                    'category' => (string) $fact->category,
+                    'location' => $fact->location,
+                    'score' => round($best, 3),
+                ];
+            }
+        }
+
+        uasort($facts, fn ($a, $b) => $b['score'] <=> $a['score']);
+        $minScore = (float) config('services.knowledge.min_score', 0.25);
+        $facts = array_filter($facts, fn ($f) => $f['score'] >= $minScore);
+        $chunks = array_filter($chunks, fn ($c) => $c['score'] >= $minScore);
+
+        // Точните низове, които векторите изпускат: по една FULLTEXT заявка
+        // per под-заявка (индексирано, евтино) — нови попадения се добавят.
+        foreach ($queries as $query) {
+            foreach ($this->keywordCandidates($company, $query, null, true, 3) as $key => $hit) {
+                if ($hit['kind'] === 'fact') {
+                    $fKey = 'f'.mb_strtolower(trim($hit['title']).'|'.(string) $hit['location']);
+                    $facts[$fKey] ??= [
+                        'title' => $hit['title'], 'content' => $hit['content'],
+                        'category' => $hit['category'], 'location' => $hit['location'], 'score' => 0.0,
+                    ];
+                } else {
+                    $chunks[$key] ??= [
+                        'title' => $hit['title'], 'content' => $hit['content'], 'url' => $hit['url'],
+                        'source_type' => $hit['source_type'], 'page_id' => $hit['page_id'], 'score' => 0.0,
+                    ];
+                }
+            }
+        }
+
+        // Под-заявка без покритие = пропуск (видим в таб "Пропуски";
+        // дубликатите по същата заявка само се опресняват).
+        $gapThreshold = (float) config('services.knowledge.gap_threshold', 0.55);
+        foreach ($bestPerQuery as $query => $best) {
+            if ($best < $gapThreshold) {
+                $this->gaps->log($company, $query, $best > 0 ? $best : null, $flowRunId, $nodeKey);
+            }
+        }
+
+        $cap = (int) config('services.knowledge.checklist_max_chars', 4500);
+        $text = '';
+        $factCount = 0;
+        $chunkCount = 0;
+
+        $append = function (string $entry, int $limit) use (&$text): bool {
+            if (mb_strlen($text) + mb_strlen($entry) > $limit) {
+                return false;
+            }
+            $text .= $entry;
+
+            return true;
+        };
+
+        // Фактите не изяждат целия бюджет — чанковете носят информация, която
+        // никога не е ставала факт (напр. цената на конкретна страница).
+        $factsCap = max(1000, $cap - 1800);
+
+        // Round-robin по категория: 30 ценови факта иначе изтласкват
+        // апаратурата/условията извън бюджета — по един от категория на
+        // обиколка гарантира покритие на всяка категория от чеклистата.
+        $byCategory = [];
+        foreach ($facts as $hit) {
+            $byCategory[$hit['category']][] = $hit;
+        }
+
+        while ($byCategory !== []) {
+            foreach (array_keys($byCategory) as $category) {
+                $hit = array_shift($byCategory[$category]);
+                if ($byCategory[$category] === []) {
+                    unset($byCategory[$category]);
+                }
+                $location = $hit['location'] ? ', '.$hit['location'] : '';
+                if (! $append('• ФАКТ «'.$hit['title'].'» ('.$hit['category'].$location.'): '.trim($hit['content'])."\n", $factsCap)) {
+                    $byCategory = [];
+                    break;
+                }
+                $factCount++;
+            }
+        }
+
+        foreach ($chunks as $hit) {
+            $url = $hit['url'] ? rawurldecode((string) $hit['url']) : null;
+            $source = $url ?: ($hit['source_type'] ?? 'документ');
+            if (! $append('— «'.$hit['title'].'» ('.$source.'): '.mb_substr(trim($hit['content']), 0, 500)."\n", $cap)) {
+                break;
+            }
+            $chunkCount++;
+        }
+
+        return [
+            'text' => rtrim($text),
+            'facts' => $factCount,
+            'chunks' => $chunkCount,
+            'queries' => count($queries),
+        ];
+    }
+
+    /**
+     * Под-заявките на чеклистата: номерирани/bullet редове от промпта,
+     * почистени от markdown — В ДВА ВАРИАНТА всяка: гола ("Цени за жени —
+     * единична процедура", къс вектор, близък до факт-векторите) и с
+     * контекстен префикс от мисията/първия ред ("...лазерна епилация на
+     * подмишници | Цени за жени...", носи ЗА КОЯ услуга са цените). Голата
+     * хваща фактите, контекстната — точните страници; merge-ът дедупва, а
+     * embeddings са локални. Fallback — началото на самия input.
+     *
+     * @return array<int, string>
+     */
+    private function checklistQueries(string $input): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', $input) ?: [];
+
+        // Темата на мисията = значимите думи от първия ред, без инструкционния
+        // шум ("извлечи всички налични данни...") — той удавя embedding-а и
+        // late-ва късите факт-вектори под прага.
+        $stop = ['извлечи', 'всички', 'налични', 'данни', 'данните', 'свързани', 'свързаните',
+            'провери', 'базата', 'база', 'знания', 'потърси', 'търси', 'интернет', 'уебсайта',
+            'сайта', 'информация', 'информацията', 'задължително', 'следното', 'намери',
+            'събери', 'трябва', 'която', 'които', 'според'];
+
+        $context = '';
+        foreach ($lines as $line) {
+            $line = trim((string) preg_replace('/[*_#`]+/u', ' ', $line));
+            if ($line === '' || preg_match('/^(?:\d+[.)]|[-*•])\s/u', $line)) {
+                continue;
+            }
+            $words = [];
+            foreach (preg_split('/[^\p{L}\p{N}]+/u', $line) ?: [] as $word) {
+                if (mb_strlen($word) >= 4 && ! in_array(mb_strtolower($word), $stop, true)) {
+                    $words[] = $word;
+                }
+                if (count($words) >= 6) {
+                    break;
+                }
+            }
+            $context = implode(' ', $words);
+            break;
+        }
+
+        $queries = [];
+        foreach ($lines as $line) {
+            if (count($queries) >= 16) {
+                break;
+            }
+            if (! preg_match('/^\s*(?:\d+[.)]|[-*•])\s+(.{4,})/u', $line, $m)) {
+                continue;
+            }
+            $query = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[*_#`]+/u', ' ', $m[1])));
+            if (mb_strlen($query) < 5) {
+                continue;
+            }
+            $queries[] = mb_substr($query, 0, 160);
+            if ($context !== '') {
+                $queries[] = trim($context.' | '.mb_substr($query, 0, 160));
+            }
+        }
+
+        if ($queries === []) {
+            $fallback = trim((string) preg_replace('/\s+/u', ' ', mb_substr($input, 0, 200)));
+            if ($fallback !== '') {
+                $queries[] = $fallback;
+            }
+        }
+
+        return array_slice($queries, 0, 16);
+    }
+
+    /**
      * "ЗНАНИЕ" prompt block for a content node — фактите (актуалният профил)
      * първи, после най-релевантните откъси с източник. Empty string when
      * nothing relevant. Never throws.

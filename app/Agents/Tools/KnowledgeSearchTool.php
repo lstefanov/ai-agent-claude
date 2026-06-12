@@ -16,6 +16,9 @@ class KnowledgeSearchTool implements AgentTool
 {
     private const MAX_RESULT_CHARS = 4000;
 
+    /** По-щедър от глобалния top_k(5): резултатът и така е capped на chars. */
+    private const TOP_K = 8;
+
     public function __construct(
         private KnowledgeService $service,
         private ?int $companyId,
@@ -52,6 +55,34 @@ class KnowledgeSearchTool implements AgentTool
         ];
     }
 
+    /**
+     * Детерминистичният KB pre-pass на GenericAgent: multi-query извадка по
+     * чеклистата от промпта, с baked-in фирмен/run контекст. Never throws.
+     *
+     * @return array{text: string, facts: int, chunks: int, queries: int}
+     */
+    public function checklist(string $input): array
+    {
+        $empty = ['text' => '', 'facts' => 0, 'chunks' => 0, 'queries' => 0];
+
+        $company = $this->companyId ? Company::find($this->companyId) : null;
+        if (! $company || ! KnowledgeService::enabled($company)) {
+            return $empty;
+        }
+
+        try {
+            return $this->service->searchChecklist(
+                $company,
+                $input,
+                llmContext: ['company_id' => $company->id, 'flow_run_id' => $this->flowRunId],
+                flowRunId: $this->flowRunId,
+                nodeKey: $this->nodeKey,
+            );
+        } catch (\Throwable) {
+            return $empty;
+        }
+    }
+
     public function execute(array $params): string
     {
         $company = $this->companyId ? Company::find($this->companyId) : null;
@@ -79,6 +110,7 @@ class KnowledgeSearchTool implements AgentTool
             $company,
             $query,
             $types,
+            topK: self::TOP_K,
             llmContext: ['company_id' => $company->id, 'flow_run_id' => $this->flowRunId],
             flowRunId: $this->flowRunId,
             nodeKey: $this->nodeKey,

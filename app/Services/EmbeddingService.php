@@ -108,6 +108,39 @@ class EmbeddingService
         }
     }
 
+    /**
+     * Batch embedding — при ollama една HTTP заявка за всички текстове
+     * (N серийни мрежови round-trip-а → 1); cloud провайдърите падат на
+     * embed() в цикъл. Резултатът е успореден на $texts (null = провал).
+     *
+     * @param  array<int, string>  $texts
+     * @param  array<string, mixed>  $context
+     * @return array<int, array<int, float>|null>
+     */
+    public function embedMany(array $texts, array $context = []): array
+    {
+        $texts = array_values($texts);
+        if ($texts === []) {
+            return [];
+        }
+
+        if ($this->provider() !== 'ollama') {
+            return array_map(fn (string $text) => $this->embed($text, $context), $texts);
+        }
+
+        LlmContext::set(array_merge(['purpose' => 'embedding'], $context));
+
+        try {
+            return app(OllamaService::class)->embedMany($texts, $this->model());
+        } catch (\Throwable $e) {
+            Log::warning('[Embedding] Batch failed ('.$this->providerTag().'): '.$e->getMessage());
+
+            return array_fill(0, count($texts), null);
+        } finally {
+            LlmContext::clear();
+        }
+    }
+
     /** @param array<int, float|int> $a @param array<int, float|int> $b */
     public static function cosine(array $a, array $b): float
     {

@@ -592,6 +592,15 @@ class AgentGeneratorService
 
         $config = is_array($raw) ? $raw : ['temperature' => 0.7];
 
+        // Планерът знае КАКВО да проверява, кодът гарантира че проверката се
+        // случва: написан qa.custom_prompt с изключен gate е безсмислица
+        // (виждано на живо: «провери дали е извлякъл реални цени» +
+        // enabled=false → «Не е намерено» мина без проверка).
+        if (is_array($config['qa'] ?? null)
+            && trim((string) ($config['qa']['custom_prompt'] ?? '')) !== '') {
+            $config['qa']['enabled'] = true;
+        }
+
         $typeDefault = $this->numPredictForType($type);
         $plannerPredict = $config['planner_num_predict'] ?? null;
         unset($config['planner_num_predict']);

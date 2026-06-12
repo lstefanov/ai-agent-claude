@@ -339,6 +339,53 @@ class OllamaService
         return array_map('floatval', $vector);
     }
 
+    /**
+     * Batch вариант: /api/embed приема масив от текстове — една HTTP заявка
+     * за N вектора. Резултатът е успореден на $texts (null на позицията при
+     * липсващ вектор).
+     *
+     * @param  array<int, string>  $texts
+     * @return array<int, array<int, float>|null>
+     */
+    public function embedMany(array $texts, ?string $model = null): array
+    {
+        $inputs = array_map(fn ($text) => mb_substr((string) $text, 0, 8000), array_values($texts));
+        if ($inputs === []) {
+            return [];
+        }
+
+        $model = $model ?? (string) config('services.ollama.embedding_model', 'bge-m3');
+        $startMs = (int) (microtime(true) * 1000);
+
+        $response = Http::timeout(120)
+            ->post($this->baseUrl.'/api/embed', [
+                'model' => $model,
+                'input' => $inputs,
+            ])
+            ->throw();
+
+        $promptTokens = (int) ($response->json('prompt_eval_count') ?? 0);
+
+        LlmUsage::record('ollama', $model, $promptTokens, 0);
+
+        LlmRequestRecorder::record(
+            'ollama', $model, 'embedding',
+            null, count($inputs).' текста (batch): '.mb_substr($inputs[0], 0, 200), null, [],
+            $promptTokens, 0,
+            (int) (microtime(true) * 1000) - $startMs,
+        );
+
+        $embeddings = $response->json('embeddings');
+        $embeddings = is_array($embeddings) ? $embeddings : [];
+
+        return array_map(
+            fn (int $i) => (is_array($embeddings[$i] ?? null) && $embeddings[$i] !== [])
+                ? array_map('floatval', $embeddings[$i])
+                : null,
+            array_keys($inputs),
+        );
+    }
+
     public function listModels(): array
     {
         $response = Http::timeout(10)->get($this->baseUrl.'/api/tags');
