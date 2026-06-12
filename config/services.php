@@ -428,7 +428,13 @@ return [
         'url' => env('CRAWL_SERVICE_URL', 'http://localhost:8189'),
         'enabled' => env('CRAWL_SERVICE_ENABLED', true),
         'timeout' => env('CRAWL_SERVICE_TIMEOUT', 35),
-        'max_pages' => env('CRAWL_MAX_PAGES', 20),
+        // Таван страници за агентските crawl_site/discover_urls tools (BFS).
+        // Ingest-ът на знанията ползва отделния KNOWLEDGE_SITE_MAX_PAGES.
+        'max_pages' => env('CRAWL_MAX_PAGES', 30),
+        // Кои страници BFS-ът прескача: точни path сегменти + regex. Правните
+        // страници (условия/политики) се ПАЗЯТ — носят условия на бизнеса.
+        // Override-ни ги тук при нужда (виж CrawlService::isSkippedPage).
+        // 'skip_segments' => [...], 'skip_pattern' => '/.../',
         // Глобален markdown кеш на скрейпнати страници (web_page_cache):
         // в TTL прозореца страницата се връща без HTTP; след него fetch +
         // content-hash сравнение. Покрива и digest кеша на deep_researcher.

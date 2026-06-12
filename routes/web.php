@@ -163,6 +163,7 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     Route::get('costs', [AdminCostController::class, 'index'])->name('costs.index');
     Route::get('costs/detail', [AdminCostController::class, 'show'])->name('costs.show');
     Route::get('costs/group-detail', [AdminCostController::class, 'groupDetail'])->name('costs.group-detail');
+    Route::get('costs/chat-detail', [AdminCostController::class, 'chatDetail'])->name('costs.chat-detail');
 });
 
 // Home

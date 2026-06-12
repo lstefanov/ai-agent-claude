@@ -215,6 +215,63 @@
     <div id="costGrid"></div>
 </div>
 
+{{-- ── Chat Assistant (Builder Copilot) section ───────────────────────── --}}
+<div class="mt-8 mb-4">
+    <div class="flex items-center flex-wrap gap-3 mb-4">
+        <h2 class="text-lg font-bold text-gray-900">🤖 Чат асистент (Builder Copilot)</h2>
+        @if($chatModel)
+            @php [$pBorder, $pLabel] = $providerStyles[$chatProvider] ?? ['border-amber-200', 'text-amber-600']; @endphp
+            <span class="inline-block px-3 py-0.5 rounded-full text-xs font-semibold {{ $pLabel }} border {{ $pBorder }} bg-white">
+                {{ $chatProvider }} / {{ $chatModel }}
+            </span>
+        @endif
+    </div>
+
+    {{-- Stat cards --}}
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-4">
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Сесии</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($chatSummary['sessions']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Съобщения</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($chatSummary['messages']) }}</p>
+            <p class="text-xs text-gray-500 mt-1">{{ $fmtInt($chatSummary['calls']) }} LLM заявки</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Токени (общо)</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($chatSummary['total_tokens']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Разход</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsdSmart($chatSummary['total_cost']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Ср. разход / сесия</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsdSmart($chatSummary['avg_cost']) }}</p>
+            @if($chatSummary['top_model'] !== '—')
+                <p class="text-xs text-gray-400 mt-1 truncate" title="{{ $chatSummary['top_model'] }}">{{ $chatSummary['top_model'] }}</p>
+            @endif
+        </div>
+    </div>
+
+    @if(count($chatByModel['labels']))
+    {{-- Mini chart: cost by chat model --}}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">Разход по чат модел</h3>
+            <div class="relative h-44"><canvas id="chartChatModel"></canvas></div>
+        </div>
+    </div>
+    @endif
+
+    {{-- Chat sessions Grid.js table --}}
+    <div class="bg-white border border-gray-200 rounded-xl p-4 overflow-x-auto">
+        <p class="text-xs text-gray-400 mb-3">Кликни ред за да видиш пълния разговор (въпрос и отговор).</p>
+        <div id="chatGrid"></div>
+    </div>
+</div>
+
 {{-- ── Sub-table modal (drill-down: individual calls in a session) ────── --}}
 <div id="groupModal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black/40" id="groupModalOverlay"></div>
@@ -286,6 +343,29 @@
                 <div>
                     <p class="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-1">Изход на модела</p>
                     <pre id="m-response" class="text-xs bg-indigo-50/60 text-gray-800 rounded-lg p-3 whitespace-pre-wrap break-words max-h-72 overflow-auto"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- ── Chat transcript modal ──────────────────────────────────────────── --}}
+<div id="chatModal" class="fixed inset-0 z-[70] hidden">
+    <div class="absolute inset-0 bg-black/40" id="chatModalOverlay"></div>
+    <div class="absolute inset-0 flex items-start justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-8 relative">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;white-space:nowrap;">🤖 Чат</span>
+                    <span id="cm-title" class="font-semibold text-gray-900 text-sm truncate"></span>
+                </div>
+                <button id="chatModalClose" class="text-gray-400 hover:text-gray-700 text-xl leading-none ml-4 shrink-0">&times;</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div id="cm-meta" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
+                <div>
+                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Разговор</p>
+                    <div id="cm-messages" class="space-y-3 max-h-[62vh] overflow-y-auto pr-1"></div>
                 </div>
             </div>
         </div>

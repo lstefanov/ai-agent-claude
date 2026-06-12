@@ -5,11 +5,15 @@ namespace App\Services;
 use App\Models\WebPageCache;
 
 /**
- * TTL + content-hash cache over the scrape service. Two-tier semantics:
+ * TTL + content-hash cache over the scrape service. ГЛОБАЛЕН (без company
+ * филтър): една обходена страница служи на всички фирми и flows. Two-tier:
  *  - FRESH (last_checked_at within TTL) → serve from cache, no HTTP at all;
  *  - STALE → the caller fetches live; store() then compares content hashes —
  *    unchanged pages only touch last_checked_at, changed ones update.
  * A failed fetch falls back to any cached copy (stale beats nothing).
+ *
+ * v2 пази и title / meta_description / internal links от рендерирания DOM —
+ * BFS кралът чете линковете оттук без повторен fetch.
  */
 class WebPageCacheService
 {
@@ -19,10 +23,12 @@ class WebPageCacheService
     }
 
     /**
-     * Canonical URL for cache keying: lowercase scheme+host, no fragment, no
-     * tracking params (utm_*, gclid, fbclid, msclkid), remaining query sorted
-     * by key, trailing slash stripped (path case is PRESERVED — many servers
-     * are case-sensitive). Returns null for unusable URLs.
+     * Canonical URL — ЕДИНСТВЕНАТА нормализация в системата (BFS уникалност,
+     * кеш ключове, knowledge_pages.url_hash): lowercase scheme+host, no
+     * fragment, no tracking params (utm_*, gclid, fbclid, msclkid), remaining
+     * query sorted by key (── ?page=2 СЕ ПАЗИ: пагинацията е отделна
+     * страница), trailing slash stripped (path case is PRESERVED — many
+     * servers are case-sensitive). Returns null for unusable URLs.
      */
     public function normalizeUrl(string $url): ?string
     {
@@ -65,8 +71,8 @@ class WebPageCacheService
         return $normalized === null ? null : hash('sha256', $normalized);
     }
 
-    /** Markdown from a FRESH cache entry (TTL not expired), else null. */
-    public function freshHit(string $url): ?string
+    /** FRESH cache entry (TTL not expired), else null. Counts the hit. */
+    public function fresh(string $url): ?WebPageCache
     {
         $hash = $this->urlHash($url);
         if ($hash === null) {
@@ -79,51 +85,63 @@ class WebPageCacheService
             ->where('last_checked_at', '>=', now()->subHours($ttlHours))
             ->first();
 
-        if (! $entry) {
-            return null;
-        }
+        $entry?->increment('hit_count');
 
-        $entry->increment('hit_count');
-
-        return $entry->markdown;
+        return $entry;
     }
 
-    /** Any cached copy regardless of age — the stale fallback for failed fetches. */
-    public function any(string $url): ?string
+    /** Any cached entry regardless of age — the stale fallback for failed fetches. */
+    public function any(string $url): ?WebPageCache
     {
         $hash = $this->urlHash($url);
 
-        return $hash === null ? null : WebPageCache::where('url_hash', $hash)->value('markdown');
+        return $hash === null ? null : WebPageCache::where('url_hash', $hash)->first();
     }
 
-    /** Upsert after a successful live fetch. Unchanged content → touch only. */
-    public function store(string $url, string $markdown): void
-    {
+    /**
+     * Upsert after a successful live fetch. Unchanged content → touch only
+     * (и попълва title/meta/links, ако ги нямаме от по-стар fetch).
+     *
+     * @param  array<int, string>|null  $links
+     */
+    public function store(
+        string $url,
+        string $markdown,
+        ?string $title = null,
+        ?string $metaDescription = null,
+        ?array $links = null,
+    ): ?WebPageCache {
         $normalized = $this->normalizeUrl($url);
         if ($normalized === null || trim($markdown) === '') {
-            return;
+            return null;
         }
 
         $urlHash = hash('sha256', $normalized);
-        $contentHash = hash('sha256', $markdown);
+        $contentHash = hash('sha256', trim($markdown));
+
+        $extra = array_filter([
+            'title' => $title !== null ? mb_substr($title, 0, 500) : null,
+            'meta_description' => $metaDescription,
+            'links' => $links,
+        ], fn ($v) => $v !== null && $v !== '');
 
         $entry = WebPageCache::where('url_hash', $urlHash)->first();
 
         if ($entry && $entry->content_hash === $contentHash) {
-            $entry->update(['last_checked_at' => now()]);
+            $entry->update(array_merge(['last_checked_at' => now()], $extra));
 
-            return;
+            return $entry->refresh();
         }
 
-        WebPageCache::updateOrCreate(
+        return WebPageCache::updateOrCreate(
             ['url_hash' => $urlHash],
-            [
+            array_merge([
                 'url' => mb_substr($normalized, 0, 2048),
                 'content_hash' => $contentHash,
                 'markdown' => $markdown,
                 'fetched_at' => now(),
                 'last_checked_at' => now(),
-            ],
+            ], $extra),
         );
     }
 }

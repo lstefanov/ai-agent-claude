@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AgentGenerationLog;
+use App\Models\AssistantMessage;
 use App\Models\Company;
 use App\Models\Flow;
 use App\Models\FlowRun;
@@ -52,6 +53,16 @@ class CostController extends Controller
             'volumeByProvider' => $this->volumeByProvider($r),
         ];
 
+        // Resolve the configured Builder Copilot provider + model
+        // (mirrors BuilderAssistantService::providerModel() without importing the service)
+        $validProviders = ['openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen'];
+        $chatProvider = (string) config('services.builder_assistant.provider', '');
+        if ($chatProvider === '' || $chatProvider === 'ollama' || ! in_array($chatProvider, $validProviders, true)) {
+            $genProv = (string) config('services.generator.provider', 'openai');
+            $chatProvider = ($genProv !== 'ollama' && in_array($genProv, $validProviders, true)) ? $genProv : 'openai';
+        }
+        $chatModel = (string) config('services.builder_assistant.model', '') ?: (string) config("services.{$chatProvider}.model", '');
+
         return view('admin.costs.index', [
             'summary' => $summary,
             'providers' => $this->providerBreakdown($r),
@@ -59,6 +70,11 @@ class CostController extends Controller
             'rows' => $this->gridRows($r),
             'filterOptions' => $this->filterOptions(),
             'filters' => $r->only(['provider', 'model', 'company_id', 'flow_id', 'status', 'from', 'to']),
+            'chatProvider' => $chatProvider,
+            'chatModel' => $chatModel,
+            'chatSummary' => $this->chatSummary($r),
+            'chatByModel' => $this->chatByModel($r),
+            'chatSessions' => $this->chatSessions($r),
         ]);
     }
 
@@ -196,6 +212,7 @@ class CostController extends Controller
         $genRows = $this->filtered($r)
             ->whereNull('flow_run_id')
             ->whereNotNull('session_id')
+            ->where(fn ($q) => $q->where('purpose', '!=', 'assistant')->orWhereNull('purpose'))
             ->selectRaw('
                 session_id,
                 MAX(flow_id) as flow_id,
@@ -486,6 +503,202 @@ class CostController extends Controller
             'requests' => $rows->pluck('cnt')->map(fn ($c) => (int) $c)->values(),
             'tokens' => $rows->pluck('tokens')->map(fn ($t) => (int) $t)->values(),
         ];
+    }
+
+    /**
+     * Full chat transcript for one copilot session.
+     *
+     * Returns { session, meta, messages } where messages are the
+     * assistant_messages rows (Q/A pairs) and meta comes from the
+     * llm_requests (provider, model, tokens, cost) for that session.
+     */
+    public function chatDetail(Request $r): JsonResponse
+    {
+        $session = (string) $r->query('session', '');
+        if ($session === '') {
+            return response()->json(['error' => 'session required'], 400);
+        }
+
+        $messages = AssistantMessage::where('session', $session)
+            ->where('status', '!=', 'pending')
+            ->orderBy('id')
+            ->get(['id', 'role', 'content', 'cost_usd', 'status', 'error', 'ops', 'created_at']);
+
+        $metaRow = LlmRequest::where('session_id', $session)
+            ->where('purpose', 'assistant')
+            ->selectRaw('
+                MAX(flow_id) as flow_id,
+                MAX(company_id) as company_id,
+                GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR \', \') as models,
+                GROUP_CONCAT(DISTINCT provider ORDER BY provider SEPARATOR \', \') as providers,
+                COALESCE(SUM(total_tokens), 0) as total_tokens,
+                COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                ROUND(SUM(cost_usd), 6) as cost_usd,
+                COUNT(*) as call_count,
+                MIN(created_at) as first_at,
+                MAX(created_at) as last_at
+            ')
+            ->first();
+
+        $flowId = $metaRow?->flow_id;
+        $companyId = $metaRow?->company_id;
+
+        // Fall back to assistant_messages for flow context when llm_requests has no entry
+        if (! $flowId) {
+            $flowId = AssistantMessage::where('session', $session)->whereNotNull('flow_id')->value('flow_id');
+        }
+
+        $flow = $flowId ? Flow::with('company:id,name')->find($flowId, ['id', 'name', 'company_id']) : null;
+        $company = $companyId
+            ? Company::find($companyId, ['id', 'name'])
+            : $flow?->company;
+
+        return response()->json([
+            'session' => $session,
+            'meta' => [
+                'flow' => $flow?->name,
+                'flow_id' => $flow?->id,
+                'company' => $company?->name,
+                'models' => $metaRow?->models ?: '—',
+                'providers' => $metaRow?->providers ?: '—',
+                'total_tokens' => (int) ($metaRow?->total_tokens ?? 0),
+                'prompt_tokens' => (int) ($metaRow?->prompt_tokens ?? 0),
+                'completion_tokens' => (int) ($metaRow?->completion_tokens ?? 0),
+                'cost_usd' => (float) ($metaRow?->cost_usd ?? 0),
+                'call_count' => (int) ($metaRow?->call_count ?? 0),
+                'first_at' => $metaRow?->first_at ? Carbon::parse($metaRow->first_at)->format('Y-m-d H:i:s') : null,
+                'last_at' => $metaRow?->last_at ? Carbon::parse($metaRow->last_at)->format('Y-m-d H:i:s') : null,
+            ],
+            'messages' => $messages->map(fn (AssistantMessage $m) => [
+                'id' => $m->id,
+                'role' => $m->role,
+                'content' => $m->content,
+                'cost_usd' => $m->cost_usd,
+                'status' => $m->status,
+                'error' => $m->error,
+                'has_ops' => ! empty($m->ops),
+                'created_at' => $m->created_at?->format('Y-m-d H:i:s'),
+            ])->values(),
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Chat assistant helpers (Builder Copilot)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /** Filtered llm_requests scoped to Builder Copilot turns only. */
+    private function assistantBase(Request $r): Builder
+    {
+        return $this->filtered($r)->where('purpose', 'assistant');
+    }
+
+    /** Summary stat cards for the chat section. */
+    private function chatSummary(Request $r): array
+    {
+        $agg = $this->assistantBase($r)
+            ->selectRaw('
+                COUNT(DISTINCT session_id) as sessions,
+                COUNT(*) as calls,
+                COALESCE(SUM(total_tokens), 0) as total_tokens,
+                ROUND(SUM(cost_usd), 6) as total_cost
+            ')
+            ->first();
+
+        $sessions = (int) ($agg->sessions ?? 0);
+        $totalCost = (float) ($agg->total_cost ?? 0);
+
+        $topModel = $this->assistantBase($r)
+            ->selectRaw('model, COUNT(*) as cnt')
+            ->groupBy('model')
+            ->orderByDesc('cnt')
+            ->value('model') ?? '—';
+
+        $sessionIds = $this->assistantBase($r)->whereNotNull('session_id')->distinct()->pluck('session_id');
+        $msgCount = $sessionIds->isNotEmpty()
+            ? AssistantMessage::whereIn('session', $sessionIds)->where('status', '!=', 'pending')->count()
+            : 0;
+
+        return [
+            'sessions' => $sessions,
+            'calls' => (int) ($agg->calls ?? 0),
+            'messages' => $msgCount,
+            'total_tokens' => (int) ($agg->total_tokens ?? 0),
+            'total_cost' => round($totalCost, 4),
+            'avg_cost' => $sessions > 0 ? round($totalCost / $sessions, 4) : 0.0,
+            'top_model' => $topModel,
+        ];
+    }
+
+    /** Cost by chat model — dataset for the mini doughnut chart. */
+    private function chatByModel(Request $r): array
+    {
+        $rows = $this->assistantBase($r)
+            ->selectRaw('model as label, SUM(cost_usd) as total')
+            ->groupBy('model')
+            ->havingRaw('SUM(cost_usd) > 0')
+            ->orderByDesc('total')
+            ->limit(6)
+            ->get();
+
+        return [
+            'labels' => $rows->pluck('label')->map(fn ($l) => $l ?: '—')->values(),
+            'data' => $rows->pluck('total')->map(fn ($t) => round((float) $t, 4))->values(),
+        ];
+    }
+
+    /**
+     * One row per chat session for the Grid.js table, sorted newest-first.
+     * Augmented with message counts from assistant_messages.
+     */
+    private function chatSessions(Request $r): array
+    {
+        $rows = $this->assistantBase($r)
+            ->whereNotNull('session_id')
+            ->selectRaw('
+                session_id,
+                MAX(flow_id) as flow_id,
+                MAX(company_id) as company_id,
+                GROUP_CONCAT(DISTINCT provider ORDER BY provider SEPARATOR \', \') as provider,
+                GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR \', \') as model,
+                COUNT(*) as call_count,
+                COALESCE(SUM(total_tokens), 0) as total_tokens,
+                ROUND(SUM(cost_usd), 6) as cost_usd,
+                MAX(created_at) as last_at,
+                MIN(status) as status
+            ')
+            ->groupBy('session_id')
+            ->get();
+
+        $companyIds = $rows->pluck('company_id')->filter()->unique();
+        $flowIds = $rows->pluck('flow_id')->filter()->unique();
+        $companyNames = Company::whereIn('id', $companyIds)->pluck('name', 'id');
+        $flowNames = Flow::whereIn('id', $flowIds)->pluck('name', 'id');
+
+        $sessionUuids = $rows->pluck('session_id')->filter()->all();
+        $msgCounts = $sessionUuids
+            ? AssistantMessage::whereIn('session', $sessionUuids)
+                ->where('status', '!=', 'pending')
+                ->selectRaw('session, COUNT(*) as cnt')
+                ->groupBy('session')
+                ->pluck('cnt', 'session')
+            : collect();
+
+        $result = $rows->map(fn ($row) => [
+            'session_id' => $row->session_id,
+            'created_at' => $row->last_at ? Carbon::parse($row->last_at)->format('Y-m-d H:i:s') : null,
+            'provider' => $row->provider,
+            'model' => $row->model,
+            'company' => $companyNames[$row->company_id] ?? '—',
+            'flow' => $flowNames[$row->flow_id] ?? '—',
+            'call_count' => (int) $row->call_count,
+            'total_tokens' => (int) $row->total_tokens,
+            'cost_usd' => (float) $row->cost_usd,
+            'msg_count' => (int) ($msgCounts[$row->session_id] ?? 0),
+            'status' => $row->status,
+        ])->sortByDesc('created_at')->values()->all();
+
+        return array_slice($result, 0, 500);
     }
 
     /** Filter dropdown options (only values that actually appear in llm_requests). */
