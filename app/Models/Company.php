@@ -23,13 +23,28 @@ class Company extends Model
         return $this->hasMany(KnowledgeFolder::class);
     }
 
-    public function knowledgeDocuments(): HasMany
+    public function knowledgeResources(): HasMany
     {
-        return $this->hasMany(KnowledgeDocument::class);
+        return $this->hasMany(KnowledgeResource::class);
+    }
+
+    public function knowledgePages(): HasMany
+    {
+        return $this->hasMany(KnowledgePage::class);
     }
 
     public function knowledgeChunks(): HasMany
     {
         return $this->hasMany(KnowledgeChunk::class);
+    }
+
+    public function knowledgeFacts(): HasMany
+    {
+        return $this->hasMany(KnowledgeFact::class);
+    }
+
+    public function knowledgeEvents(): HasMany
+    {
+        return $this->hasMany(KnowledgeEvent::class);
     }
 }

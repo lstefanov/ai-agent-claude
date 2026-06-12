@@ -306,9 +306,9 @@ class OllamaService
      *
      * @return array<int, float>
      */
-    public function embed(string $text): array
+    public function embed(string $text, ?string $model = null): array
     {
-        $model = (string) config('services.ollama.embedding_model', 'nomic-embed-text');
+        $model = $model ?? (string) config('services.ollama.embedding_model', 'bge-m3');
         $input = mb_substr($text, 0, 8000);
         $startMs = (int) (microtime(true) * 1000);
 
