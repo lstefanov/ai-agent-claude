@@ -398,6 +398,13 @@ return [
         'enabled' => env('CRAWL_SERVICE_ENABLED', true),
         'timeout' => env('CRAWL_SERVICE_TIMEOUT', 35),
         'max_pages' => env('CRAWL_MAX_PAGES', 20),
+        // Глобален markdown кеш на скрейпнати страници (web_page_cache):
+        // в TTL прозореца страницата се връща без HTTP; след него fetch +
+        // content-hash сравнение. Покрива и digest кеша на deep_researcher.
+        'cache_enabled' => env('CRAWL_CACHE_ENABLED', true),
+        'cache_ttl_hours' => (int) env('CRAWL_CACHE_TTL_HOURS', 24),
+        // Неизползвани записи по-стари от това се чистят от knowledge:prune-web-cache.
+        'cache_retention_days' => (int) env('CRAWL_CACHE_RETENTION_DAYS', 90),
     ],
 
 ];

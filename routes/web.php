@@ -90,6 +90,8 @@ Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->gr
     Route::delete('documents/{document}', [CompanyKnowledgeController::class, 'destroyDocument'])->name('documents.destroy');
     Route::post('documents/{document}/reingest', [CompanyKnowledgeController::class, 'reingest'])->name('documents.reingest');
     Route::post('search-test', [CompanyKnowledgeController::class, 'searchTest'])->name('search-test');
+    Route::post('refresh-site', [CompanyKnowledgeController::class, 'refreshSite'])->name('refresh-site');
+    Route::post('recrawl-setting', [CompanyKnowledgeController::class, 'recrawlSetting'])->name('recrawl-setting');
 });
 
 // Flow runs

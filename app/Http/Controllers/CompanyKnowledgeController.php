@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\IngestCompanySiteJob;
 use App\Jobs\IngestKnowledgeDocumentJob;
 use App\Models\Company;
 use App\Models\KnowledgeDocument;
@@ -9,6 +10,7 @@ use App\Models\KnowledgeFolder;
 use App\Services\KnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 /**
@@ -68,10 +70,16 @@ class CompanyKnowledgeController extends Controller
                 'created_at' => $d->created_at->format('d.m.Y H:i'),
             ]);
 
-        $busy = $company->knowledgeDocuments()->whereIn('status', ['pending', 'processing'])->exists();
+        $busy = $company->knowledgeDocuments()->whereIn('status', ['pending', 'processing'])->exists()
+            || $this->siteSyncRunning($company);
 
         return response()->json([
             'enabled' => KnowledgeService::enabled($company),
+            'site' => [
+                'website_url' => $company->website_url,
+                'recrawl' => $company->settings['knowledge']['recrawl'] ?? 'off',
+                'synced_at' => $company->settings['knowledge']['site_synced_at'] ?? null,
+            ],
             'folders' => $folders,
             'documents' => $documents,
             'stats' => [
@@ -211,6 +219,49 @@ class CompanyKnowledgeController extends Controller
         IngestKnowledgeDocumentJob::dispatch($document->id);
 
         return response()->json(['ok' => true]);
+    }
+
+    /** Пробва да вземе (и веднага пуска) lock-а на site sync-а — зает = тече. */
+    private function siteSyncRunning(Company $company): bool
+    {
+        $probe = Cache::lock("kb-site-ingest-{$company->id}", 10);
+        if ($probe->get()) {
+            $probe->release();
+
+            return false;
+        }
+
+        return true;
+    }
+
+    public function refreshSite(Request $request, Company $company): JsonResponse
+    {
+        if (empty($company->website_url)) {
+            return response()->json(['error' => 'Фирмата няма зададен уебсайт — добави го от „Редактирай“.'], 422);
+        }
+
+        $lock = Cache::lock("kb-site-ingest-{$company->id}", 900);
+        if (! $lock->get()) {
+            return response()->json(['error' => 'Синхронизацията на сайта вече тече.'], 409);
+        }
+        $lock->release(); // job-ът ще го вземе наново
+
+        IngestCompanySiteJob::dispatch($company->id, force: $request->boolean('force'));
+
+        return response()->json(['ok' => true], 202);
+    }
+
+    public function recrawlSetting(Request $request, Company $company): JsonResponse
+    {
+        $data = $request->validate(['recrawl' => 'required|in:off,daily,weekly']);
+
+        $settings = (array) ($company->settings ?? []);
+        $settings['knowledge'] = array_merge((array) ($settings['knowledge'] ?? []), [
+            'recrawl' => $data['recrawl'],
+        ]);
+        $company->update(['settings' => $settings]);
+
+        return response()->json(['recrawl' => $data['recrawl']]);
     }
 
     public function searchTest(Request $request, Company $company, KnowledgeService $knowledge): JsonResponse

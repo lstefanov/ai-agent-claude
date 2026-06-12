@@ -14,7 +14,9 @@ class CrawlService
 
     private int $httpTimeout;  // PHP client timeout — must exceed the scraper's two-pass budget
 
-    public function __construct()
+    // Default value keeps the `new CrawlService` call sites (AgentFactory)
+    // working — WebPageCacheService is dependency-free.
+    public function __construct(private WebPageCacheService $cache = new WebPageCacheService)
     {
         $this->baseUrl = config('services.crawl.url', 'http://localhost:8189');
         $this->timeout = (int) config('services.crawl.timeout', 35);
@@ -25,38 +27,71 @@ class CrawlService
 
     /**
      * Scrape a URL and return clean markdown. Returns null on any failure.
+     * Fresh cache entries skip the HTTP call entirely; a failed fetch falls
+     * back to any cached copy (stale beats nothing).
      */
-    public function scrape(string $url): ?string
+    public function scrape(string $url, bool $bypassCache = false): ?string
     {
+        $useCache = ! $bypassCache && $this->cache->enabled();
+
+        if ($useCache && ($hit = $this->cache->freshHit($url)) !== null) {
+            return $hit;
+        }
+
         try {
             $response = Http::timeout($this->httpTimeout)->post("{$this->baseUrl}/scrape", [
                 'url' => $url,
                 'timeout' => $this->timeout,
             ]);
 
-            if (! $response->successful()) {
-                return null;
-            }
+            if ($response->successful()) {
+                $markdown = $response->json('markdown');
+                if (is_string($markdown) && trim($markdown) !== '') {
+                    if ($this->cache->enabled()) {
+                        $this->cache->store($url, $markdown);
+                    }
 
-            return $response->json('markdown') ?: null;
+                    return $markdown;
+                }
+            }
         } catch (\Exception) {
-            return null;
+            // пада към stale кеша
         }
+
+        return $useCache ? $this->cache->any($url) : null;
     }
 
     /**
      * Scrape many URLs CONCURRENTLY. Returns url => markdown for pages that
      * returned non-empty content. Requests run in waves of $concurrency.
      *
+     * Cache reads cost nothing and are never deadline-gated; only the HTTP
+     * waves check NodeDeadline, so a budget-hit run still returns everything
+     * already cached + the waves completed so far.
+     *
      * @param  array<int, string>  $urls
-     * @return array<string, string>
+     * @return array<string, string> keyed by the CALLER's original URL strings
      */
-    public function scrapeMany(array $urls, int $concurrency = 4): array
+    public function scrapeMany(array $urls, int $concurrency = 4, bool $bypassCache = false): array
     {
         $concurrency = max(1, $concurrency);
+        $useCache = ! $bypassCache && $this->cache->enabled();
         $out = [];
+        $toFetch = [];
 
-        foreach (array_chunk(array_values($urls), $concurrency) as $wave) {
+        foreach (array_values($urls) as $url) {
+            if ($useCache && ($hit = $this->cache->freshHit($url)) !== null) {
+                $out[$url] = $hit;
+            } else {
+                $toFetch[] = $url;
+            }
+        }
+
+        foreach (array_chunk($toFetch, $concurrency) as $wave) {
+            if (NodeDeadline::passed(45)) {
+                break;
+            }
+
             $responses = Http::pool(function ($pool) use ($wave) {
                 $calls = [];
                 foreach ($wave as $i => $url) {
@@ -78,10 +113,19 @@ class CrawlService
                         $md = $resp->json('markdown');
                         if (is_string($md) && trim($md) !== '') {
                             $out[$url] = $md;
+                            if ($this->cache->enabled()) {
+                                $this->cache->store($url, $md);
+                            }
+
+                            continue;
                         }
                     }
                 } catch (\Throwable) {
-                    // skip this URL
+                    // пада към stale кеша по-долу
+                }
+
+                if ($this->cache->enabled() && ($stale = $this->cache->any($url)) !== null) {
+                    $out[$url] = $stale;
                 }
             }
         }

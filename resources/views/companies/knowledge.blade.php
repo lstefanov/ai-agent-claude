@@ -23,6 +23,19 @@
                 <span class="w-2 h-2 rounded-full" :class="enabled ? 'bg-green-500' : 'bg-gray-300'"></span>
                 <span x-text="enabled ? 'Включена' : 'Изключена'"></span>
             </button>
+            <button x-show="site.website_url" x-cloak @click="refreshSite()"
+                    :disabled="busy"
+                    :title="'Извлича страниците на ' + site.website_url + ' в базата знания' + (site.synced_at ? ' (последно: ' + formatDate(site.synced_at) + ')' : '')"
+                    class="bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50">
+                🌐 Обнови от сайта
+            </button>
+            <select x-show="site.website_url" x-cloak x-model="site.recrawl" @change="setRecrawl()"
+                    title="Автоматично пре-обхождане на сайта"
+                    class="border border-gray-300 rounded-lg px-2 py-2 text-sm text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                <option value="off">Без автообновяване</option>
+                <option value="daily">Всеки ден</option>
+                <option value="weekly">Всяка седмица</option>
+            </select>
             <label class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer flex items-center gap-2"
                    :class="uploading && 'opacity-60 pointer-events-none'">
                 <span x-show="!uploading">⬆ Качи файлове</span>
@@ -237,7 +250,7 @@ function knowledgePage(config) {
     return {
         config,
         enabled: true, loading: true, error: '', busy: false,
-        folders: [], documents: [], stats: {},
+        folders: [], documents: [], stats: {}, site: {},
         selectedFolder: null, sourceFilter: 'all',
         search: '', sortCol: 'created_at', sortDir: 'desc', page: 1, pageSize: 15,
         uploading: false, newFolderName: '', renaming: null,
@@ -275,6 +288,7 @@ function knowledgePage(config) {
                 this.folders = data.folders;
                 this.documents = data.documents;
                 this.stats = data.stats;
+                this.site = data.site || {};
                 this.busy = data.busy;
                 this.error = '';
                 clearTimeout(this.pollTimer);
@@ -289,6 +303,24 @@ function knowledgePage(config) {
         async toggleEnabled() {
             try { this.enabled = (await this.api('/toggle', { method: 'POST' })).enabled; }
             catch (e) { this.error = e.message; }
+        },
+
+        // ── Сайт ──
+        async refreshSite() {
+            try {
+                await this.api('/refresh-site', { method: 'POST', json: {} });
+                this.busy = true;
+                clearTimeout(this.pollTimer);
+                this.pollTimer = setTimeout(() => this.refresh(), 4000);
+            } catch (e) { this.error = e.message; }
+        },
+        async setRecrawl() {
+            try { await this.api('/recrawl-setting', { method: 'POST', json: { recrawl: this.site.recrawl } }); }
+            catch (e) { this.error = e.message; }
+        },
+        formatDate(iso) {
+            try { return new Date(iso).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' }); }
+            catch { return iso; }
         },
 
         // ── Папки ──

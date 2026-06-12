@@ -12,6 +12,7 @@ use App\Support\ModelLevel;
 use App\Support\PaidModel;
 use App\Support\TypographicQuotes;
 use App\Support\UrlExtractor;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -832,6 +833,14 @@ PROMPT;
             $lines[] = "БАЗА ЗНАНИЯ НА ФИРМАТА: {$kb['documents']} документа, {$kb['chunks']} откъса{$folders}.{$titles}";
             $lines[] = 'Когато заданието иска фирмени факти (наши цени/продукти/услуги/условия), добави агент '
                 .'type=custom с custom_tools=["knowledge_search"] вместо да търси в интернет.';
+
+            // Свеж сайт в базата → не пращай агенти да обхождат СОБСТВЕНИЯ сайт.
+            if (($kb['by_source']['site'] ?? 0) > 0) {
+                $syncedAt = $flow?->company?->settings['knowledge']['site_synced_at'] ?? null;
+                $synced = $syncedAt ? ' (синхронизиран '.Carbon::parse($syncedAt)->format('d.m.Y').')' : '';
+                $lines[] = "САЙТЪТ НА ФИРМАТА е вече в базата знания{$synced}. За факти от СОБСТВЕНИЯ сайт "
+                    .'предпочитай knowledge_search пред crawl_site/scrape_page — по-бързо и без повторно обхождане.';
+            }
         }
 
         $models = LlmModel::where('is_available', true)
