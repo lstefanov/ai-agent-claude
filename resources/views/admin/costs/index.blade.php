@@ -255,16 +255,6 @@
         </div>
     </div>
 
-    @if(count($chatByModel['labels']))
-    {{-- Mini chart: cost by chat model --}}
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <div class="bg-white border border-gray-200 rounded-xl p-4">
-            <h3 class="text-sm font-semibold text-gray-700 mb-3">Разход по чат модел</h3>
-            <div class="relative h-44"><canvas id="chartChatModel"></canvas></div>
-        </div>
-    </div>
-    @endif
-
     {{-- Chat sessions Grid.js table --}}
     <div class="bg-white border border-gray-200 rounded-xl p-4 overflow-x-auto">
         <p class="text-xs text-gray-400 mb-3">Кликни ред за да видиш пълния разговор (въпрос и отговор).</p>
@@ -386,7 +376,6 @@ const DETAIL_URL       = "{{ url('admin/costs/detail') }}";
 const GROUP_DETAIL_URL = "{{ url('admin/costs/group-detail') }}";
 const CHAT_DETAIL_URL  = "{{ url('admin/costs/chat-detail') }}";
 const CHAT_SESSIONS    = @json($chatSessions);
-const CHAT_BY_MODEL    = @json($chatByModel);
 
 // ── Linked filter dropdowns: "Модел" shows only the chosen provider's models ──
 const MODELS_BY_PROVIDER = @json($filterOptions['modelsByProvider']);
@@ -723,22 +712,6 @@ function toggleOllamaModels(btn) {
     btn.textContent = expanded
         ? `покажи всички (${btn.dataset.extra} още) ↓`
         : 'скрий ↑';
-}
-
-// ── Chat assistant: mini model chart ─────────────────────────────────
-if (CHAT_BY_MODEL.labels && CHAT_BY_MODEL.labels.length && document.getElementById('chartChatModel')) {
-    new Chart(document.getElementById('chartChatModel'), {
-        type: 'doughnut',
-        data: {
-            labels: CHAT_BY_MODEL.labels,
-            datasets: [{ data: CHAT_BY_MODEL.data, backgroundColor: PALETTE }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }
-        }
-    });
 }
 
 // ── Chat sessions Grid.js ─────────────────────────────────────────────

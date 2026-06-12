@@ -73,7 +73,6 @@ class CostController extends Controller
             'chatProvider' => $chatProvider,
             'chatModel' => $chatModel,
             'chatSummary' => $this->chatSummary($r),
-            'chatByModel' => $this->chatByModel($r),
             'chatSessions' => $this->chatSessions($r),
         ]);
     }
@@ -627,23 +626,6 @@ class CostController extends Controller
             'total_cost' => round($totalCost, 4),
             'avg_cost' => $sessions > 0 ? round($totalCost / $sessions, 4) : 0.0,
             'top_model' => $topModel,
-        ];
-    }
-
-    /** Cost by chat model — dataset for the mini doughnut chart. */
-    private function chatByModel(Request $r): array
-    {
-        $rows = $this->assistantBase($r)
-            ->selectRaw('model as label, SUM(cost_usd) as total')
-            ->groupBy('model')
-            ->havingRaw('SUM(cost_usd) > 0')
-            ->orderByDesc('total')
-            ->limit(6)
-            ->get();
-
-        return [
-            'labels' => $rows->pluck('label')->map(fn ($l) => $l ?: '—')->values(),
-            'data' => $rows->pluck('total')->map(fn ($t) => round((float) $t, 4))->values(),
         ];
     }
 

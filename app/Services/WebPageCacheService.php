@@ -50,9 +50,11 @@ class WebPageCacheService
         $query = '';
         if (! empty($parts['query'])) {
             parse_str($parts['query'], $params);
+            // Tracking + козметични view параметри (същото съдържание под друг
+            // ключ); add-to-cart е действие, не страница. ?page= СЕ ПАЗИ.
             $params = array_filter(
                 $params,
-                fn ($key) => ! preg_match('/^(utm_|gclid$|fbclid$|msclkid$)/i', (string) $key),
+                fn ($key) => ! preg_match('/^(utm_|gclid$|fbclid$|msclkid$|add-to-cart$|wc_view_mode$|orderby$|view_mode$)/i', (string) $key),
                 ARRAY_FILTER_USE_KEY,
             );
             if ($params !== []) {
