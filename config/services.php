@@ -33,6 +33,12 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+        // OAuth (MCP конектор) — глобален FlowAI Slack app.
+        'oauth' => [
+            'client_id' => env('SLACK_OAUTH_CLIENT_ID'),
+            'client_secret' => env('SLACK_OAUTH_CLIENT_SECRET'),
+            'redirect' => env('SLACK_OAUTH_REDIRECT_URI'),
+        ],
     ],
 
     'ollama' => [
@@ -226,6 +232,13 @@ return [
             'agent_revision' => [
                 'provider' => env('PLANNER_REVISION_PROVIDER'),
                 'model' => env('PLANNER_REVISION_MODEL'),
+            ],
+            // Eval Suite LLM-as-judge. Евтин/бърз по подразбиране (gemini),
+            // независимо от GENERATOR_PROVIDER; може openai/anthropic за по-строг
+            // judge. Резолвва се през GeneratorService::chatJson(..., 'eval_judge').
+            'eval_judge' => [
+                'provider' => env('EVAL_JUDGE_PROVIDER', 'gemini'),
+                'model' => env('EVAL_JUDGE_MODEL', 'gemini-3.1-flash-lite'),
             ],
         ],
         // Именувани хибридни комбинации за A/B: flows:plan-ab {id} --variant=hybrid
@@ -434,6 +447,15 @@ return [
         // Google Places API (New) key — used for business reviews/rating.
         // Enable "Places API (New)" in Google Cloud Console for the key.
         'api_key' => env('GOOGLE_PLACES_API_KEY'),
+    ],
+
+    // Google OAuth (Laravel Socialite) — глобален FlowAI app за MCP конекторите
+    // Gmail/Sheets/Drive. Активирай нужните APIs в Google Cloud Console и сложи
+    // redirect URI-то, което сочи към oauth.google.callback route-а.
+    'google' => [
+        'client_id' => env('GOOGLE_OAUTH_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_OAUTH_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_OAUTH_REDIRECT_URI'),
     ],
 
     'comfyui' => [

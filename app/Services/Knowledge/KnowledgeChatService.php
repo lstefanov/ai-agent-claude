@@ -37,7 +37,7 @@ class KnowledgeChatService
     /**
      * @return array{content: string, sources: array<int, array<string, mixed>>, source_type: string, cost_usd: float}
      */
-    public function turn(Company $company, string $question, string $session, ?callable $onStage = null): array
+    public function turn(Company $company, string $question, string $session, ?callable $onStage = null, ?int $replyId = null): array
     {
         $onStage && $onStage('Търся в базата знания…');
 
@@ -51,24 +51,42 @@ class KnowledgeChatService
             nodeKey: 'knowledge-chat',
         );
 
-        $bestScore = $hits === [] ? 0.0 : max(array_map(fn ($h) => (float) ($h['score'] ?? 0), $hits));
-        $gapThreshold = (float) config('services.knowledge.gap_threshold', 0.55);
-
-        // Няма реално покритие → честно го казваме и търсим в интернет.
-        if ($hits === [] || $bestScore < $gapThreshold) {
-            return $this->answerFromWeb($company, $question, $session, $onStage);
+        // Свързваме заявките на този ход (Perplexity + синтез) със съобщението —
+        // session_id за popup-а „Детайли". Сетва се СЛЕД search(), защото неговият
+        // embedding презаписва LlmContext.
+        if ($replyId !== null) {
+            LlmContext::set(['purpose' => 'knowledge_chat', 'company_id' => $company->id, 'session_id' => 'kbchat-'.$replyId]);
         }
 
-        return $this->answerFromKnowledge($company, $question, $session, $hits, $onStage);
+        try {
+            // Празно извличане → директно интернет.
+            if ($hits === []) {
+                return $this->answerFromWeb($company, $question, $session, $onStage);
+            }
+
+            // Опитай от базата; ако моделът прецени, че откъсите НЕ отговарят на
+            // въпроса (NEED_WEB или честно "няма информация") → интернет fallback.
+            // НЕ разчитаме на retrieval score — подлъгва се при споделени ключови думи.
+            $kb = $this->answerFromKnowledge($company, $question, $session, $hits, $onStage);
+            if ($kb === null) {
+                return $this->answerFromWeb($company, $question, $session, $onStage);
+            }
+
+            return $kb;
+        } finally {
+            if ($replyId !== null) {
+                LlmContext::clear();
+            }
+        }
     }
 
     /**
      * Отговор от базата знания (нормалният път).
      *
      * @param  array<int, array<string, mixed>>  $hits
-     * @return array{content: string, sources: array<int, array<string, mixed>>, source_type: string, cost_usd: float}
+     * @return array{content: string, sources: array<int, array<string, mixed>>, source_type: string, cost_usd: float}|null null = базата не покрива въпроса → интернет
      */
-    private function answerFromKnowledge(Company $company, string $question, string $session, array $hits, ?callable $onStage): array
+    private function answerFromKnowledge(Company $company, string $question, string $session, array $hits, ?callable $onStage): ?array
     {
         $sources = [];
         $context = '';
@@ -98,6 +116,14 @@ class KnowledgeChatService
             ];
         }
 
+        // Надеждна ДА/НЕ проверка дали базата изобщо покрива въпроса (преди
+        // да композираме) — заменя крехкото разчитане на фразировката.
+        if (! $this->coversQuestion($company, $question, $context)) {
+            LlmUsage::take(); // изхвърли usage-а на проверката — web ще го поеме
+
+            return null;
+        }
+
         $onStage && $onStage('Съставям отговор…');
 
         $system = <<<PROMPT
@@ -109,7 +135,7 @@ class KnowledgeChatService
 - Когато въпросът не уточнява вариант (напр. пол мъже/жени), покажи ВСИЧКИ налични варианти от откъсите.
 - Свързвай информацията от няколко откъса в един цялостен отговор (описание + цени + допълнителна информация).
 - Цитирай източниците с номерата им в квадратни скоби, напр. [1], [2].
-- Ако в откъсите НЯМА достатъчно информация за въпроса, кажи го честно ("В базата знания няма информация за …") и не си измисляй.
+- Ако подадените откъси НЕ съдържат отговор на конкретния въпрос (дори да се споменават свързани неща — напр. самия продукт, но не и питаното за него), отговори САМО с думата: NEED_WEB — без друг текст и без да измисляш.
 PROMPT;
 
         $user = "--- ОТКЪСИ ОТ БАЗАТА ЗНАНИЯ ---\n{$context}"
@@ -117,6 +143,14 @@ PROMPT;
             ."--- ВЪПРОС ---\n".$question;
 
         $content = $this->runCompose($company, $system, $user);
+
+        // Защитна мрежа: ако въпреки проверката отговорът честно казва „няма" (или NEED_WEB).
+        if ($this->signalsNoCoverage($content)) {
+            LlmUsage::take();
+
+            return null;
+        }
+
         $usage = LlmUsage::take();
 
         return [
@@ -213,25 +247,43 @@ PROMPT;
     }
 
     /** Извиква chat LLM-а в правилния контекст (cost tracking). */
-    private function runCompose(Company $company, string $system, string $user): string
+    private function runCompose(Company $company, string $system, string $user, array $options = []): string
     {
-        LlmContext::set(['purpose' => 'knowledge_chat', 'company_id' => $company->id]);
+        // Merge — запазваме session_id (сетнат от job-а), за да се свърже и
+        // синтез-заявката със съобщението за popup-а „Детайли".
+        $prev = LlmContext::get();
+        LlmContext::set(array_merge($prev, ['purpose' => 'knowledge_chat', 'company_id' => $company->id]));
 
         try {
-            return $this->composeAnswer($system, $user);
+            return $this->composeAnswer($system, $user, $options);
         } finally {
-            LlmContext::clear();
+            LlmContext::set($prev);
         }
+    }
+
+    /**
+     * Надеждна ДА/НЕ проверка дали откъсите изобщо отговарят на въпроса —
+     * вместо да разчитаме на фразировката на отговора (локалният модел е
+     * непоследователен). НЕ / неясно → връщаме false → интернет fallback.
+     */
+    private function coversQuestion(Company $company, string $question, string $context): bool
+    {
+        $system = 'Ти си строг класификатор. Преценяваш САМО дали подадените ОТКЪСИ съдържат пряк отговор на ВЪПРОСА. Отговаряш само с една дума — ДА или НЕ. Без обяснения.';
+        $user = "--- ОТКЪСИ ---\n{$context}\n--- ВЪПРОС ---\n{$question}\n\nСъдържат ли откъсите пряк отговор на въпроса? Отговори само с ДА или НЕ.";
+
+        $verdict = mb_strtolower(trim($this->runCompose($company, $system, $user, ['num_predict' => 4, 'temperature' => 0])));
+
+        return str_starts_with($verdict, 'да') || str_starts_with($verdict, 'yes');
     }
 
     /**
      * Един разговор с chat модела — ЛОКАЛЕН по подразбиране (безплатно), cloud
      * при конфигуриран chat_provider с ключ. Споделя се от двата пътя (база/уеб).
      */
-    private function composeAnswer(string $system, string $user): string
+    private function composeAnswer(string $system, string $user, array $optionsOverride = []): string
     {
         $provider = (string) config('services.knowledge.chat_provider', 'ollama');
-        $options = ['temperature' => 0.3, 'num_predict' => 1500, 'http_timeout' => 300];
+        $options = array_merge(['temperature' => 0.3, 'num_predict' => 1500, 'http_timeout' => 300], $optionsOverride);
 
         if ($provider === 'ollama' || empty(config("services.{$provider}.api_key"))) {
             $model = (string) (config('services.knowledge.chat_model')
@@ -245,6 +297,31 @@ PROMPT;
             ?: config("services.{$provider}.model"));
 
         return OpenAiChatService::for($provider)->chat($model, $system, $user, $options);
+    }
+
+    /**
+     * Моделът сигнализира, че базата НЕ покрива въпроса → пускаме интернет.
+     * Основен сигнал: NEED_WEB sentinel (по инструкция в промпта). Резервен:
+     * честните "няма" фрази — ако локалният BgGPT не спази sentinel-а.
+     */
+    private function signalsNoCoverage(string $content): bool
+    {
+        $c = mb_strtolower(trim($content));
+
+        if (str_contains($c, 'need_web')) {
+            return true;
+        }
+
+        foreach ([
+            'няма информация', 'няма достатъчно информация', 'не разполагам с информация',
+            'няма данни', 'не са посочени', 'не съдържат', 'не е посочен', 'липсва информация',
+        ] as $phrase) {
+            if (str_contains($c, $phrase)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Кратка история на разговора — контекст за последващи въпроси. */

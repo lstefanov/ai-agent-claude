@@ -37,6 +37,11 @@ $qaThresholdOptions = range(0, 100, 5);
                title="Планирай с Ollama (безплатно), OpenAI и Anthropic и избери по-добрия план">
                 ⚖ A/B план
             </a>
+            <a href="{{ route('flows.eval.index', $flow) }}"
+               class="inline-flex items-center justify-center bg-white border border-teal-300 hover:border-teal-400 text-teal-700 px-4 py-2 rounded-lg text-sm font-medium transition"
+               title="Тествай качеството на изхода на различни версии и нива (цена↔качество)">
+                🧪 Eval
+            </a>
             <form action="{{ route('flow-runs.store', $flow) }}" method="POST" class="flex items-start gap-2">
                 @csrf
                 <button type="submit"
@@ -291,7 +296,7 @@ function copyWebhookUrl() {
                         </form>
                         @unless($version->is_active)
                             <button type="button"
-                                    @click="activate(@js(route('flows.versions.activate', [$flow, $version])))"
+                                    @click="activate(@js(route('flows.versions.activate', [$flow, $version])), {{ $flowHasEvalCases ? 'true' : 'false' }}, {{ in_array($version->id, $versionsWithEvalResults) ? 'true' : 'false' }}, @js(route('flows.eval.index', $flow)))"
                                     class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 font-medium leading-none">
                                 Активирай
                             </button>
@@ -310,6 +315,11 @@ function copyWebhookUrl() {
                            class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-medium leading-none">
                             ✎ Редактирай
                         </a>
+                        <a href="{{ route('flows.eval.results', $flow) }}?version={{ $version->id }}"
+                           class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-teal-300 text-teal-700 hover:bg-teal-50 font-medium leading-none"
+                           title="Eval резултати за тази версия">
+                            🧪 Eval
+                        </a>
                         @if($version->is_active)
                             <button type="button" disabled title="Активният шаблон не може да бъде изтрит — първо активирай друг."
                                     class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed leading-none">
@@ -327,6 +337,19 @@ function copyWebhookUrl() {
             @endforeach
         </div>
     @endif
+
+    {{-- Eval warning: активиране на версия без eval резултати --}}
+    <div x-show="showEvalWarn" x-cloak @keydown.escape.window="showEvalWarn = false"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6" @click.outside="showEvalWarn = false">
+            <h3 class="text-lg font-bold text-gray-900 mb-2">⚠️ Версията няма eval резултати</h3>
+            <p class="text-sm text-gray-600 mb-5">Имаш зададени тестове за качество, но тази версия още не е оценявана. Препоръчваме да пуснеш eval преди активиране.</p>
+            <div class="flex items-center justify-end gap-3">
+                <button type="button" @click="confirmActivate()" class="text-sm text-gray-500 hover:text-gray-700">Активирай без eval</button>
+                <a :href="evalUrl" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg">Пусни eval</a>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -346,7 +369,18 @@ function flowVersionsPanel(csrf) {
 
     return {
         error: null,
-        async activate(url) {
+        showEvalWarn: false, pendingActivate: null, evalUrl: null,
+        async activate(url, hasCases = false, hasResults = false, evalUrl = null) {
+            if (hasCases && !hasResults) {
+                this.pendingActivate = url; this.evalUrl = evalUrl; this.showEvalWarn = true;
+                return;
+            }
+            await this._doActivate(url);
+        },
+        confirmActivate() {
+            const url = this.pendingActivate; this.showEvalWarn = false; this._doActivate(url);
+        },
+        async _doActivate(url) {
             try { await send(url, 'POST'); window.location.reload(); }
             catch (e) { this.error = e.message; }
         },

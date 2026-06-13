@@ -138,6 +138,9 @@ class AgentGeneratorService
         $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
         $agents = $this->dedupeAgents($agents);
         $agents = $this->groundKnowledgeTools($agents);
+        // MCP: пред всяко WRITE действие гарантирай human_approval node (планерът
+        // ПРЕДЛАГА, кодът ГАРАНТИРА) + отсей mcp_action без резолвиран конектор.
+        $agents = $this->gateWriteMcpActions($agents);
         $agents = $this->finalizeDependencyGraph($agents);
         // A capable planner (qwen) emits a correct dependency CHAIN (discoverer →
         // crawler → extractors → analysis → report) — keep it. Only a weak planner
@@ -201,6 +204,91 @@ class AgentGeneratorService
         unset($agent);
 
         return $agents;
+    }
+
+    /**
+     * MCP write-gating: планерът ПРЕДЛАГА mcp_action, кодът ГАРАНТИРА безопасност:
+     *  - mcp_action без резолвиран конектор се отсява (фирмата няма такава връзка);
+     *  - пред всяко WRITE действие, което още няма human_approval predecessor, се
+     *    вмъква такъв (действието започва да зависи само от одобрението, а
+     *    одобрението наследява оригиналния upstream на действието).
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function gateWriteMcpActions(array $agents): array
+    {
+        $writeTools = (array) config('mcp.write_tools', []);
+
+        // 1) Отсей mcp_action без конектор + изчисти висящите зависимости към тях.
+        $dropped = [];
+        $agents = array_values(array_filter($agents, function ($a) use (&$dropped) {
+            if (($a['type'] ?? '') === 'mcp_action' && empty($a['config']['connector_id'])) {
+                if (! empty($a['uid'])) {
+                    $dropped[] = $a['uid'];
+                }
+
+                return false;
+            }
+
+            return true;
+        }));
+        if ($dropped !== []) {
+            foreach ($agents as &$a) {
+                $a['depends_on'] = array_values(array_diff((array) ($a['depends_on'] ?? []), $dropped));
+            }
+            unset($a);
+        }
+
+        $typeByUid = [];
+        foreach ($agents as $a) {
+            if (! empty($a['uid'])) {
+                $typeByUid[$a['uid']] = $a['type'] ?? '';
+            }
+        }
+
+        // 2) Вмъкни human_approval пред WRITE действия без такъв.
+        $inserted = [];
+        foreach ($agents as &$agent) {
+            if (($agent['type'] ?? '') !== 'mcp_action') {
+                continue;
+            }
+            $tool = (string) ($agent['config']['tool'] ?? '');
+            $isWrite = ($agent['config']['requires_approval'] ?? false) || in_array($tool, $writeTools, true);
+            if (! $isWrite) {
+                continue;
+            }
+
+            $deps = array_values(array_map('strval', (array) ($agent['depends_on'] ?? [])));
+            foreach ($deps as $d) {
+                if (($typeByUid[$d] ?? '') === 'human_approval') {
+                    continue 2; // вече има approval predecessor
+                }
+            }
+
+            $apUid = 'mcp_approval_'.($agent['uid'] ?? substr(md5($tool.microtime()), 0, 8));
+            $inserted[] = [
+                'name' => 'Одобрение: '.($agent['name'] ?? $tool),
+                'type' => 'human_approval',
+                'role' => 'Човешко одобрение преди изходящото действие.',
+                'capabilities' => [],
+                'prompt_template' => 'Прегледай материала и одобри изпълнението на: '.$tool,
+                'system_prompt' => '',
+                'model' => '',
+                'model_reason' => 'Пауза за човешко одобрение.',
+                'order' => (int) ($agent['order'] ?? 0),
+                'is_verifier' => false,
+                'qa_threshold' => null,
+                'config' => ['qa' => ['enabled' => false]],
+                'uid' => $apUid,
+                'depends_on' => $deps,
+                'output_language' => null,
+            ];
+            $agent['depends_on'] = [$apUid];
+        }
+        unset($agent);
+
+        return array_merge($inserted, $agents);
     }
 
     /**
@@ -588,6 +676,19 @@ class AgentGeneratorService
             $config['qa'] = ['enabled' => false];
 
             return $config;
+        }
+
+        // mcp_action изпълнява tool call — не вика LLM. Пази само MCP конфигурацията.
+        if ($type === 'mcp_action') {
+            $config = is_array($raw) ? $raw : [];
+
+            return [
+                'connector_id' => isset($config['connector_id']) ? (int) $config['connector_id'] : null,
+                'tool' => (string) ($config['tool'] ?? ''),
+                'tool_params' => is_array($config['tool_params'] ?? null) ? $config['tool_params'] : [],
+                'requires_approval' => (bool) ($config['requires_approval'] ?? false),
+                'qa' => ['enabled' => false],
+            ];
         }
 
         $config = is_array($raw) ? $raw : ['temperature' => 0.7];

@@ -88,7 +88,13 @@ class FlowController extends Controller
                 $version->setAttribute('total_cost_usd', (float) ($version->cost_usd ?? 0) + $runtimeCostUsd);
             });
 
-        return view('flows.show', compact('flow', 'versions'));
+        // Eval Suite: подсказваме „пусни eval преди активиране" — кои версии имат
+        // завършени eval резултати, и дали изобщо има активни тестове за flow-а.
+        $flowHasEvalCases = $flow->evalCases()->where('is_active', true)->exists();
+        $versionsWithEvalResults = $flow->evalRuns()->where('status', 'completed')
+            ->distinct()->pluck('flow_version_id')->all();
+
+        return view('flows.show', compact('flow', 'versions', 'flowHasEvalCases', 'versionsWithEvalResults'));
     }
 
     public function runsHistory(Request $request, Flow $flow): JsonResponse

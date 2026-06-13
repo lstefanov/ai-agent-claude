@@ -655,6 +655,12 @@
                 </button>
             </div>
 
+            <a href="{{ route('flows.eval.index', $flow) }}" target="_blank"
+               class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+               title="Eval — тестове за качество + крива цена↔качество (отваря се в нов таб)">
+                🧪 Eval
+            </a>
+
             <button @click="openGenLog()" type="button" class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50" title="Пълен лог на генерирането на агенти">
                 📋 Лог
             </button>
@@ -1549,7 +1555,71 @@
                                 </div>
                             </div>
 
-                            <div>
+                            {{-- MCP Действие: конфигурация на действие в свързана система --}}
+                            <div x-show="selected.type === 'mcp_action'" class="border border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-lg">🔌</span>
+                                    <h4 class="font-semibold text-gray-800 text-sm">MCP Действие</h4>
+                                </div>
+
+                                <template x-if="mcpConnectors.length === 0">
+                                    <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                        Няма свързани системи. Добави в
+                                        <a :href="config.connectorsUrl" target="_blank" class="underline font-medium">Свързани системи</a>.
+                                    </p>
+                                </template>
+
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1">Конектор</label>
+                                    <select x-model.number="selected.config.connector_id" @change="onMcpConnectorChange()" :disabled="modalReadOnly"
+                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        <option value="">— избери —</option>
+                                        <template x-for="c in mcpConnectors" :key="c.id">
+                                            <option :value="c.id" x-text="c.name + ' (' + c.type + ')'"></option>
+                                        </template>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1">Действие</label>
+                                    <select x-model="selected.config.tool" @change="onMcpToolChange()" :disabled="modalReadOnly || !selected.config.connector_id"
+                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                                        <option value="">— избери —</option>
+                                        <template x-for="t in mcpToolsFor(selected.config.connector_id)" :key="t.name">
+                                            <option :value="t.name" x-text="t.name + (t.writes ? '  ✍️' : '')"></option>
+                                        </template>
+                                    </select>
+                                    <p x-show="mcpSelectedTool()" class="text-xs text-gray-400 mt-1" x-text="mcpSelectedTool()?.description"></p>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1">Параметри</label>
+                                    <p class="text-xs text-gray-400 mb-2">Стойностите поддържат <code>@{{flow.input.X}}</code>, <code>@{{agent.Възел.output}}</code>, <code>@{{connector.setting.X}}</code>, <code>@{{date:Y-m-d}}</code>.</p>
+                                    <template x-for="(val, key) in (selected.config.tool_params || {})" :key="key">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <span class="text-xs font-mono text-gray-600 w-32 shrink-0 truncate" x-text="key"></span>
+                                            <input type="text" :value="val" @input="selected.config.tool_params[key] = $event.target.value" :disabled="modalReadOnly"
+                                                   class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            <button type="button" @click="removeMcpParam(key)" class="text-gray-400 hover:text-red-600 text-sm">✕</button>
+                                        </div>
+                                    </template>
+                                    <div class="flex items-center gap-2 mt-2">
+                                        <input type="text" x-model="mcpNewParamKey" placeholder="нов параметър" @keydown.enter.prevent="addMcpParam()"
+                                               class="w-40 border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                                        <button type="button" @click="addMcpParam()" class="text-indigo-600 hover:underline text-sm">+ добави</button>
+                                    </div>
+                                </div>
+
+                                <label class="flex items-center gap-2">
+                                    <input type="checkbox" x-model="selected.config.requires_approval" :disabled="modalReadOnly" class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
+                                    <span class="text-sm text-gray-700">Изисква потвърждение преди изпълнение</span>
+                                </label>
+                                <p x-show="mcpSelectedTool()?.writes" class="text-xs text-amber-700">
+                                    ⚠ Write действие — постави „Одобрение от човек" възел ПРЕДИ него в графа.
+                                </p>
+                            </div>
+
+                            <div x-show="selected.type !== 'mcp_action'">
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="block text-sm font-medium text-gray-700">Роля / Описание</label>
                                     <button x-show="!modalReadOnly && !resumeEditing" type="button" @click="generateField('role')"
@@ -1563,7 +1633,7 @@
                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500"></textarea>
                             </div>
 
-                            <div>
+                            <div x-show="selected.type !== 'mcp_action'">
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="block text-sm font-medium text-gray-700">System промпт</label>
                                     <button x-show="!modalReadOnly" type="button" @click="generateField('system_prompt')"
@@ -1579,7 +1649,7 @@
                                           placeholder="Ти си специализиран агент за..."></textarea>
                             </div>
 
-                            <div>
+                            <div x-show="selected.type !== 'mcp_action'">
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="block text-sm font-medium text-gray-700">Промпт шаблон</label>
                                     <button x-show="!modalReadOnly" type="button" @click="generateField('prompt_template')"
@@ -1595,7 +1665,7 @@
                                 <p class="text-xs text-gray-400 mt-1">Плейсхолдъри: @{{url}}, @{{topic}}, @{{node:Име на възел}}</p>
                             </div>
 
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div x-show="selected.type !== 'mcp_action'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Модел</label>
                                     <div class="relative" @click.outside="modelPickerOpen = false" @keydown.escape.window="modelPickerOpen = false">
@@ -1714,7 +1784,7 @@
 
                             {{-- Step-QA gate (non-verifier nodes): re-runs the node on low score; --}}
                             {{-- from the 2nd retry the planner revises the agent (Фаза 3). --}}
-                            <div x-show="selected.type !== 'qa_verifier'" class="border-t border-gray-100 pt-4">
+                            <div x-show="selected.type !== 'qa_verifier' && selected.type !== 'mcp_action'" class="border-t border-gray-100 pt-4">
                                 <div class="flex items-center gap-3">
                                     <input type="checkbox" x-model="selected.config.qa.enabled" :disabled="modalReadOnly" id="node-qa-enabled"
                                            class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
@@ -1937,6 +2007,9 @@ function flowBuilder(config) {
         paidModels: config.paidModels || [],
         modelPickerOpen: false,
         agentTypes: config.agentTypes || [],
+        // MCP конектори за mcp_action node панела (активни конектори + tools).
+        mcpConnectors: [],
+        mcpNewParamKey: '',
         templateIcons: config.templateIcons || {},
         typeIconFallbacks: {
             researcher: '🔎',
@@ -2113,6 +2186,46 @@ function flowBuilder(config) {
             end: { type: 'flow_end', name: 'Край', icon: '■', inputs: 1, outputs: 0, x: 1120, y: 120 },
         },
 
+        // ───────── MCP действие (mcp_action node) ─────────
+        loadMcpConnectors() {
+            if (!config.connectorsAvailableUrl) return;
+            fetch(config.connectorsAvailableUrl, { headers: { 'Accept': 'application/json' } })
+                .then(r => r.json())
+                .then(j => { this.mcpConnectors = j.connectors || []; })
+                .catch(() => {});
+        },
+        mcpToolsFor(connectorId) {
+            const c = this.mcpConnectors.find(x => x.id == connectorId);
+            return c ? c.tools : [];
+        },
+        mcpSelectedTool() {
+            if (!this.selected || this.selected.type !== 'mcp_action') return null;
+            return this.mcpToolsFor(this.selected.config?.connector_id).find(t => t.name === this.selected.config?.tool) || null;
+        },
+        onMcpConnectorChange() {
+            if (!this.selected.config) this.selected.config = {};
+            this.selected.config.tool = '';
+            this.selected.config.tool_params = {};
+        },
+        onMcpToolChange() {
+            if (!this.selected.config) this.selected.config = {};
+            const tool = this.mcpSelectedTool();
+            const params = {};
+            (tool?.parameters || []).forEach(k => { params[k] = this.selected.config.tool_params?.[k] || ''; });
+            this.selected.config.tool_params = params;
+            this.selected.config.requires_approval = !!tool?.writes;
+        },
+        addMcpParam() {
+            const key = (this.mcpNewParamKey || '').trim();
+            if (!key) return;
+            if (!this.selected.config.tool_params) this.selected.config.tool_params = {};
+            this.selected.config.tool_params[key] = '';
+            this.mcpNewParamKey = '';
+        },
+        removeMcpParam(key) {
+            if (this.selected.config?.tool_params) delete this.selected.config.tool_params[key];
+        },
+
         init() {
             if (this.editor) return;
 
@@ -2123,6 +2236,7 @@ function flowBuilder(config) {
 
             this.setupCanvasNavigation(el);
             this.bindNodeEditClicks(el);
+            this.loadMcpConnectors();
 
             if (config.graphLayout) {
                 try {

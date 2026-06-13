@@ -54,7 +54,8 @@ class KnowledgeChatTurnJob implements ShouldQueue
         $onStage = fn (string $stage) => $this->cacheMerge($cacheKey, ['status' => 'pending', 'stage' => $stage]);
 
         try {
-            $result = $chat->turn($company, (string) $userMessage->content, (string) $userMessage->session, $onStage);
+            // $reply->id → session_id за свързване на заявките със съобщението (popup „Детайли").
+            $result = $chat->turn($company, (string) $userMessage->content, (string) $userMessage->session, $onStage, $reply->id);
 
             $reply->update([
                 'content' => $result['content'],

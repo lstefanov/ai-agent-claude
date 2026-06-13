@@ -614,16 +614,23 @@
                                             </span>
                                         </template>
                                     </div>
-                                    {{-- 👍/👎 само на интернет отговори --}}
-                                    <div x-show="m.role === 'assistant' && m.source_type === 'web' && !m.failed" class="mt-2 pt-2 border-t border-gray-200 flex items-center gap-2">
-                                        <span class="text-[11px] text-gray-400">Полезно?</span>
-                                        <button @click="sendFeedback(m, 'up')" :disabled="!!m.feedback"
-                                                :class="m.feedback === 'up' ? 'text-green-600' : 'text-gray-400 hover:text-green-600'"
-                                                class="text-base leading-none transition disabled:cursor-default" title="Запиши в знанието">👍</button>
-                                        <button @click="sendFeedback(m, 'down')" :disabled="!!m.feedback"
-                                                :class="m.feedback === 'down' ? 'text-red-500' : 'text-gray-400 hover:text-red-500'"
-                                                class="text-base leading-none transition disabled:cursor-default" title="Не помогна">👎</button>
-                                        <span x-show="m.feedback === 'up'" class="text-[11px] text-green-600">✓ Записано в знанието</span>
+                                    {{-- Footer: 👍/👎 (само web) + „Детайли" (винаги) --}}
+                                    <div x-show="m.role === 'assistant' && !m.failed" class="mt-2 pt-2 border-t border-gray-200 flex items-center gap-2 flex-wrap">
+                                        <template x-if="m.source_type === 'web'">
+                                            <span class="inline-flex items-center gap-2">
+                                                <span class="text-[11px] text-gray-400">Полезно?</span>
+                                                <button @click="sendFeedback(m, 'up')" :disabled="!!m.feedback"
+                                                        :class="m.feedback === 'up' ? 'text-green-600' : 'text-gray-400 hover:text-green-600'"
+                                                        class="text-base leading-none transition disabled:cursor-default" title="Запиши в знанието">👍</button>
+                                                <button @click="sendFeedback(m, 'down')" :disabled="!!m.feedback"
+                                                        :class="m.feedback === 'down' ? 'text-red-500' : 'text-gray-400 hover:text-red-500'"
+                                                        class="text-base leading-none transition disabled:cursor-default" title="Не помогна">👎</button>
+                                                <span x-show="m.feedback === 'up'" class="text-[11px] text-green-600">✓ Записано в знанието</span>
+                                            </span>
+                                        </template>
+                                        <button @click="openDetail(m)"
+                                                class="text-[11px] text-gray-400 hover:text-indigo-600 transition ml-auto inline-flex items-center gap-1"
+                                                title="Покажи изхода на модела">⋯ Детайли</button>
                                     </div>
                                 </div>
                             </div>
@@ -802,6 +809,51 @@
             </div>
         </div>
     </div>
+
+    {{-- ─────────── Modal: Детайли на чат-отговор (изход на модела) ─────────── --}}
+    <div x-show="detail.open" x-cloak class="fixed inset-0 z-[70] flex items-start justify-center p-4 overflow-y-auto"
+         @keydown.escape.window="detail.open = false">
+        <div class="absolute inset-0 bg-black/40" @click="detail.open = false"></div>
+        <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-3xl my-8">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+                <h3 class="font-semibold text-gray-900">Детайли на отговора</h3>
+                <button @click="detail.open = false" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+            </div>
+            <div class="p-5">
+                <div x-show="detail.loading" class="py-8 text-center text-gray-400 text-sm">Зареждане…</div>
+
+                <div x-show="!detail.loading && detail.data && !detail.data.available" x-cloak class="py-6 text-center text-gray-400 text-sm">
+                    Няма запазени детайли за това съобщение.
+                </div>
+
+                <div x-show="!detail.loading && detail.data && detail.data.available" x-cloak class="space-y-4">
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
+                        <div><span class="text-gray-400">Време:</span> <span class="text-gray-800" x-text="detail.data.created_at"></span></div>
+                        <div><span class="text-gray-400">Провайдър:</span> <span class="text-gray-800" x-text="detail.data.provider"></span></div>
+                        <div><span class="text-gray-400">Модел:</span> <span class="text-gray-800" x-text="detail.data.model"></span></div>
+                        <div><span class="text-gray-400">Тип:</span> <span class="text-gray-800" x-text="detail.data.kind || '—'"></span></div>
+                        <div><span class="text-gray-400">Цена:</span> <span class="text-gray-800" x-text="'$' + Number(detail.data.cost_usd || 0).toFixed(6)"></span></div>
+                        <div><span class="text-gray-400">Времетраене:</span> <span class="text-gray-800" x-text="detail.data.duration_ms != null ? (detail.data.duration_ms/1000).toFixed(2) + ' сек.' : '—'"></span></div>
+                    </div>
+
+                    <div x-show="detail.data.options && Object.keys(detail.data.options).length" x-cloak>
+                        <p class="text-xs text-gray-400 mb-1">Опции</p>
+                        <pre class="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-x-auto" x-text="JSON.stringify(detail.data.options, null, 2)"></pre>
+                    </div>
+
+                    <div x-show="detail.data.user_message">
+                        <p class="text-xs text-gray-400 mb-1">Заявка</p>
+                        <pre class="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-3 max-h-40 overflow-y-auto" x-text="detail.data.user_message"></pre>
+                    </div>
+
+                    <div>
+                        <p class="text-xs text-gray-400 mb-1">Изход на модела</p>
+                        <pre class="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-4 max-h-[55vh] overflow-y-auto" x-text="detail.data.response_text || '(празно)'"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 @endsection
 
@@ -833,6 +885,7 @@ function knowledgePage(config) {
         noteEdit: { open: false, id: null, title: '', content: '', busy: false },
         preview: { open: false, loading: false, title: '', url: null, subtitle: '', content: '' },
         pagesModal: { open: false, loading: false, resource: null, pages: [] },
+        detail: { open: false, loading: false, data: null },
         chat: { messages: [], input: '', session: null, pending: false, stage: '', pollTimer: null, fullscreen: false, sessions: [], showSessions: false, tip: { show: false, text: '', x: 0, y: 0 } },
 
         init() {
@@ -1278,6 +1331,21 @@ function knowledgePage(config) {
                 this.error = e.message;
             }
         },
+        async openDetail(m) {
+            if (!m || !m.id || String(m.id).startsWith('e') || String(m.id).startsWith('u')) {
+                this.detail = { open: true, loading: false, data: { available: false } };
+                return;
+            }
+            this.detail = { open: true, loading: true, data: null };
+            try {
+                this.detail.data = await this.api('/chat/' + m.id + '/detail');
+            } catch (e) {
+                this.detail.data = { available: false };
+                this.error = e.message;
+            } finally {
+                this.detail.loading = false;
+            }
+        },
         async sendChat() {
             const message = this.chat.input.trim();
             if (!message || this.chat.pending) return;
@@ -1285,7 +1353,7 @@ function knowledgePage(config) {
             this.chat.messages.push({ id: 'u' + Date.now(), role: 'user', content: message });
             this.chat.pending = true;
             this.chat.stage = 'Мисля…';
-            this.scrollChat();
+            this.scrollToQuestion();
             try {
                 const res = await this.api('/chat', { method: 'POST', json: { message, session: this.chat.session } });
                 this.chat.session = res.session;
@@ -1303,7 +1371,7 @@ function knowledgePage(config) {
                     if (data.status === 'completed') {
                         this.chat.pending = false;
                         this.chat.messages.push(data.message);
-                        this.scrollChat();
+                        this.scrollToQuestion();
                         this.refresh();
                         return;
                     }
@@ -1323,6 +1391,16 @@ function knowledgePage(config) {
             this.$nextTick(() => {
                 const el = this.$refs.chatScroll;
                 if (el) el.scrollTop = el.scrollHeight;
+            });
+        },
+        scrollToQuestion() {
+            this.$nextTick(() => {
+                const el = this.$refs.chatScroll;
+                if (!el) return;
+                const userBubbles = el.querySelectorAll('.flex.justify-end');
+                const last = userBubbles[userBubbles.length - 1];
+                if (last) last.scrollIntoView({ block: 'start' });
+                else el.scrollTop = el.scrollHeight;
             });
         },
     };

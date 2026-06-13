@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Jobs\DistillFlowMemoryJob;
-use App\Jobs\HarvestRunKnowledgeJob;
 use App\Jobs\ExecuteNodeJob;
+use App\Jobs\HarvestRunKnowledgeJob;
+use App\Jobs\JudgeEvalRunJob;
 use App\Models\Flow;
 use App\Models\FlowEdge;
+use App\Models\FlowEvalRun;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\FlowVersion;
@@ -100,8 +102,9 @@ class GraphFlowExecutor
             // Which template was executed — webhook/scheduler runs get it here.
             'flow_version_id' => $version->id,
             // Snapshot the cost level used, so the run history reflects it even if
-            // the template is re-leveled afterwards.
-            'model_level' => $version->model_level,
+            // the template is re-leveled afterwards. Eval runs override the level
+            // (their models are re-pinned run-scoped via context['model_overrides']).
+            'model_level' => $context['eval_level'] ?? $version->model_level,
             // Snapshot the Drawflow graph_layout at the moment the run starts so
             // the historical run viewer can show the exact graph that was executed
             // even if the user edits the template afterwards.
@@ -266,6 +269,15 @@ class GraphFlowExecutor
         }
 
         $flowRun->flow->update(['last_run_at' => now()]);
+
+        // Eval runs са СИНТЕТИЧНИ тестове — оценяват се и спират дотук, БЕЗ
+        // странични ефекти (не учат plan library/паметта, не жънат знание, не
+        // доставят). Само диспечваме judge-а върху произведения изход.
+        if (isset($flowRun->context['eval_run_id'])) {
+            JudgeEvalRunJob::dispatch((int) $flowRun->context['eval_run_id']);
+
+            return;
+        }
 
         // Plan library (Фаза 2): a successful run proves the approved plan —
         // it becomes a few-shot example for future planning.
@@ -527,6 +539,13 @@ class GraphFlowExecutor
         NodeRun::where('flow_run_id', $flowRun->id)
             ->whereIn('status', ['pending', 'running'])
             ->update(['status' => 'failed', 'error' => $message, 'completed_at' => now()]);
+
+        // Eval run, чийто FlowRun се провали → маркирай и eval реда като провален.
+        if (isset($context['eval_run_id'])) {
+            FlowEvalRun::whereKey((int) $context['eval_run_id'])
+                ->whereIn('status', ['pending', 'running'])
+                ->update(['status' => 'failed', 'error' => $message]);
+        }
 
         RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} FAILED — {$message}");
     }

@@ -93,6 +93,7 @@ return [
     'airtable_writer' => ['output_role' => 'hidden',    'label' => 'Airtable Форматьор',         'description' => 'Форматира изхода като JSON структура за Airtable REST API запис'],
 
     // --- Integration / Webhooks ---
+    'mcp_action' => ['output_role' => 'hidden',    'label' => 'MCP Действие', 'icon' => '🔌', 'has_prompt' => false, 'description' => 'Изпълнява конкретно действие в свързана система (Gmail, Notion, HTTP API…) — чете/пише реални данни; write операциите изискват human_approval преди тях'],
     'webhook_sender' => ['output_role' => 'hidden',    'label' => 'Webhook изпращач',           'description' => 'Изпраща резултатите към external URL (CRM, Zapier, n8n, Make) — изисква config.webhook_url'],
     'slack_notifier' => ['output_role' => 'hidden',    'label' => 'Slack нотификатор',          'description' => 'Изпраща summary нотификация в Slack канал — изисква config.webhook_url'],
     'google_sheets_writer' => ['output_role' => 'hidden',    'label' => 'Google Sheets писач',        'description' => 'Форматира данни като CSV таблица готова за import в Google Sheets'],

@@ -5,11 +5,13 @@ use App\Http\Controllers\Admin\AgentTemplateController as AdminAgentTemplateCont
 use App\Http\Controllers\Admin\CostController as AdminCostController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentTemplateController;
+use App\Http\Controllers\CompanyConnectorController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CompanyKnowledgeController;
 use App\Http\Controllers\FlowAssistantController;
 use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
+use App\Http\Controllers\FlowEvalController;
 use App\Http\Controllers\FlowGraphController;
 use App\Http\Controllers\FlowKnowledgeController;
 use App\Http\Controllers\FlowMemoryController;
@@ -17,6 +19,7 @@ use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\FlowVersionController;
 use App\Http\Controllers\KnowledgeChatController;
 use App\Http\Controllers\LlmModelController;
+use App\Http\Controllers\OAuthController;
 use App\Http\Controllers\PlanAbController;
 use Illuminate\Support\Facades\Route;
 
@@ -80,6 +83,18 @@ Route::get('flows/{flow}/memory', [FlowMemoryController::class, 'show'])->name('
 Route::post('flows/{flow}/memory/toggle', [FlowMemoryController::class, 'toggle'])->name('flows.memory.toggle');
 Route::delete('flows/{flow}/memory', [FlowMemoryController::class, 'clear'])->name('flows.memory.clear');
 
+// Eval Suite — golden test cases + матрица цена↔качество per flow
+Route::get('eval-run-status/{token}', [FlowEvalController::class, 'status'])->name('flows.eval.status');
+Route::get('flows/{flow}/eval', [FlowEvalController::class, 'index'])->name('flows.eval.index');
+Route::get('flows/{flow}/eval/create', [FlowEvalController::class, 'create'])->name('flows.eval.create');
+Route::post('flows/{flow}/eval', [FlowEvalController::class, 'store'])->name('flows.eval.store');
+Route::post('flows/{flow}/eval/run', [FlowEvalController::class, 'run'])->name('flows.eval.run');
+Route::get('flows/{flow}/eval/results', [FlowEvalController::class, 'results'])->name('flows.eval.results');
+Route::get('flows/{flow}/eval/runs/{evalRun}', [FlowEvalController::class, 'runDetail'])->name('flows.eval.run-detail');
+Route::get('flows/{flow}/eval/{case}/edit', [FlowEvalController::class, 'edit'])->name('flows.eval.edit');
+Route::put('flows/{flow}/eval/{case}', [FlowEvalController::class, 'update'])->name('flows.eval.update');
+Route::delete('flows/{flow}/eval/{case}', [FlowEvalController::class, 'destroy'])->name('flows.eval.destroy');
+
 // База знания на фирмата v2 — страница + JSON endpoints (Alpine polling)
 Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->group(function () {
     Route::get('/', [CompanyKnowledgeController::class, 'index'])->name('index');
@@ -117,11 +132,31 @@ Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->gr
     Route::get('chat/history', [KnowledgeChatController::class, 'history'])->name('chat.history');
     Route::get('chat/sessions', [KnowledgeChatController::class, 'sessions'])->name('chat.sessions');
     Route::post('chat/{message}/feedback', [KnowledgeChatController::class, 'feedback'])->name('chat.feedback');
+    Route::get('chat/{message}/detail', [KnowledgeChatController::class, 'messageDetail'])->name('chat.detail');
 });
 Route::get('knowledge-chat-status/{token}', [KnowledgeChatController::class, 'status'])->name('companies.knowledge.chat.status');
 
 // Знание на ниво flow — toggle от builder-а (огледало на flows.memory.toggle)
 Route::post('flows/{flow}/knowledge/toggle', [FlowKnowledgeController::class, 'toggle'])->name('flows.knowledge.toggle');
+
+// MCP Конектори — „Свързани системи" на ниво фирма (страница + JSON endpoints)
+Route::prefix('companies/{company}/connectors')->name('companies.connectors.')->group(function () {
+    Route::get('/', [CompanyConnectorController::class, 'index'])->name('index');
+    Route::get('data', [CompanyConnectorController::class, 'data'])->name('data');
+    Route::get('available', [CompanyConnectorController::class, 'available'])->name('available');
+    Route::post('/', [CompanyConnectorController::class, 'store'])->name('store');
+    Route::put('{connector}', [CompanyConnectorController::class, 'update'])->name('update');
+    Route::delete('{connector}', [CompanyConnectorController::class, 'destroy'])->name('destroy');
+    Route::post('{connector}/test', [CompanyConnectorController::class, 'test'])->name('test');
+    Route::get('{connector}/logs', [CompanyConnectorController::class, 'logs'])->name('logs');
+});
+
+// OAuth (Socialite/Http) — Google (Gmail/Sheets/Drive) + Slack. Callback-ите са
+// без {company} (URI-то трябва точно да съвпада с регистрирания redirect).
+Route::get('companies/{company}/oauth/google/redirect', [OAuthController::class, 'googleRedirect'])->name('oauth.google.redirect');
+Route::get('oauth/google/callback', [OAuthController::class, 'googleCallback'])->name('oauth.google.callback');
+Route::get('companies/{company}/oauth/slack/redirect', [OAuthController::class, 'slackRedirect'])->name('oauth.slack.redirect');
+Route::get('oauth/slack/callback', [OAuthController::class, 'slackCallback'])->name('oauth.slack.callback');
 
 // Flow runs
 Route::get('flows/{flow}/runs-history', [FlowController::class, 'runsHistory'])->name('flows.runs-history');

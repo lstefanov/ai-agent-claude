@@ -718,7 +718,7 @@ PROMPT;
     private function toolAddAgent(array $args): string
     {
         $type = trim((string) ($args['type'] ?? ''));
-        $name = trim((string) ($args['name'] ?? ''));
+        $name = $this->text($args['name'] ?? '');
 
         if ($name === '') {
             return $this->json(['error' => 'name е задължително.']);
@@ -768,7 +768,7 @@ PROMPT;
                 'enabled' => (bool) ($args['qa_enabled'] ?? false),
                 'threshold' => min(100, max(0, (int) ($args['qa_threshold'] ?? 60))),
                 'max_retries' => 3,
-                'custom_prompt' => trim((string) ($args['qa_custom_prompt'] ?? ''))
+                'custom_prompt' => $this->text($args['qa_custom_prompt'] ?? '')
                     ?: 'Провери дали изходът изпълнява описаната роля на агента, базиран е на реалните входни данни и е на правилния език.',
             ];
         }
@@ -778,11 +778,11 @@ PROMPT;
         $node = [
             'node_key' => $nodeKey,
             'name' => $name,
-            'role' => trim((string) ($args['role'] ?? '')),
+            'role' => $this->text($args['role'] ?? ''),
             'type' => $type,
             'icon' => AgentTemplate::whereNull('company_id')->where('type', $type)->value('icon'),
-            'system_prompt' => trim((string) ($args['system_prompt'] ?? '')),
-            'prompt_template' => trim((string) ($args['prompt_template'] ?? '')),
+            'system_prompt' => $this->text($args['system_prompt'] ?? ''),
+            'prompt_template' => $this->text($args['prompt_template'] ?? ''),
             'model' => trim((string) ($args['model'] ?? '')),
             'output_language' => trim((string) ($args['output_language'] ?? '')) ?: 'bg',
             'output_tone' => null, 'output_style' => null, 'output_format' => null,
@@ -838,9 +838,12 @@ PROMPT;
         $node = $this->nodes[$key];
         $changed = [];
 
+        $textFields = ['name', 'role', 'system_prompt', 'prompt_template'];
         foreach (['name', 'role', 'system_prompt', 'prompt_template', 'model', 'type', 'output_language'] as $field) {
             if (array_key_exists($field, $args) && is_string($args[$field])) {
-                $node[$field] = trim($args[$field]);
+                $node[$field] = in_array($field, $textFields, true)
+                    ? $this->text($args[$field])
+                    : trim($args[$field]);
                 $changed[] = $field;
             }
         }
@@ -877,7 +880,7 @@ PROMPT;
             $changed[] = 'qa_threshold';
         }
         if (array_key_exists('qa_custom_prompt', $args) && is_string($args['qa_custom_prompt'])) {
-            $qa['custom_prompt'] = trim($args['qa_custom_prompt']);
+            $qa['custom_prompt'] = $this->text($args['qa_custom_prompt']);
             $changed[] = 'qa_custom_prompt';
         }
         if ($qa !== []) {
@@ -1088,6 +1091,23 @@ PROMPT;
         $text = trim($text);
 
         return mb_strlen($text) > $limit ? mb_substr($text, 0, $limit).'… [съкратено]' : $text;
+    }
+
+    /**
+     * Normalize a free-text tool-call argument (prompts, role, QA criteria).
+     *
+     * Some models over-escape newlines/tabs in their tool-call JSON arguments
+     * (emitting "\\n" instead of "\n"), so after a single json_decode the value
+     * holds the literal 2-char sequence \n rather than a real line break — which
+     * then shows up verbatim in the builder's textareas and is hard to read.
+     * Turn those escape sequences back into real whitespace, then trim. Real
+     * newlines pass through unchanged (the replace is idempotent).
+     */
+    private function text(mixed $value): string
+    {
+        $value = str_replace(['\r\n', '\n', '\r', '\t'], ["\n", "\n", "\n", "\t"], (string) $value);
+
+        return trim($value);
     }
 
     private function joinLines(array $lines): string

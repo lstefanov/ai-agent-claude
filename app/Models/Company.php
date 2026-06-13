@@ -18,6 +18,11 @@ class Company extends Model
         return $this->hasMany(Flow::class);
     }
 
+    public function connectors(): HasMany
+    {
+        return $this->hasMany(CompanyConnector::class);
+    }
+
     public function knowledgeFolders(): HasMany
     {
         return $this->hasMany(KnowledgeFolder::class);

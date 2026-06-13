@@ -50,6 +50,15 @@
     <span class="ml-auto text-indigo-600 text-sm font-medium group-hover:translate-x-0.5 transition-transform">Отвори →</span>
 </a>
 
+{{-- ──────────────── Свързани системи (MCP) ──────────────── --}}
+<a href="{{ route('companies.connectors.index', $company) }}"
+   class="group flex items-center gap-3 bg-white rounded-xl border border-gray-200 px-6 py-4 mb-8 hover:shadow-sm hover:border-indigo-200 transition">
+    <span class="text-xl">🔌</span>
+    <span class="font-semibold text-gray-900">Свързани системи</span>
+    <span class="text-sm text-gray-500">Gmail, Notion, HTTP API — агентите действат в реални системи</span>
+    <span class="ml-auto text-indigo-600 text-sm font-medium group-hover:translate-x-0.5 transition-transform">Отвори →</span>
+</a>
+
 {{-- Flash message --}}
 @if(session('success'))
 <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4000)"

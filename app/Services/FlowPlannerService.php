@@ -303,14 +303,14 @@ PROMPT;
         // 11 агента ≈ 8.5K изходни токена (кирилицата токенизира скъпо) —
         // medium трябва да носи 13-14 агента с margin. Провайдерският
         // max_output_cap клампва, ако моделът поддържа по-малко.
-        return $this->runPhase('pipeline_design', $system, $user, $this->planSchema(), [
+        return $this->runPhase('pipeline_design', $system, $user, $this->planSchema($flow), [
             'temperature' => 0.3,
             'num_predict' => $this->numPredictFor($intent, simple: 8000, medium: 12000, complex: 16000),
         ], $flow, $logToken);
     }
 
     /** @return array<string, mixed> */
-    private function planSchema(): array
+    private function planSchema(?Flow $flow = null): array
     {
         return [
             'type' => 'object',
@@ -318,42 +318,116 @@ PROMPT;
             'required' => ['agents', 'plan_rationale'],
             'properties' => [
                 'plan_rationale' => ['type' => 'string'],
-                'agents' => ['type' => 'array', 'items' => $this->agentSpecSchema()],
+                'agents' => ['type' => 'array', 'items' => $this->agentSpecSchema($flow)],
             ],
         ];
     }
 
-    /** @return array<string, mixed> */
-    private function agentSpecSchema(): array
+    /**
+     * Схемата е условна: полетата mcp_tool + tool_params се добавят САМО когато
+     * фирмата има активни MCP конектори. Без конектори схемата е непроменена —
+     * нормалната генерация остава байт-идентична (нулев риск).
+     *
+     * @return array<string, mixed>
+     */
+    private function agentSpecSchema(?Flow $flow = null): array
     {
+        $required = [
+            'uid', 'name', 'type', 'custom_tools', 'role', 'system_prompt',
+            'prompt_template', 'depends_on', 'provider', 'temperature',
+            'output_size', 'qa_custom_prompt', 'is_verifier', 'rationale',
+        ];
+
+        $properties = [
+            'uid' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+            'type' => ['type' => 'string'],
+            'custom_tools' => [
+                'type' => 'array',
+                'items' => ['type' => 'string', 'enum' => array_keys(self::AVAILABLE_TOOLS)],
+            ],
+            'role' => ['type' => 'string'],
+            'system_prompt' => ['type' => 'string'],
+            'prompt_template' => ['type' => 'string'],
+            'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen']],
+            'temperature' => ['type' => 'number'],
+            'output_size' => ['type' => 'string', 'enum' => ['short', 'medium', 'long', 'unlimited']],
+            'qa_custom_prompt' => ['type' => ['string', 'null']],
+            'is_verifier' => ['type' => 'boolean'],
+            'rationale' => ['type' => 'string'],
+        ];
+
+        if ($this->mcpActionsFor($flow) !== []) {
+            $properties['mcp_tool'] = ['type' => ['string', 'null']];
+            $properties['tool_params'] = [
+                'type' => 'array',
+                'items' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['key', 'value'],
+                    'properties' => ['key' => ['type' => 'string'], 'value' => ['type' => 'string']],
+                ],
+            ];
+            $required[] = 'mcp_tool';
+            $required[] = 'tool_params';
+        }
+
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => [
-                'uid', 'name', 'type', 'custom_tools', 'role', 'system_prompt',
-                'prompt_template', 'depends_on', 'provider', 'temperature',
-                'output_size', 'qa_custom_prompt', 'is_verifier', 'rationale',
-            ],
-            'properties' => [
-                'uid' => ['type' => 'string'],
-                'name' => ['type' => 'string'],
-                'type' => ['type' => 'string'],
-                'custom_tools' => [
-                    'type' => 'array',
-                    'items' => ['type' => 'string', 'enum' => array_keys(self::AVAILABLE_TOOLS)],
-                ],
-                'role' => ['type' => 'string'],
-                'system_prompt' => ['type' => 'string'],
-                'prompt_template' => ['type' => 'string'],
-                'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
-                'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen']],
-                'temperature' => ['type' => 'number'],
-                'output_size' => ['type' => 'string', 'enum' => ['short', 'medium', 'long', 'unlimited']],
-                'qa_custom_prompt' => ['type' => ['string', 'null']],
-                'is_verifier' => ['type' => 'boolean'],
-                'rationale' => ['type' => 'string'],
-            ],
+            'required' => $required,
+            'properties' => $properties,
         ];
+    }
+
+    /**
+     * Активните MCP действия за фирмата (connector + tool). [] ако няма
+     * конектори → планерът изобщо не вижда MCP (схема + каталог непроменени).
+     *
+     * @return array<int, array{connector_id:int, connector:string, type:string, tool:string, desc:string, writes:bool}>
+     */
+    private function mcpActionsFor(?Flow $flow): array
+    {
+        $company = $flow?->company;
+        if (! $company) {
+            return [];
+        }
+
+        $mcp = app(McpClientService::class);
+        $out = [];
+        foreach ($company->connectors()->active()->get() as $connector) {
+            foreach ($mcp->listTools($connector) as $tool) {
+                $out[] = [
+                    'connector_id' => $connector->id,
+                    'connector' => $connector->display_name ?: $connector->connector_type,
+                    'type' => $connector->connector_type,
+                    'tool' => $tool['name'],
+                    'desc' => $tool['description'] ?? '',
+                    'writes' => (bool) ($tool['writes'] ?? false),
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Планерните tool_params идват като списък {key,value} (schema-friendly) →
+     * обект key=>value за FlowNode.config.
+     *
+     * @return array<string, string>
+     */
+    private function mcpPairsToObject(mixed $pairs): array
+    {
+        $out = [];
+        foreach ((array) $pairs as $pair) {
+            if (is_array($pair) && isset($pair['key'])) {
+                $out[(string) $pair['key']] = (string) ($pair['value'] ?? '');
+            }
+        }
+
+        return $out;
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -690,6 +764,21 @@ PROMPT;
                 ));
             }
 
+            // mcp_action: резолвираме конектора по префикса на tool-а (gmail.* →
+            // gmail) към активен конектор на фирмата. Параметрите идват като
+            // {key,value} двойки → обект. Без конектор → config.connector_id=null
+            // (генераторът ще го отсее).
+            if ($type === 'mcp_action') {
+                $mcpTool = (string) ($spec['mcp_tool'] ?? '');
+                $connectorType = explode('.', $mcpTool)[0];
+                $connector = $flow->company?->connectors()->active()
+                    ->where('connector_type', $connectorType)->first();
+                $config['connector_id'] = $connector?->id;
+                $config['tool'] = $mcpTool;
+                $config['tool_params'] = $this->mcpPairsToObject($spec['tool_params'] ?? []);
+                $config['requires_approval'] = in_array($mcpTool, (array) config('mcp.write_tools', []), true);
+            }
+
             // Site-wide research gets the proven map-reduce treatment by default.
             if ($type === 'deep_researcher') {
                 $config += [
@@ -893,6 +982,24 @@ PROMPT;
                 continue; // празна база знания → планерът изобщо не вижда тула
             }
             $lines[] = "- {$name} → {$desc}";
+        }
+
+        // MCP ДЕЙСТВИЯ — реални операции в свързаните системи на фирмата. Показват
+        // се само когато има активни конектори (иначе планерът не вижда mcp_action).
+        $mcpActions = $this->mcpActionsFor($flow);
+        if ($mcpActions !== []) {
+            $lines[] = '';
+            $lines[] = 'НАЛИЧНИ MCP ДЕЙСТВИЯ (реални системи — type="mcp_action"):';
+            foreach ($mcpActions as $a) {
+                $mark = $a['writes'] ? ' — WRITE: ИЗИСКВА human_approval ПРЕДИ него' : ' (read-only)';
+                $lines[] = "- {$a['tool']} («{$a['connector']}») → {$a['desc']}{$mark}";
+            }
+            $lines[] = 'Добави mcp_action агент САМО когато заданието явно иска действие в такава система '
+                .'(изпрати/запиши/публикувай/прочети). Полета: type="mcp_action", mcp_tool=точното име на '
+                .'действието по-горе, tool_params=списък {key,value} (value може да е {{flow.input.X}} или '
+                .'{{agent.UID.output}} от предходен агент). За WRITE действие ЗАДЪЛЖИТЕЛНО добави отделен агент '
+                .'type="human_approval" и сложи неговия uid в depends_on на mcp_action. mcp_action не пише текст — '
+                .'само изпълнява действието.';
         }
 
         if ($kbReady) {

@@ -6,6 +6,7 @@ use App\Jobs\IngestResourceJob;
 use App\Jobs\KnowledgeChatTurnJob;
 use App\Models\Company;
 use App\Models\KnowledgeChatMessage;
+use App\Models\LlmRequest;
 use App\Services\KnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -196,5 +197,40 @@ class KnowledgeChatController extends Controller
         IngestResourceJob::dispatch($resource->id);
 
         return response()->json(['ok' => true, 'saved_resource_id' => $resource->id], 201);
+    }
+
+    /**
+     * Детайл зад чат-отговор — суровият изход на модела (Perplexity за
+     * интернет-отговор; локалния синтез за KB-отговор) за popup-а „Детайли".
+     * Свързано чрез session_id="kbchat-{id}" (сетнат от KnowledgeChatTurnJob).
+     */
+    public function messageDetail(Company $company, KnowledgeChatMessage $message): JsonResponse
+    {
+        abort_unless($message->company_id === $company->id, 404);
+
+        $req = LlmRequest::where('session_id', 'kbchat-'.$message->id)
+            ->orderByRaw("provider = 'perplexity' DESC") // web детайла има предимство
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $req) {
+            return response()->json(['available' => false]);
+        }
+
+        return response()->json([
+            'available' => true,
+            'created_at' => $req->created_at?->format('Y-m-d H:i:s'),
+            'provider' => $req->provider,
+            'model' => $req->model,
+            'kind' => $req->kind,
+            'purpose' => $req->purpose,
+            'cost_usd' => (float) $req->cost_usd,
+            'duration_ms' => $req->duration_ms,
+            'status' => $req->status,
+            'options' => $req->options,
+            'system_prompt' => $req->system_prompt,
+            'user_message' => $req->user_message,
+            'response_text' => $req->response_text,
+        ]);
     }
 }

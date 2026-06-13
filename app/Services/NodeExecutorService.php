@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Agents\AgentFactory;
 use App\Agents\DecisionAgent;
+use App\Agents\McpActionAgent;
 use App\Jobs\ExecuteNodeJob;
+use App\Models\FlowEdge;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\NodeRun;
@@ -101,6 +103,14 @@ class NodeExecutorService
                 return;
             }
 
+            // MCP действие: не минава през AgentLoop/QA/памет — изпълнява tool
+            // call в свързана система и записва резултата.
+            if ($node->type === 'mcp_action') {
+                $this->executeMcpAction($flowRun, $node, $nodeRun);
+
+                return;
+            }
+
             $this->runWithQaRetry($flowRun, $node, $nodeRun);
         } finally {
             NodeDeadline::clear();
@@ -152,6 +162,143 @@ class NodeExecutorService
 
         Log::info("[NodeExecutor] {$node->name} чака одобрение от човек (run {$flowRun->id})");
         RunLog::append($flowRun->id, "[PAUSE] {$node->name} чака одобрение от човек");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // MCP действие — изпълнява tool call в свързана система
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Изпълнява mcp_action node чрез McpActionAgent. Не хвърля при провал на
+     * tool-а (за да НЕ се retry-ва job-ът и да не дублира write операция);
+     * вместо това маркира node-а failed и уважава failure_policy: fail_fast
+     * проваля run-а, best_effort продължава останалите клонове.
+     */
+    private function executeMcpAction(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun): void
+    {
+        $started = microtime(true);
+        $tool = (string) ($node->config['tool'] ?? '');
+
+        // Safety gate: действие, маркирано requires_approval, НЕ се изпълнява без
+        // „Одобрение от човек" предшественик. Планерът го гарантира
+        // (gateWriteMcpActions); ръчно поставен write node без gate се блокира —
+        // никакво изходящо действие без одобрение (освен ако потребителят изрично
+        // махне отметката requires_approval).
+        if (($node->config['requires_approval'] ?? false) && ! $this->hasApprovalPredecessor($node)) {
+            $message = "Действие „{$tool}\" изисква одобрение, но няма свързан „Одобрение от човек\" възел преди него.";
+            $nodeRun->fill([
+                'node_key' => $node->node_key,
+                'status' => 'failed',
+                'input' => "MCP: {$tool}",
+                'model_used' => 'mcp:'.(explode('.', $tool)[0] ?: 'action'),
+                'error' => $message,
+                'started_at' => $nodeRun->started_at ?? now(),
+                'completed_at' => now(),
+            ])->save();
+            RunLog::append($flowRun->id, "[MCP] {$node->name}: блокирано — write действие без human_approval gate");
+
+            if (($flowRun->context['failure_policy'] ?? 'fail_fast') !== 'best_effort') {
+                $this->failFlowRun($flowRun, $message);
+            }
+
+            return;
+        }
+
+        $nodeRun->fill([
+            'node_key' => $node->node_key,
+            'status' => 'running',
+            'input' => "MCP: {$tool} (connector #".((int) ($node->config['connector_id'] ?? 0)).')',
+            'model_used' => 'mcp:'.(explode('.', $tool)[0] ?: 'action'),
+            'error' => null,
+            'started_at' => $nodeRun->started_at ?? now(),
+        ])->save();
+
+        $predecessors = $this->mcpPredecessorOutputs($flowRun, $node);
+        $result = app(McpActionAgent::class)->run($node, $flowRun, $predecessors, $nodeRun->id);
+        $durationMs = (int) ((microtime(true) - $started) * 1000);
+
+        if ($result->success) {
+            $nodeRun->update([
+                'status' => 'completed',
+                'output' => $result->text,
+                'cost_usd' => 0,
+                'duration_ms' => $durationMs,
+                'completed_at' => now(),
+            ]);
+            RunLog::append($flowRun->id, "[MCP] {$node->name}: {$tool} ✅");
+
+            return;
+        }
+
+        // Провал — без throw (write tool не бива да се повтаря при job retry).
+        $message = "MCP tool '{$tool}' fail: {$result->error}";
+        $nodeRun->update([
+            'status' => 'failed',
+            'error' => $message,
+            'duration_ms' => $durationMs,
+            'completed_at' => now(),
+        ]);
+        RunLog::append($flowRun->id, "[MCP] {$node->name}: ГРЕШКА — {$result->error}");
+
+        if (($flowRun->context['failure_policy'] ?? 'fail_fast') !== 'best_effort') {
+            $this->failFlowRun($flowRun, $message);
+        }
+    }
+
+    /** Дали node-ът има пряк „Одобрение от човек" предшественик в графа. */
+    private function hasApprovalPredecessor(FlowNode $node): bool
+    {
+        $predKeys = FlowEdge::where('flow_version_id', $node->flow_version_id)
+            ->where('to_node_key', $node->node_key)
+            ->pluck('from_node_key')
+            ->all();
+        if (empty($predKeys)) {
+            return false;
+        }
+
+        return FlowNode::where('flow_version_id', $node->flow_version_id)
+            ->whereIn('node_key', $predKeys)
+            ->where('type', 'human_approval')
+            ->exists();
+    }
+
+    /**
+     * Изходите на ПРЕКИТЕ предшественици, keyed по node_key И по име — за да
+     * работят и {{agent.<node_key>.output}}, и {{agent.<име>.output}}.
+     *
+     * @return array<string,string>
+     */
+    private function mcpPredecessorOutputs(FlowRun $flowRun, FlowNode $node): array
+    {
+        $predKeys = FlowEdge::where('flow_version_id', $node->flow_version_id)
+            ->where('to_node_key', $node->node_key)
+            ->pluck('from_node_key')
+            ->all();
+        if (empty($predKeys)) {
+            return [];
+        }
+
+        $names = FlowNode::where('flow_version_id', $node->flow_version_id)
+            ->whereIn('node_key', $predKeys)
+            ->pluck('name', 'node_key');
+
+        $outputs = NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('node_key', $predKeys)
+            ->where('status', 'completed')
+            ->pluck('output', 'node_key');
+
+        $map = [];
+        foreach ($outputs as $key => $output) {
+            if ($output === null || $output === '') {
+                continue;
+            }
+            $map[$key] = $output;
+            if (! empty($names[$key])) {
+                $map[$names[$key]] = $output;
+            }
+        }
+
+        return $map;
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -337,6 +484,13 @@ class NodeExecutorService
         RunLog::append($flowRun->id, "STEP {$stepNo}/{$totalSteps}: {$node->name}");
 
         $agent = $this->bridge->bridgeAgent($node);
+        // Eval Suite: run-scoped model override — позволява една и съща версия
+        // да се пуска на различно ниво (моделите за нивото са пресметнати при
+        // eval и сложени в context['model_overrides']). '' = локален авто.
+        $overrides = $flowRun->context['model_overrides'] ?? null;
+        if (is_array($overrides) && array_key_exists($node->node_key, $overrides)) {
+            $agent->model = (string) $overrides[$node->node_key];
+        }
         // Времевият бюджет и фирменият контекст пътуват през transient DTO-то
         // (никога не се persist-ват) — deadline_ts до GenericAgent::runAgentic →
         // AgentLoop, company_id до KnowledgeSearchTool през AgentFactory.

@@ -83,6 +83,10 @@ class AgentFactory
             // Pause nodes never reach the factory — NodeExecutorService pauses
             // the run before instantiating an agent. Defensive guard only.
             'human_approval' => throw new \RuntimeException('human_approval nodes pause the run — they are never executed as agents.'),
+            // mcp_action nodes изпълняват действие в свързана система; обработват
+            // се по отделен path в NodeExecutorService (McpActionAgent), не през
+            // AgentFactory. Defensive guard only.
+            'mcp_action' => throw new \RuntimeException('mcp_action nodes се изпълняват през NodeExecutorService::executeMcpAction, не като агенти.'),
             // Planner-composed "on the fly" agent: gets the full tool belt, but only
             // runs the tools whitelisted in its config['tools'] (see GenericAgent).
             // The AgentLoop powers its agentic mode on paid models.

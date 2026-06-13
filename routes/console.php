@@ -13,3 +13,4 @@ Schedule::command('flows:run-scheduled')->everyMinute();
 Schedule::command('flows:watchdog')->everyMinute();
 Schedule::job(new SyncOllamaModelsJob)->hourly();
 Schedule::command('knowledge:prune-web-cache')->daily();
+Schedule::command('flows:run-evals')->dailyAt('03:00');
