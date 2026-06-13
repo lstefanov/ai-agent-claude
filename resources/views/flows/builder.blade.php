@@ -540,33 +540,56 @@
                 </div>
             </template>
 
-            {{-- Historical view banner --}}
+            {{-- Historical view banner (ред 1): само статусът — вдясно, за да остане
+                 пълна ширина за заглавието вляво. Дата/разход/действия са на ред 2. --}}
             <template x-if="mode === 'view'">
-                <div class="flex items-center gap-3 text-sm flex-wrap">
-                    <span class="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 font-semibold">🕓 Преглед на изпълнение (read-only)</span>
-                    <template x-if="runCompletedAt">
-                        <span class="text-xs text-gray-500"
-                              x-text="new Date(runCompletedAt).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' })"></span>
-                    </template>
-                    <template x-if="runCostUsd">
-                        <span class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium tabular-nums"
-                              title="Общ разход за платени API заявки в този run"
-                              x-text="'$' + Number(runCostUsd).toFixed(4)"></span>
-                    </template>
-                    <button type="button" @click="openFinal()" class="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Финален резултат</button>
-                    <template x-if="resumeUrl">
-                        <button type="button" @click="resumeRun()"
-                                :disabled="resuming"
-                                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-semibold transition">
-                            <span x-show="resuming" class="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                            <span x-text="resuming ? 'Подновява...' : '▶ Продължи от грешката'"></span>
-                        </button>
-                    </template>
-                    <a href="{{ route('flows.builder', $flow) }}" class="px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-gray-800">✎ Редактирай</a>
+                <span class="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 font-semibold text-sm whitespace-nowrap">🕓 Преглед на изпълнение (read-only)</span>
+            </template>
+
+            {{-- Споделени помощни бутони (само run; view ги показва на ред 2): дедупликация + пълен лог --}}
+            <template x-if="mode === 'run'">
+                <div class="flex items-center gap-2">
+                    <button type="button" x-show="Object.keys(memoryDedup).length" x-cloak @click="memoryModal.open = true"
+                            class="px-2.5 py-2 text-sm rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                            title="Памет · дедупликация — изходи, твърде подобни на предишно създадено съдържание">🧠 Памет</button>
+                    <button type="button" x-show="logUrl" @click="openRunLog()"
+                            class="px-2.5 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                            title="Пълен лог на изпълнението">📋 Пълен лог</button>
                 </div>
             </template>
         </div>
     </div>
+
+    {{-- Хедър, ред 2 (само view): дата, разход и действия — подравнени вдясно --}}
+    <template x-if="mode === 'view'">
+        <div class="flex flex-wrap items-center justify-end gap-2 mb-2.5 shrink-0 text-sm">
+            <template x-if="runCompletedAt">
+                <span class="text-xs text-gray-500"
+                      x-text="new Date(runCompletedAt).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' })"></span>
+            </template>
+            <template x-if="runCostUsd">
+                <span class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium tabular-nums"
+                      title="Общ разход за платени API заявки в този run"
+                      x-text="'$' + Number(runCostUsd).toFixed(4)"></span>
+            </template>
+            <button type="button" @click="openFinal()" class="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Финален резултат</button>
+            <button type="button" x-show="Object.keys(memoryDedup).length" x-cloak @click="memoryModal.open = true"
+                    class="px-2.5 py-2 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                    title="Памет · дедупликация — изходи, твърде подобни на предишно създадено съдържание">🧠 Памет</button>
+            <button type="button" x-show="logUrl" @click="openRunLog()"
+                    class="px-2.5 py-2 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                    title="Пълен лог на изпълнението">📋 Пълен лог</button>
+            <template x-if="resumeUrl">
+                <button type="button" @click="resumeRun()"
+                        :disabled="resuming"
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-orange-300 text-white font-semibold transition">
+                    <span x-show="resuming" class="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span x-text="resuming ? 'Подновява...' : '▶ Продължи от грешката'"></span>
+                </button>
+            </template>
+            <a href="{{ route('flows.builder', $flow) }}" class="px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-gray-800">✎ Редактирай</a>
+        </div>
+    </template>
 
     {{-- Хедър, ред 2 (само edit): toolbar — Шаблон | Изграждане | Лог ‖ Статус + Запис --}}
     <template x-if="mode === 'edit'">
@@ -674,6 +697,12 @@
     </div>
 
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden relative shadow-sm flex-1 min-h-0">
+        {{-- Прогрес на изпълнението: тънка лента най-горе на платното (0→100% по завършени агенти) --}}
+        <div x-show="mode === 'run' && (!runStatus || ['pending','running','waiting_approval'].includes(runStatus))"
+             x-cloak class="absolute top-0 left-0 right-0 h-1 bg-gray-100 z-20 overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-500 ease-out"
+                 :style="`width: ${runProgressPct}%`"></div>
+        </div>
         <div id="drawflow" class="w-full h-full"></div>
         @include('flows.partials.assistant-panel')
         <div class="hidden absolute left-4 bottom-4 rounded-xl bg-white/90 backdrop-blur border border-gray-200 px-3 py-2 text-xs text-gray-500 shadow-sm">
@@ -990,15 +1019,70 @@
     <div x-show="finalModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="finalModal.open = false">
         <div class="absolute inset-0 bg-black/50" @click="finalModal.open = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" @click.stop>
+        <div x-ref="finalPanel"
+             class="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+             :style="finalModalWidth ? { maxWidth: finalModalWidth + 'px', width: finalModalWidth + 'px' } : {}"
+             @click.stop>
             <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">🏁 Финален резултат</h3>
                 <button @click="finalModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
             </div>
-            <div class="p-6 overflow-y-auto">
+            <div x-ref="finalBody" class="p-6 overflow-auto">
                 <p x-show="!finalModal.body" x-cloak class="text-sm text-gray-400">Все още няма финален резултат.</p>
                 <div x-show="finalModal.body" class="md-output text-sm text-gray-800 leading-relaxed" x-html="renderMd(finalModal.body)"></div>
             </div>
+        </div>
+    </div>
+
+    {{-- Памет · дедупликация Modal (run/view): изходи, твърде подобни на предишно създадено съдържание --}}
+    <div x-show="memoryModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="memoryModal.open = false">
+        <div class="absolute inset-0 bg-black/40" @click="memoryModal.open = false"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">🧠 Памет · дедупликация</h3>
+                <button @click="memoryModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+            <div class="p-6 overflow-y-auto">
+                <p class="text-xs text-gray-400 mb-3">Изходи, разпознати като твърде подобни на вече създадено съдържание от предишни изпълнения. „Пренаписан“ = агентът е пробвал наново; „приет с предупреждение“ = опитите са изчерпани, изходът е запазен и маркиран.</p>
+                <template x-for="[nodeKey, entries] in Object.entries(memoryDedup)" :key="nodeKey">
+                    <div class="py-1.5 border-t border-sky-100 first:border-t-0">
+                        <template x-for="(entry, idx) in entries" :key="idx">
+                            <div class="flex flex-wrap items-center gap-2 text-sky-900 py-0.5">
+                                <span class="font-medium" x-text="nodeNameFor(nodeKey)"></span>
+                                <span class="text-sky-600 text-xs"
+                                      x-text="Math.round(entry.similarity * 100) + '% сходство със „' + (entry.matched_title || 'предишно съдържание') + '“'"></span>
+                                <span x-show="entry.action === 'retry'" class="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full">↻ пренаписан</span>
+                                <span x-show="entry.action === 'accepted_flagged'" class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">⚠ приет с предупреждение</span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+                <p x-show="!Object.keys(memoryDedup).length" x-cloak class="text-sm text-gray-400">Няма засечени дублирания.</p>
+            </div>
+        </div>
+    </div>
+
+    {{-- Пълен лог на изпълнението Modal (run/view): чете flow-runs.log като plain text --}}
+    <div x-show="runLogModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @keydown.escape.window="runLogModal.open = false">
+        <div class="absolute inset-0 bg-black/50" @click="runLogModal.open = false"></div>
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" @click.stop>
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">📄 Пълен лог на изпълнението</h3>
+                <div class="flex items-center gap-3">
+                    <button @click="openRunLog()" class="text-xs text-gray-400 hover:text-indigo-600 transition"
+                            :disabled="runLogModal.loading"
+                            x-text="runLogModal.loading ? '⏳ Зареждане…' : '↻ Опресни'"></button>
+                    <button @click="navigator.clipboard.writeText(runLogModal.text); runLogModal.copied = true; setTimeout(() => runLogModal.copied = false, 2000)"
+                            class="text-xs text-gray-400 hover:text-gray-600 transition"
+                            x-text="runLogModal.copied ? '✓ Копирано' : '📋 Копирай'"></button>
+                    <button @click="runLogModal.open = false" type="button" class="text-gray-400 hover:text-gray-700 transition text-lg leading-none">✕</button>
+                </div>
+            </div>
+            <pre x-ref="runLogPre"
+                 class="text-[11px] leading-relaxed text-gray-200 bg-gray-900 p-4 overflow-auto flex-1 whitespace-pre-wrap font-mono rounded-b-xl"
+                 x-text="runLogModal.text || (runLogModal.loading ? 'Зареждане…' : 'Няма лог записи още.')"></pre>
         </div>
     </div>
 
@@ -1959,6 +2043,7 @@ function flowBuilder(config) {
         runCostUsd: null,     // total cost for the viewed run (from poll)
         runCompletedAt: null, // ISO string of run completion (from poll)
         _lastProgress: null,  // latest poll progress payload — read by the run banner before the first poll lands
+        runProgressPct: 0,    // 0–100 run-level progress (agents done / total) for the canvas top bar
         stalledRun: false,    // true when poll reports no live flows queue worker
         _pageLoadedAt: Date.now(),
         finalOutput: null,
@@ -1980,6 +2065,13 @@ function flowBuilder(config) {
         // Survives popup close; dies on page reload. Never persisted.
         testAttempts: {},
         finalModal: { open: false, body: '' },
+        finalModalWidth: 0,   // px override (table-bearing results widen the popup); 0 = default max-w-3xl
+        // ── Памет · дедупликация (run/view) — dedup audit from the poll context ──
+        memoryDedup: {},      // node_key → [{ similarity, matched_title, action, at }]
+        memoryModal: { open: false },
+        // ── Пълен лог на изпълнението (run/view) — fetched plain text into a modal ──
+        logUrl: config.logUrl || null,
+        runLogModal: { open: false, loading: false, text: '', copied: false },
         genLogModal: { open: false, loading: false, logs: [], error: '' },
         memoryPanel: { open: false, loading: false, error: '', enabled: config.memoryEnabled ?? true, tab: 'outputs', outputs: [], lessons: [], clearing: false, toggling: false, search: '', sortCol: 'created_at', sortDir: 'desc', page: 1, pageSize: 15, preview: { open: false, nodeName: '', title: '', body: '' } },
         knowledgeEnabled: config.knowledgeEnabled ?? true,
@@ -3081,6 +3173,7 @@ function flowBuilder(config) {
             const prevStatus = this.runStatus;
             this.runStatus = data.status ?? this.runStatus;
             this.approvals = data.approvals || this.approvals;
+            if (data.memory_dedup) this.memoryDedup = data.memory_dedup;
             if (data.cost_usd != null) this.runCostUsd = data.cost_usd;
             if (data.completed_at_iso) this.runCompletedAt = data.completed_at_iso;
 
@@ -3206,6 +3299,11 @@ function flowBuilder(config) {
             const startId = this.findBoundaryNodeId('start');
             const endId   = this.findBoundaryNodeId('end');
 
+            // Run-level progress for the canvas top bar. Denominator = count of
+            // agent nodes in the graph (boundary start/end excluded); node_runs are
+            // created lazily so their count would read as ~100% the whole run.
+            let progTotal = 0, progDone = 0, progRunning = 0;
+
             const exp = this.editor.export().drawflow.Home.data;
             for (const id in exp) {
                 const node = exp[id];
@@ -3230,6 +3328,10 @@ function flowBuilder(config) {
                 // leave a stale animation from initial render.
                 const status = byKey[String(id)] || (this.mode === 'edit' ? null : 'pending');
 
+                progTotal++;
+                if (status === 'completed' || status === 'failed' || status === 'skipped') progDone++;
+                else if (status === 'running' || status === 'paused') progRunning++;
+
                 el.classList.remove('df-status-running', 'df-status-completed', 'df-status-failed', 'df-status-skipped', 'df-status-pending', 'df-status-paused');
                 if (status) el.classList.add('df-status-' + status);
 
@@ -3244,6 +3346,10 @@ function flowBuilder(config) {
 
                 this.decorateRunNode(el, String(id), status, progress, startByKey[String(id)]);
             }
+
+            this.runProgressPct = progTotal
+                ? Math.min(100, Math.round(((progDone + progRunning * 0.5) / progTotal) * 100))
+                : 0;
 
             // Keep the time-based creep tick alive while at least one node is
             // running, even if poll responses are between intervals.
@@ -3825,7 +3931,44 @@ function flowBuilder(config) {
         },
 
         openFinal() {
+            this.finalModalWidth = 0;
             this.finalModal = { open: true, body: this.finalOutput || '' };
+            this.$nextTick(() => this.fitFinalModalWidth());
+        },
+
+        // Финалният popup расте, за да побере широки таблици (без хоризонтален
+        // скрол), ограничен до 95vw; обикновен текст пази удобната max-w-3xl ширина.
+        fitFinalModalWidth() {
+            const panel = this.$refs.finalPanel, body = this.$refs.finalBody;
+            if (!panel || !body) return;
+            const extra = body.scrollWidth - body.clientWidth;   // >0 при преливаща таблица
+            if (extra > 2) {
+                const cap = Math.floor(window.innerWidth * 0.95);
+                this.finalModalWidth = Math.min(panel.offsetWidth + extra + 4, cap);
+            }
+        },
+
+        // Пълен лог на изпълнението — fetch-ва flow-runs.log като plain text в модала.
+        async openRunLog() {
+            if (!this.logUrl) return;
+            this.runLogModal.open = true;
+            this.runLogModal.loading = true;
+            try {
+                const res = await fetch(this.logUrl, { headers: { Accept: 'text/plain' } });
+                this.runLogModal.text = res.ok ? await res.text() : 'Грешка при зареждане на лога.';
+            } catch (e) {
+                this.runLogModal.text = 'Грешка при зареждане на лога.';
+            } finally {
+                this.runLogModal.loading = false;
+                this.$nextTick(() => {
+                    if (this.$refs.runLogPre) this.$refs.runLogPre.scrollTop = this.$refs.runLogPre.scrollHeight;
+                });
+            }
+        },
+
+        // Display name за node_key (= drawflow node id) — ползва се в реда на дедупликацията.
+        nodeNameFor(key) {
+            return this.editor?.getNodeFromId(key)?.data?.name || key;
         },
 
         // ── Асистент (Builder Copilot) ─────────────────────────────────────

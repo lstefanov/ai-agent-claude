@@ -166,6 +166,8 @@ class FlowBuilderController extends Controller
             'newTemplate' => (bool) $request->boolean('new_template'),
             'runUrl' => route('flow-runs.store', $flow),
             'pollUrl' => $pollRun ? route('flow-runs.poll', $pollRun) : null,
+            // Пълен лог на изпълнението (plain text) — fetched into a modal.
+            'logUrl' => $pollRun ? route('flow-runs.log', $pollRun) : null,
             // Full node payloads are fetched on demand — the poll is metadata-only.
             'nodeDetailUrlBase' => $pollRun ? url("runs/{$pollRun->id}/nodes") : null,
             // Тест на агент: poll URL for ad-hoc test tokens (POST URLs derive

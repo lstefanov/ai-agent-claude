@@ -262,6 +262,100 @@
     </div>
 </div>
 
+{{-- ── Perplexity (web + people search) section ───────────────────────── --}}
+<div class="mt-8 mb-4">
+    <div class="flex items-center flex-wrap gap-3 mb-4">
+        <h2 class="text-lg font-bold text-gray-900">🔎 Perplexity</h2>
+        <span class="inline-block px-3 py-0.5 rounded-full text-xs font-semibold text-teal-700 border border-teal-200 bg-white">
+            web search · people search
+        </span>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div class="bg-white border border-teal-200 rounded-xl p-4">
+            <p class="text-xs text-teal-600 uppercase tracking-wide">Web search</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($perplexitySummary['web_search']) }}</p>
+        </div>
+        <div class="bg-white border border-teal-200 rounded-xl p-4">
+            <p class="text-xs text-teal-600 uppercase tracking-wide">People search</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($perplexitySummary['people_search']) }}</p>
+        </div>
+        <div class="bg-white border border-teal-200 rounded-xl p-4">
+            <p class="text-xs text-teal-600 uppercase tracking-wide">Общо заявки</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($perplexitySummary['requests']) }}</p>
+        </div>
+        <div class="bg-white border border-teal-200 rounded-xl p-4">
+            <p class="text-xs text-teal-600 uppercase tracking-wide">Разход</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsdSmart($perplexitySummary['total_cost']) }}</p>
+        </div>
+    </div>
+
+    <div class="bg-white border border-gray-200 rounded-xl p-4 overflow-x-auto">
+        <p class="text-xs text-gray-400 mb-3">Кликни ред за пълната заявка (заявка, резултати, разход).</p>
+        <div id="perplexityGrid"></div>
+    </div>
+</div>
+
+{{-- ── Mistral OCR section (document-centric) ──────────────────────────── --}}
+<div class="mt-8 mb-4">
+    <div class="flex items-center flex-wrap gap-3 mb-4">
+        <h2 class="text-lg font-bold text-gray-900">📄 Mistral OCR</h2>
+        <span class="inline-block px-3 py-0.5 rounded-full text-xs font-semibold text-amber-700 border border-amber-200 bg-white">
+            сканирани документи
+        </span>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Документи</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($ocrSummary['documents']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Страници</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($ocrSummary['pages']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Разход</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsdSmart($ocrSummary['total_cost']) }}</p>
+        </div>
+    </div>
+
+    <div class="bg-white border border-gray-200 rounded-xl p-4 overflow-x-auto">
+        <p class="text-xs text-gray-400 mb-3">Кликни ред за преглед на сканираното (суров OCR + синтезиран digest). „Документ" отваря оригинала.</p>
+        <div id="ocrGrid"></div>
+    </div>
+</div>
+
+{{-- ── OCR preview popup (raw scan + synthesized digest) ───────────────── --}}
+<div id="ocrModal" class="fixed inset-0 z-[60] hidden">
+    <div class="absolute inset-0 bg-black/40" id="ocrModalOverlay"></div>
+    <div class="absolute inset-0 flex items-start justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-8 relative">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 gap-3">
+                <div class="min-w-0">
+                    <h3 class="font-semibold text-gray-900 truncate" id="ocr-doc">Документ</h3>
+                    <p class="text-xs text-gray-400" id="ocr-meta"></p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <a id="ocr-original" href="#" target="_blank" rel="noopener"
+                       class="text-xs px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition">Отвори оригинала ↗</a>
+                    <button id="ocrModalClose" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+                </div>
+            </div>
+            <div class="px-5 pt-3">
+                <div class="flex gap-1 border-b border-gray-100">
+                    <button class="ocr-tab px-3 py-2 text-sm border-b-2 border-indigo-500 text-indigo-600 font-medium" data-tab="raw">Сканиран текст (OCR)</button>
+                    <button class="ocr-tab px-3 py-2 text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-800" data-tab="digest">Синтезиран digest</button>
+                </div>
+            </div>
+            <div class="p-5">
+                <pre id="ocr-raw" class="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-4 max-h-[60vh] overflow-y-auto"></pre>
+                <pre id="ocr-digest" class="hidden whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-4 max-h-[60vh] overflow-y-auto"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- ── Sub-table modal (drill-down: individual calls in a session) ────── --}}
 <div id="groupModal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black/40" id="groupModalOverlay"></div>
@@ -376,6 +470,9 @@ const DETAIL_URL       = "{{ url('admin/costs/detail') }}";
 const GROUP_DETAIL_URL = "{{ url('admin/costs/group-detail') }}";
 const CHAT_DETAIL_URL  = "{{ url('admin/costs/chat-detail') }}";
 const CHAT_SESSIONS    = @json($chatSessions);
+const PERPLEXITY_REQUESTS = @json($perplexityRequests);
+const OCR_REQUESTS        = @json($ocrRequests);
+const OCR_DETAIL_URL      = "{{ url('admin/costs/ocr-detail') }}";
 
 // ── Linked filter dropdowns: "Модел" shows only the chosen provider's models ──
 const MODELS_BY_PROVIDER = @json($filterOptions['modelsByProvider']);
@@ -475,6 +572,8 @@ const PROVIDER_COLORS = {
     gemini:    'background:#fef9c3;color:#854d0e',
     xai:       'background:#e5e7eb;color:#111827',
     qwen:      'background:#ffedd5;color:#9a3412',
+    perplexity:'background:#ccfbf1;color:#0f766e',
+    mistral:   'background:#fee2e2;color:#b91c1c',
 };
 const providerBadge = (p) => {
     if (!p) return '';
@@ -757,6 +856,109 @@ chatGrid.on('rowClick', (event, row) => {
     const flowName  = row.cells[5].data || row.cells[4].data;
     openChat(sessionId, flowName);
 });
+
+// ── Perplexity Grid.js ────────────────────────────────────────────────
+const ppxKind = k => ({ web_search: '🌐 Web search', people_search: '👤 People search' }[k] || k || '—');
+
+const perplexityGrid = new gridjs.Grid({
+    data: PERPLEXITY_REQUESTS.map(r => [
+        r.id, r.created_at, r.kind, r.model, r.company, r.query, r.cost_usd, r.duration_ms, r.status,
+    ]),
+    columns: [
+        { name: 'ID',          hidden: true },
+        { name: 'Време',       width: '150px' },
+        { name: 'Тип',         width: '150px', formatter: c => ppxKind(c) },
+        { name: 'Модел',       width: '120px', formatter: c => c || '—' },
+        { name: 'Фирма',       width: '140px', formatter: c => c || '—' },
+        { name: 'Заявка',      width: '300px', formatter: c => c || '—' },
+        { name: 'Разход',      width: '96px',  formatter: c => '$' + Number(c || 0).toFixed(4) },
+        { name: 'Времетраене', width: '104px', formatter: c => c ? (c / 1000).toFixed(2) + ' сек.' : '—' },
+        { name: 'Статус',      width: '100px', formatter: c => gridjs.html(statusBadge(c)) },
+    ],
+    search: true,
+    sort: true,
+    pagination: { limit: 25 },
+    language: {
+        search: { placeholder: 'Търси…' },
+        pagination: { previous: '‹', next: '›', showing: 'Показва', to: '–', of: 'от', results: () => 'заявки' },
+        noRecordsFound: 'Няма Perplexity заявки за избраните филтри',
+        error: 'Грешка при зареждане',
+    },
+    style: { table: { 'font-size': '13px' }, th: { 'white-space': 'nowrap' } },
+});
+perplexityGrid.render(document.getElementById('perplexityGrid'));
+perplexityGrid.on('rowClick', (event, row) => openCost(row.cells[0].data));
+
+// ── Mistral OCR Grid.js (document-centric) ────────────────────────────
+const ocrDocCell = (doc, url) => url
+    ? `<a href="${url}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline" title="Отвори оригинала">${doc || '—'}</a>`
+    : (doc || '—');
+
+const ocrGrid = new gridjs.Grid({
+    data: OCR_REQUESTS.map(r => [
+        r.id, r.created_at, [r.document, r.original_url], r.pages, r.cost_usd, r.duration_ms, r.status,
+    ]),
+    columns: [
+        { name: 'ID',          hidden: true },
+        { name: 'Време',       width: '150px' },
+        { name: 'Документ',    width: '320px', sort: false, formatter: c => gridjs.html(ocrDocCell(c[0], c[1])) },
+        { name: 'Стр.',        width: '70px',  formatter: c => c ? Number(c).toLocaleString() : '—' },
+        { name: 'Разход',      width: '96px',  formatter: c => '$' + Number(c || 0).toFixed(4) },
+        { name: 'Времетраене', width: '104px', formatter: c => c ? (c / 1000).toFixed(2) + ' сек.' : '—' },
+        { name: 'Статус',      width: '100px', formatter: c => gridjs.html(statusBadge(c)) },
+    ],
+    search: true,
+    sort: true,
+    pagination: { limit: 25 },
+    language: {
+        search: { placeholder: 'Търси…' },
+        pagination: { previous: '‹', next: '›', showing: 'Показва', to: '–', of: 'от', results: () => 'документа' },
+        noRecordsFound: 'Няма OCR документи за избраните филтри',
+        error: 'Грешка при зареждане',
+    },
+    style: { table: { 'font-size': '13px' }, th: { 'white-space': 'nowrap' } },
+});
+ocrGrid.render(document.getElementById('ocrGrid'));
+ocrGrid.on('rowClick', (event, row) => {
+    if (event.target.closest('a')) return; // клик на линка → оригинала, не popup-а
+    openOcr(row.cells[0].data);
+});
+
+// ── OCR preview popup (raw scan + synthesized digest) ─────────────────
+const ocrModal = document.getElementById('ocrModal');
+function ocrSwitchTab(tab) {
+    document.querySelectorAll('.ocr-tab').forEach(b => {
+        const on = b.dataset.tab === tab;
+        b.classList.toggle('border-indigo-500', on);
+        b.classList.toggle('text-indigo-600', on);
+        b.classList.toggle('font-medium', on);
+        b.classList.toggle('border-transparent', !on);
+        b.classList.toggle('text-gray-500', !on);
+    });
+    document.getElementById('ocr-raw').classList.toggle('hidden', tab !== 'raw');
+    document.getElementById('ocr-digest').classList.toggle('hidden', tab !== 'digest');
+}
+document.querySelectorAll('.ocr-tab').forEach(b => b.addEventListener('click', () => ocrSwitchTab(b.dataset.tab)));
+
+async function openOcr(id) {
+    try {
+        const resp = await fetch(`${OCR_DETAIL_URL}?id=${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' } });
+        if (!resp.ok) { alert('Грешка при зареждане.'); return; }
+        const d = await resp.json();
+        setText('ocr-doc', d.document);
+        setText('ocr-meta', [d.created_at, d.pages ? d.pages + ' стр.' : '', '$' + Number(d.cost_usd || 0).toFixed(6)].filter(Boolean).join(' · '));
+        const orig = document.getElementById('ocr-original');
+        if (d.original_url) { orig.href = d.original_url; orig.classList.remove('hidden'); }
+        else { orig.classList.add('hidden'); }
+        document.getElementById('ocr-raw').textContent = d.raw_text || '(няма запазен сканиран текст)';
+        document.getElementById('ocr-digest').textContent = d.digest || '(няма синтезиран digest — документът може да не е свързан с ресурс)';
+        ocrSwitchTab('raw');
+        ocrModal.classList.remove('hidden');
+    } catch (e) { console.error(e); alert('Мрежова грешка.'); }
+}
+document.getElementById('ocrModalClose').addEventListener('click', () => ocrModal.classList.add('hidden'));
+document.getElementById('ocrModalOverlay').addEventListener('click', () => ocrModal.classList.add('hidden'));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !ocrModal.classList.contains('hidden')) ocrModal.classList.add('hidden'); });
 
 // ── Chat transcript modal ─────────────────────────────────────────────
 async function openChat(sessionId, title) {

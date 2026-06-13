@@ -107,9 +107,16 @@ Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->gr
     Route::delete('pages/{page}', [CompanyKnowledgeController::class, 'destroyPage'])->name('pages.destroy');
     Route::delete('facts/{fact}', [CompanyKnowledgeController::class, 'destroyFact'])->name('facts.destroy');
     Route::delete('gaps', [CompanyKnowledgeController::class, 'clearGaps'])->name('gaps.clear');
+
+    Route::get('conflicts', [CompanyKnowledgeController::class, 'listConflicts'])->name('conflicts.list');
+    Route::post('conflicts/scan', [CompanyKnowledgeController::class, 'scanConflicts'])->name('conflicts.scan');
+    Route::post('conflicts/{conflict}/resolve', [CompanyKnowledgeController::class, 'resolveConflict'])->name('conflicts.resolve');
+    Route::post('conflicts/{conflict}/ignore', [CompanyKnowledgeController::class, 'ignoreConflict'])->name('conflicts.ignore');
     // Чат "Тествай знанията" (queue + token poll, като Builder Copilot)
     Route::post('chat', [KnowledgeChatController::class, 'send'])->name('chat.send');
     Route::get('chat/history', [KnowledgeChatController::class, 'history'])->name('chat.history');
+    Route::get('chat/sessions', [KnowledgeChatController::class, 'sessions'])->name('chat.sessions');
+    Route::post('chat/{message}/feedback', [KnowledgeChatController::class, 'feedback'])->name('chat.feedback');
 });
 Route::get('knowledge-chat-status/{token}', [KnowledgeChatController::class, 'status'])->name('companies.knowledge.chat.status');
 
@@ -181,6 +188,7 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     Route::get('costs/detail', [AdminCostController::class, 'show'])->name('costs.show');
     Route::get('costs/group-detail', [AdminCostController::class, 'groupDetail'])->name('costs.group-detail');
     Route::get('costs/chat-detail', [AdminCostController::class, 'chatDetail'])->name('costs.chat-detail');
+    Route::get('costs/ocr-detail', [AdminCostController::class, 'ocrDetail'])->name('costs.ocr-detail');
 });
 
 // Home

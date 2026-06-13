@@ -8,6 +8,7 @@ use App\Models\AssistantMessage;
 use App\Models\Company;
 use App\Models\Flow;
 use App\Models\FlowRun;
+use App\Models\KnowledgeResource;
 use App\Models\LlmRequest;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -74,6 +75,10 @@ class CostController extends Controller
             'chatModel' => $chatModel,
             'chatSummary' => $this->chatSummary($r),
             'chatSessions' => $this->chatSessions($r),
+            'perplexitySummary' => $this->perplexitySummary($r),
+            'perplexityRequests' => $this->perplexityRequests($r),
+            'ocrSummary' => $this->ocrSummary($r),
+            'ocrRequests' => $this->ocrRequests($r),
         ]);
     }
 
@@ -681,6 +686,166 @@ class CostController extends Controller
         ])->sortByDesc('created_at')->values()->all();
 
         return array_slice($result, 0, 500);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Perplexity (web + people search)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /** Summary stat cards for the Perplexity section. */
+    private function perplexitySummary(Request $r): array
+    {
+        $byKind = $this->filtered($r)->where('llm_requests.provider', 'perplexity')
+            ->selectRaw('kind, COUNT(*) as cnt')
+            ->groupBy('kind')
+            ->pluck('cnt', 'kind');
+
+        $agg = $this->filtered($r)->where('llm_requests.provider', 'perplexity')
+            ->selectRaw('COUNT(*) as calls, COALESCE(SUM(cost_usd),0) as cost')
+            ->first();
+
+        return [
+            'web_search' => (int) ($byKind['web_search'] ?? 0),
+            'people_search' => (int) ($byKind['people_search'] ?? 0),
+            'requests' => (int) ($agg->calls ?? 0),
+            'total_cost' => round((float) ($agg->cost ?? 0), 4),
+        ];
+    }
+
+    /** Individual Perplexity requests for the datagrid (newest-first, cap 500). */
+    private function perplexityRequests(Request $r): array
+    {
+        $rows = $this->filtered($r)->where('llm_requests.provider', 'perplexity')
+            ->orderByDesc('created_at')
+            ->limit(500)
+            ->get(['id', 'created_at', 'kind', 'provider', 'model', 'company_id',
+                'user_message', 'cost_usd', 'duration_ms', 'status']);
+
+        $companyNames = Company::whereIn('id', $rows->pluck('company_id')->filter()->unique())->pluck('name', 'id');
+
+        return $rows->map(fn (LlmRequest $req) => [
+            'id' => $req->id,
+            'created_at' => $req->created_at?->format('Y-m-d H:i:s'),
+            'kind' => $req->kind,
+            'provider' => $req->provider,
+            'model' => $req->model,
+            'company' => $companyNames[$req->company_id] ?? '—',
+            'query' => mb_substr((string) $req->user_message, 0, 120),
+            'cost_usd' => (float) $req->cost_usd,
+            'duration_ms' => (int) $req->duration_ms,
+            'status' => $req->status,
+        ])->values()->all();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Mistral OCR (document-centric)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /** Filtered OCR calls. */
+    private function ocrBase(Request $r): Builder
+    {
+        return $this->filtered($r)
+            ->where('llm_requests.provider', 'mistral')
+            ->where('llm_requests.kind', 'ocr');
+    }
+
+    /** Summary stat cards for the Mistral OCR section (documents · pages · cost). */
+    private function ocrSummary(Request $r): array
+    {
+        $agg = $this->ocrBase($r)
+            ->selectRaw('COUNT(*) as docs, COALESCE(SUM(cost_usd),0) as cost')
+            ->first();
+
+        // Страниците живеят в options.pages — сумираме в PHP (DB-agnostic).
+        $pages = (int) $this->ocrBase($r)->get(['options'])
+            ->sum(fn (LlmRequest $row) => (int) ($row->options['pages'] ?? 0));
+
+        return [
+            'documents' => (int) ($agg->docs ?? 0),
+            'pages' => $pages,
+            'total_cost' => round((float) ($agg->cost ?? 0), 4),
+        ];
+    }
+
+    /**
+     * Individual OCR requests for the datagrid, resolved to the original document
+     * (name + download link) via the captured knowledge_resource_id.
+     */
+    private function ocrRequests(Request $r): array
+    {
+        $rows = $this->ocrBase($r)
+            ->orderByDesc('created_at')
+            ->limit(500)
+            ->get(['id', 'created_at', 'model', 'user_message', 'cost_usd', 'duration_ms', 'status', 'options']);
+
+        $resourceIds = $rows->map(fn (LlmRequest $req) => $req->options['knowledge_resource_id'] ?? null)
+            ->filter()->unique();
+        $resources = $resourceIds->isNotEmpty()
+            ? KnowledgeResource::whereIn('id', $resourceIds)->get(['id', 'company_id', 'original_name', 'title', 'url'])->keyBy('id')
+            : collect();
+
+        return $rows->map(function (LlmRequest $req) use ($resources) {
+            [$document, $originalUrl] = $this->ocrDocumentLink($req, $resources->get($req->options['knowledge_resource_id'] ?? null));
+
+            return [
+                'id' => $req->id,
+                'created_at' => $req->created_at?->format('Y-m-d H:i:s'),
+                'model' => $req->model,
+                'document' => mb_substr($document, 0, 160),
+                'original_url' => $originalUrl,
+                'pages' => (int) ($req->options['pages'] ?? 0),
+                'cost_usd' => (float) $req->cost_usd,
+                'duration_ms' => (int) $req->duration_ms,
+                'status' => $req->status,
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * OCR detail for the preview popup: the raw scanned text (response_text) and
+     * the synthesized digest (from the linked knowledge resource).
+     */
+    public function ocrDetail(Request $r): JsonResponse
+    {
+        $req = LlmRequest::where('provider', 'mistral')->where('kind', 'ocr')->findOrFail((int) $r->query('id'));
+
+        $resource = ! empty($req->options['knowledge_resource_id'])
+            ? KnowledgeResource::find($req->options['knowledge_resource_id'])
+            : null;
+
+        [$document, $originalUrl] = $this->ocrDocumentLink($req, $resource);
+
+        return response()->json([
+            'id' => $req->id,
+            'document' => $document,
+            'original_url' => $originalUrl,
+            'pages' => (int) ($req->options['pages'] ?? 0),
+            'cost_usd' => (float) $req->cost_usd,
+            'status' => $req->status,
+            'created_at' => $req->created_at?->format('Y-m-d H:i:s'),
+            'raw_text' => (string) $req->response_text,
+            'digest' => $resource ? ($resource->meta['digest'] ?? null) : null,
+        ]);
+    }
+
+    /**
+     * Document display name + "link to the original" for an OCR row.
+     * Knowledge upload → resource download route; url-based OCR → the URL itself.
+     *
+     * @return array{0: string, 1: string|null}
+     */
+    private function ocrDocumentLink(LlmRequest $req, ?KnowledgeResource $resource): array
+    {
+        $label = (string) $req->user_message;
+
+        if ($resource) {
+            return [
+                $resource->original_name ?: $resource->title ?: $label,
+                route('companies.knowledge.resources.download', [$resource->company_id, $resource->id]),
+            ];
+        }
+
+        return [$label, str_starts_with($label, 'http') ? $label : null];
     }
 
     /** Filter dropdown options (only values that actually appear in llm_requests). */

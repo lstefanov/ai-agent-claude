@@ -4,6 +4,7 @@ namespace App\Services\Knowledge;
 
 use App\Models\KnowledgeResource;
 use App\Services\MistralOcrService;
+use App\Support\LlmContext;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\IOFactory as SpreadsheetIOFactory;
 use PhpOffice\PhpWord\Element\AbstractContainer;
@@ -36,7 +37,7 @@ class DocumentTextExtractor
         $kind = $this->kind((string) $document->mime, (string) $document->original_name);
 
         $text = match ($kind) {
-            'ocr' => $this->viaOcr($path, (string) $document->mime),
+            'ocr' => $this->viaOcr($document, $path, (string) $document->mime),
             'docx' => $this->fromDocx($path),
             'xlsx' => $this->fromXlsx($path),
             'csv' => $this->fromCsv($path),
@@ -72,13 +73,26 @@ class DocumentTextExtractor
         };
     }
 
-    private function viaOcr(string $path, string $mime): string
+    private function viaOcr(KnowledgeResource $document, string $path, string $mime): string
     {
         if (empty(config('services.mistral.api_key'))) {
             throw new RuntimeException('PDF/изображения изискват Mistral OCR — задай MISTRAL_API_KEY.');
         }
 
-        $text = $this->ocr->extractFile($path, $mime ?: 'application/pdf');
+        // Контекст за одит реда (admin → Разходи → Mistral OCR): дава линк към
+        // оригиналния ресурс + digest в preview popup-а.
+        LlmContext::set([
+            'purpose' => 'knowledge_ocr',
+            'company_id' => $document->company_id,
+            'knowledge_resource_id' => $document->id,
+        ]);
+
+        try {
+            $text = $this->ocr->extractFile($path, $mime ?: 'application/pdf');
+        } finally {
+            LlmContext::clear();
+        }
+
         if ($text === null || trim($text) === '') {
             throw new RuntimeException('OCR не върна текст (Mistral OCR недостъпен или празен документ).');
         }

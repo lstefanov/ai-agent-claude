@@ -70,7 +70,7 @@ class KnowledgeIngestor
         $company = $resource->company;
         $isFirst = $resource->ingested_at === null;
 
-        $text = $resource->type === 'note'
+        $text = in_array($resource->type, ['note', 'chat'], true)
             ? trim((string) $resource->content)
             : trim($this->extractor->extract($resource));
 
@@ -121,6 +121,7 @@ class KnowledgeIngestor
 
         $sourceLabel = match ($resource->type) {
             'note' => 'бележка „'.$resource->title.'“',
+            'chat' => 'чат „'.$resource->title.'“',
             'image' => 'снимка „'.($resource->original_name ?: $resource->title).'“',
             default => 'качен файл „'.($resource->original_name ?: $resource->title).'“',
         };

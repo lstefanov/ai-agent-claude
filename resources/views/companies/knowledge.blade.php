@@ -2,8 +2,55 @@
 
 @section('title', 'База знания — ' . $company->name)
 
+@push('head')
+{{-- Markdown рендиране + sanitизация на чат отговорите (CDN, като останалите libs). --}}
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+    /* Чат: стилизиран markdown (Tailwind-CDN няма typography plugin) */
+    .kb-prose { line-height: 1.55; }
+    .kb-prose > *:first-child { margin-top: 0; }
+    .kb-prose > *:last-child { margin-bottom: 0; }
+    .kb-prose p { margin: 0 0 0.5rem; }
+    .kb-prose ul, .kb-prose ol { margin: 0.25rem 0 0.6rem; padding-left: 1.15rem; }
+    .kb-prose li { margin: 0.15rem 0; }
+    .kb-prose ul { list-style: disc; }
+    .kb-prose ol { list-style: decimal; }
+    .kb-prose strong { font-weight: 600; color: #111827; }
+    .kb-prose a { color: #4f46e5; text-decoration: underline; }
+    .kb-prose code { background: #eef2ff; color: #3730a3; padding: 1px 5px; border-radius: 4px; font-size: 0.85em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .kb-prose pre { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.6rem 0.75rem; overflow-x: auto; margin: 0 0 0.6rem; }
+    .kb-prose pre code { background: none; padding: 0; color: #334155; }
+    .kb-prose h2, .kb-prose h3, .kb-prose h4 { font-weight: 600; color: #111827; margin: 0.6rem 0 0.35rem; font-size: 0.95rem; }
+    .kb-prose blockquote { border-left: 3px solid #c7d2fe; padding-left: 0.65rem; color: #4b5563; margin: 0 0 0.6rem; }
+    .kb-prose table { border-collapse: collapse; width: 100%; margin: 0.25rem 0 0.7rem; font-size: 0.85em; }
+    .kb-prose th, .kb-prose td { border: 1px solid #e5e7eb; padding: 4px 8px; text-align: left; }
+    .kb-prose th { background: #f9fafb; font-weight: 600; }
+
+    /* Цитати [N] → badge с tooltip (заглавието на източника) */
+    .kb-cite { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; padding: 0 4px; margin: 0 1px; font-size: 10px; font-weight: 600; line-height: 1; vertical-align: super; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 4px; text-decoration: none; cursor: pointer; }
+    .kb-cite:hover { background: #4338ca; color: #fff; }
+    .kb-cite--fact { cursor: default; }
+    /* Tooltip за цитат — fixed елемент извън scroll-кутията (не се реже от overflow) */
+    .kb-tip { position: fixed; z-index: 60; transform: translate(-50%, -100%); max-width: 280px; white-space: normal; overflow-wrap: anywhere; background: #111827; color: #fff; font-size: 11px; font-weight: 400; line-height: 1.35; padding: 5px 9px; border-radius: 6px; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
+    .kb-tip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #111827; }
+
+    /* Loading: три цветни точки на вълна */
+    .kb-dots { display: inline-flex; align-items: center; gap: 4px; }
+    .kb-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; animation: kb-bounce 1.2s ease-in-out infinite; }
+    .kb-dot--1 { background: #818cf8; animation-delay: 0s; }
+    .kb-dot--2 { background: #a78bfa; animation-delay: 0.18s; }
+    .kb-dot--3 { background: #c084fc; animation-delay: 0.36s; }
+    @keyframes kb-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.5; } 40% { transform: translateY(-5px); opacity: 1; } }
+</style>
+@endpush
+
 @section('content')
 <div x-data="knowledgePage(@js($config))" x-init="init()">
+
+    {{-- Споделен tooltip за цитати (fixed → не се отрязва от scroll-кутията) --}}
+    <div x-show="chat.tip.show" x-cloak class="kb-tip"
+         :style="`left:${chat.tip.x}px; top:${chat.tip.y}px;`" x-text="chat.tip.text"></div>
 
     {{-- ─────────── Header ─────────── --}}
     <div class="flex items-start justify-between mb-6 flex-wrap gap-3">
@@ -401,55 +448,204 @@
                 </div>
                 </div>{{-- /p-4 --}}
             </div>
+
+            {{-- ─────────── Tab: Конфликти ─────────── --}}
+            <div x-show="tab === 'conflicts'" x-cloak class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div class="p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <p class="text-xs text-gray-400">
+                            Факти за едно и също нещо от различни източници, но с различни стойности. Избери вярната — другите се архивират.
+                        </p>
+                        <button @click="scanConflicts()" :disabled="cTab.scanning"
+                                class="text-xs text-indigo-600 hover:text-indigo-800 transition shrink-0 ml-3 disabled:opacity-50">
+                            <span x-show="!cTab.scanning">↻ Сканирай за конфликти</span>
+                            <span x-show="cTab.scanning" x-cloak>Сканиране…</span>
+                        </button>
+                    </div>
+
+                    <div x-show="cTab.loading" class="py-8 text-center text-gray-400 text-sm">Зареждане…</div>
+                    <div x-show="!cTab.loading && cTab.items.length === 0" class="text-sm text-gray-400 py-2">
+                        Няма открити конфликти. Натисни „Сканирай за конфликти", ако току-що си добавил ресурси.
+                    </div>
+
+                    <div class="space-y-3" x-show="!cTab.loading && cTab.items.length > 0" x-cloak>
+                        <template x-for="c in cTab.items" :key="c.id">
+                            <div class="border border-amber-200 rounded-xl overflow-hidden">
+                                <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-50 border-b border-amber-100">
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-medium text-gray-800 truncate" x-text="c.subject"></div>
+                                        <div class="text-[11px] text-amber-700">
+                                            <span x-text="c.category"></span><span x-show="c.location" x-text="' · ' + c.location"></span>
+                                        </div>
+                                    </div>
+                                    <button @click="ignoreConflict(c.id)"
+                                            class="text-xs text-gray-400 hover:text-gray-700 transition shrink-0">Не е конфликт</button>
+                                </div>
+                                <div class="divide-y divide-gray-50">
+                                    <template x-for="cand in c.candidates" :key="cand.fact_id">
+                                        <div class="flex items-start gap-3 px-4 py-3">
+                                            <div class="flex-1 min-w-0">
+                                                <div class="text-sm text-gray-800" x-text="cand.value"></div>
+                                                <div class="text-[11px] text-gray-400 mt-0.5">
+                                                    <span x-text="cand.source"></span> · <span x-text="cand.created_at"></span>
+                                                    <span x-show="cand.confidence" x-text="' · увереност ' + Math.round(cand.confidence * 100) + '%'"></span>
+                                                </div>
+                                            </div>
+                                            <button @click="resolveConflict(c.id, cand.fact_id)"
+                                                    class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition">
+                                                Избери тази
+                                            </button>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="!cTab.loading && cTab.pages > 1" x-cloak
+                         class="flex items-center justify-between pt-3 mt-3 border-t border-gray-100 text-sm text-gray-500">
+                        <span x-text="'Стр. ' + cTab.page + ' от ' + cTab.pages + ' (' + cTab.total + ' общо)'"></span>
+                        <div class="flex gap-1">
+                            <button @click="cTab.page = Math.max(1, cTab.page - 1); loadConflicts()" :disabled="cTab.page === 1"
+                                    class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">←</button>
+                            <button @click="cTab.page = Math.min(cTab.pages, cTab.page + 1); loadConflicts()" :disabled="cTab.page === cTab.pages"
+                                    class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">→</button>
+                        </div>
+                    </div>
+                </div>{{-- /p-4 --}}
+            </div>
         </div>
 
         {{-- ─────────── Chat: Тествай знанията ─────────── --}}
-        <div class="w-96 shrink-0 bg-white rounded-xl border border-gray-200 flex flex-col" style="height: calc(100vh - 180px); position: sticky; top: 1rem;">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                <h2 class="text-sm font-semibold text-gray-700">💬 Тествай знанията</h2>
-                <button @click="newChat()" class="text-xs text-gray-400 hover:text-indigo-600 transition" title="Нов разговор">⟳ нов</button>
+        <div :class="chat.fullscreen
+                ? 'fixed inset-0 z-50 bg-white flex'
+                : 'w-96 shrink-0 bg-white rounded-xl border border-gray-200 flex'"
+             :style="chat.fullscreen ? '' : 'height: calc(100vh - 180px); position: sticky; top: 1rem;'"
+             @keydown.escape.window="chat.fullscreen = false; chat.showSessions = false">
+
+            {{-- Sessions sidebar (само на цял екран) --}}
+            <div x-show="chat.fullscreen" x-cloak class="w-64 shrink-0 border-r border-gray-100 bg-gray-50 flex flex-col">
+                <div class="p-3 border-b border-gray-100">
+                    <button @click="newChat()" class="w-full flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 hover:border-indigo-300 transition">
+                        <span class="text-base leading-none">＋</span> Нов разговор
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-2 space-y-1">
+                    <template x-for="s in chat.sessions" :key="s.session">
+                        <button @click="openSession(s.session)"
+                                :class="s.session === chat.session ? 'bg-white border-indigo-200' : 'border-transparent hover:bg-white'"
+                                class="w-full text-left px-2.5 py-2 rounded-lg border transition">
+                            <div class="text-xs text-gray-800 truncate" x-text="s.title"></div>
+                            <div class="text-[10px] text-gray-400 mt-0.5" x-text="s.last_at"></div>
+                        </button>
+                    </template>
+                    <p x-show="chat.sessions.length === 0" class="text-xs text-gray-400 text-center py-6">Няма минали разговори</p>
+                </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto p-3 space-y-3" x-ref="chatScroll">
-                <div x-show="chat.messages.length === 0 && !chat.pending" class="text-center text-gray-400 text-sm py-8 px-4">
-                    Питай на човешки език:<br>
-                    <button @click="chat.input = 'Каква е цената на лазерна епилация на подмишници?'"
-                            class="mt-2 text-xs text-indigo-500 hover:underline">„Каква е цената на лазерна епилация на подмишници?"</button>
+            {{-- Chat колона --}}
+            <div class="flex-1 flex flex-col min-w-0">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 relative">
+                    <h2 class="text-sm font-semibold text-gray-700">💬 Тествай знанията</h2>
+                    <div class="flex items-center gap-0.5">
+                        {{-- История (dropdown — компактен изглед) --}}
+                        <div x-show="!chat.fullscreen" class="relative">
+                            <button @click="toggleSessions()" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-gray-50 transition" title="История">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 2"/></svg>
+                            </button>
+                            <div x-show="chat.showSessions" x-cloak @click.outside="chat.showSessions = false"
+                                 class="absolute right-0 top-9 w-72 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-30 p-1">
+                                <p class="text-[10px] uppercase tracking-wide text-gray-400 px-2.5 py-1.5">Минали разговори</p>
+                                <template x-for="s in chat.sessions" :key="s.session">
+                                    <button @click="openSession(s.session); chat.showSessions = false"
+                                            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-gray-50 transition">
+                                        <div class="text-xs text-gray-800 truncate" x-text="s.title"></div>
+                                        <div class="text-[10px] text-gray-400 mt-0.5" x-text="s.last_at"></div>
+                                    </button>
+                                </template>
+                                <p x-show="chat.sessions.length === 0" class="text-xs text-gray-400 text-center py-4">Няма минали разговори</p>
+                            </div>
+                        </div>
+                        {{-- Нов разговор --}}
+                        <button @click="newChat()" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-gray-50 transition" title="Нов разговор">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 3.5l4 4L7 21l-4 1 1-4L16.5 3.5z"/></svg>
+                        </button>
+                        {{-- Цял екран / намали --}}
+                        <button @click="toggleFullscreen()" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-gray-50 transition" :title="chat.fullscreen ? 'Намали' : 'Цял екран'">
+                            <svg x-show="!chat.fullscreen" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+                            <svg x-show="chat.fullscreen" x-cloak class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+                        </button>
+                    </div>
                 </div>
 
-                <template x-for="m in chat.messages" :key="m.id">
-                    <div :class="m.role === 'user' ? 'flex justify-end' : ''">
-                        <div class="rounded-xl px-3 py-2 text-sm max-w-[92%]"
-                             :class="m.role === 'user' ? 'bg-indigo-600 text-white' : (m.failed ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-gray-50 text-gray-800 border border-gray-100')">
-                            <div class="whitespace-pre-wrap" x-text="m.content"></div>
-                            <div x-show="m.sources && m.sources.length" class="mt-2 pt-2 border-t border-gray-200 space-y-0.5">
-                                <template x-for="s in (m.sources || [])" :key="s.n">
-                                    <div class="text-xs text-gray-500 truncate">
-                                        <span class="font-mono" x-text="'[' + s.n + ']'"></span>
-                                        <a x-show="s.url" :href="s.url" target="_blank" class="hover:text-indigo-600 hover:underline" x-text="s.title"></a>
-                                        <span x-show="!s.url" x-text="s.title + (s.kind === 'fact' ? ' (факт)' : '')"></span>
+                <div class="flex-1 overflow-y-auto p-3 space-y-3" x-ref="chatScroll"
+                     @mouseover="citeHover($event)" @mouseout="citeOut($event)" @scroll="chat.tip.show = false">
+                    <div :class="chat.fullscreen ? 'max-w-3xl mx-auto w-full space-y-3' : 'space-y-3'">
+                        <div x-show="chat.messages.length === 0 && !chat.pending" class="text-center text-gray-400 text-sm py-8 px-4">
+                            Питай на човешки език:<br>
+                            <button @click="chat.input = 'Каква е цената на лазерна епилация на подмишници?'"
+                                    class="mt-2 text-xs text-indigo-500 hover:underline">„Каква е цената на лазерна епилация на подмишници?"</button>
+                        </div>
+
+                        <template x-for="m in chat.messages" :key="m.id">
+                            <div :class="m.role === 'user' ? 'flex justify-end' : ''">
+                                <div class="rounded-xl px-3 py-2 text-sm max-w-[92%]"
+                                     :class="m.role === 'user' ? 'bg-indigo-600 text-white' : (m.failed ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-gray-50 text-gray-800 border border-gray-100')">
+                                    {{-- Badge: интернет отговор --}}
+                                    <div x-show="m.role === 'assistant' && m.source_type === 'web'" class="mb-1.5">
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-100 rounded-full px-2 py-0.5">🌐 От интернет</span>
                                     </div>
-                                </template>
+                                    {{-- Съдържание: потребител = чист текст; асистент = markdown --}}
+                                    <div x-show="m.role === 'user'" class="whitespace-pre-wrap" x-text="m.content"></div>
+                                    <div x-show="m.role === 'assistant'" class="kb-prose" x-html="renderAssistant(m)"></div>
+                                    {{-- Източници (chip-ове) --}}
+                                    <div x-show="m.sources && m.sources.length" class="mt-2 pt-2 border-t border-gray-200 flex flex-wrap gap-1">
+                                        <template x-for="s in (m.sources || [])" :key="s.n">
+                                            <span>
+                                                <a x-show="s.url" :href="s.url" target="_blank"
+                                                   class="inline-flex items-center gap-1 text-[11px] text-gray-500 bg-white border border-gray-200 rounded-full px-2 py-0.5 hover:border-indigo-300 hover:text-indigo-600 transition w-[280px]">
+                                                    <span class="font-mono text-gray-400" x-text="'['+s.n+']'"></span>
+                                                    <span class="truncate" x-text="s.title"></span>
+                                                </a>
+                                                <span x-show="!s.url" class="inline-flex items-center gap-1 text-[11px] text-gray-500 bg-white border border-gray-200 rounded-full px-2 py-0.5 w-[280px]">
+                                                    <span class="font-mono text-gray-400" x-text="'['+s.n+']'"></span>
+                                                    <span class="truncate" x-text="s.title + (s.kind === 'fact' ? ' (факт)' : '')"></span>
+                                                </span>
+                                            </span>
+                                        </template>
+                                    </div>
+                                    {{-- 👍/👎 само на интернет отговори --}}
+                                    <div x-show="m.role === 'assistant' && m.source_type === 'web' && !m.failed" class="mt-2 pt-2 border-t border-gray-200 flex items-center gap-2">
+                                        <span class="text-[11px] text-gray-400">Полезно?</span>
+                                        <button @click="sendFeedback(m, 'up')" :disabled="!!m.feedback"
+                                                :class="m.feedback === 'up' ? 'text-green-600' : 'text-gray-400 hover:text-green-600'"
+                                                class="text-base leading-none transition disabled:cursor-default" title="Запиши в знанието">👍</button>
+                                        <button @click="sendFeedback(m, 'down')" :disabled="!!m.feedback"
+                                                :class="m.feedback === 'down' ? 'text-red-500' : 'text-gray-400 hover:text-red-500'"
+                                                class="text-base leading-none transition disabled:cursor-default" title="Не помогна">👎</button>
+                                        <span x-show="m.feedback === 'up'" class="text-[11px] text-green-600">✓ Записано в знанието</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div x-show="chat.pending" x-cloak>
+                            <div class="rounded-xl px-3 py-2 text-sm bg-gray-50 border border-gray-100 text-gray-500 inline-flex items-center gap-2.5">
+                                <span class="kb-dots"><span class="kb-dot kb-dot--1"></span><span class="kb-dot kb-dot--2"></span><span class="kb-dot kb-dot--3"></span></span>
+                                <span x-text="chat.stage || 'Мисля…'"></span>
                             </div>
                         </div>
                     </div>
-                </template>
-
-                <div x-show="chat.pending" x-cloak>
-                    <div class="rounded-xl px-3 py-2 text-sm bg-gray-50 border border-gray-100 text-gray-400 inline-flex items-center gap-2">
-                        <span class="inline-block animate-spin">◌</span>
-                        <span x-text="chat.stage || 'Мисля…'"></span>
-                    </div>
                 </div>
-            </div>
 
-            <div class="p-3 border-t border-gray-100">
-                <div class="flex gap-2">
-                    <textarea x-model="chat.input" rows="2" placeholder="Въпрос към базата знания…"
-                              @keydown.enter.prevent="$event.shiftKey ? chat.input += '\n' : sendChat()"
-                              class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-                    <button @click="sendChat()" :disabled="chat.pending || !chat.input.trim()"
-                            class="bg-gray-900 hover:bg-black text-white px-3 rounded-lg text-sm font-medium transition disabled:opacity-40">➤</button>
+                <div class="p-3 border-t border-gray-100">
+                    <div class="flex gap-2" :class="chat.fullscreen ? 'max-w-3xl mx-auto w-full' : ''">
+                        <textarea x-model="chat.input" rows="2" placeholder="Въпрос към базата знания…"
+                                  @keydown.enter.prevent="$event.shiftKey ? chat.input += '\n' : sendChat()"
+                                  class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                        <button @click="sendChat()" :disabled="chat.pending || !chat.input.trim()"
+                                class="bg-gray-900 hover:bg-black text-white px-3 rounded-lg text-sm font-medium transition disabled:opacity-40">➤</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -624,6 +820,7 @@ function knowledgePage(config) {
             { key: 'facts', label: '💡 Факти' },
             { key: 'history', label: '🕓 История' },
             { key: 'gaps', label: '🕳 Пропуски' },
+            { key: 'conflicts', label: '⚠️ Конфликти' },
         ],
         selectedFolder: null,
         newFolderName: '', renaming: null, addingFolder: false, pollTimer: null,
@@ -631,11 +828,12 @@ function knowledgePage(config) {
         fTab: { items: [], total: 0, pages: 1, page: 1, search: '', category: 'all', loading: false },
         hTab: { items: [], total: 0, pages: 1, page: 1, search: '', loading: false },
         gTab: { items: [], total: 0, pages: 1, page: 1, search: '', loading: false },
+        cTab: { items: [], total: 0, pages: 1, page: 1, loading: false, scanning: false },
         addModal: { open: false, kind: 'url', url: '', noteTitle: '', noteContent: '', busy: false },
         noteEdit: { open: false, id: null, title: '', content: '', busy: false },
         preview: { open: false, loading: false, title: '', url: null, subtitle: '', content: '' },
         pagesModal: { open: false, loading: false, resource: null, pages: [] },
-        chat: { messages: [], input: '', session: null, pending: false, stage: '', pollTimer: null },
+        chat: { messages: [], input: '', session: null, pending: false, stage: '', pollTimer: null, fullscreen: false, sessions: [], showSessions: false, tip: { show: false, text: '', x: 0, y: 0 } },
 
         init() {
             this.$watch('tab', key => this.loadTab(key));
@@ -688,6 +886,7 @@ function knowledgePage(config) {
             else if (key === 'facts') this.loadFacts();
             else if (key === 'history') this.loadEvents();
             else if (key === 'gaps') this.loadGaps();
+            else if (key === 'conflicts') this.loadConflicts();
         },
 
         async loadResources() {
@@ -744,6 +943,42 @@ function knowledgePage(config) {
             finally { this.gTab.loading = false; }
         },
 
+        // ── Конфликти ──
+        async loadConflicts() {
+            this.cTab.loading = true;
+            try {
+                const data = await this.api('/conflicts?page=' + this.cTab.page);
+                this.cTab.items = data.items;
+                this.cTab.total = data.total;
+                this.cTab.pages = data.pages;
+            } catch (e) { this.error = e.message; }
+            finally { this.cTab.loading = false; }
+        },
+        async scanConflicts() {
+            this.cTab.scanning = true;
+            try {
+                await this.api('/conflicts/scan', { method: 'POST' });
+                this.cTab.page = 1;
+                await this.loadConflicts();
+                this.refresh(); // обнови бейджа
+            } catch (e) { this.error = e.message; }
+            finally { this.cTab.scanning = false; }
+        },
+        async resolveConflict(id, factId) {
+            try {
+                await this.api('/conflicts/' + id + '/resolve', { method: 'POST', json: { winner_fact_id: factId } });
+                await this.loadConflicts();
+                this.refresh();
+            } catch (e) { this.error = e.message; }
+        },
+        async ignoreConflict(id) {
+            try {
+                await this.api('/conflicts/' + id + '/ignore', { method: 'POST' });
+                await this.loadConflicts();
+                this.refresh();
+            } catch (e) { this.error = e.message; }
+        },
+
         async toggleEnabled() {
             try { this.enabled = (await this.api('/toggle', { method: 'POST' })).enabled; }
             catch (e) { this.error = e.message; }
@@ -754,6 +989,7 @@ function knowledgePage(config) {
             if (key === 'facts') return this.stats.facts ?? 0;
             if (key === 'history') return this.stats.events ?? 0;
             if (key === 'gaps') return this.stats.gaps ?? 0;
+            if (key === 'conflicts') return this.stats.conflicts ?? 0;
             return 0;
         },
 
@@ -965,6 +1201,82 @@ function knowledgePage(config) {
         newChat() {
             this.chat.session = crypto.randomUUID();
             this.chat.messages = [];
+            this.chat.showSessions = false;
+        },
+        toggleFullscreen() {
+            this.chat.fullscreen = !this.chat.fullscreen;
+            if (this.chat.fullscreen) this.loadSessions();
+            this.scrollChat();
+        },
+        toggleSessions() {
+            this.chat.showSessions = !this.chat.showSessions;
+            if (this.chat.showSessions) this.loadSessions();
+        },
+        async loadSessions() {
+            try {
+                const data = await this.api('/chat/sessions');
+                this.chat.sessions = data.sessions || [];
+            } catch { /* списъкът не е критичен */ }
+        },
+        async openSession(uuid) {
+            if (!uuid) return;
+            this.chat.showSessions = false;
+            try {
+                const data = await this.api('/chat/history?session=' + encodeURIComponent(uuid));
+                this.chat.session = data.session || uuid;
+                this.chat.messages = data.messages || [];
+                this.scrollChat();
+            } catch (e) { this.error = e.message; }
+        },
+        // Markdown → sanitized HTML + цитати [N] като линкове с tooltip.
+        renderAssistant(m) {
+            if (!m || m.role !== 'assistant' || !m.content) return '';
+            let html;
+            try {
+                html = window.marked ? window.marked.parse(m.content, { breaks: true, gfm: true }) : this.escapeHtml(m.content);
+            } catch (e) { html = this.escapeHtml(m.content); }
+            const sources = m.sources || [];
+            html = html.replace(/\[(\d+)\]/g, (match, n) => {
+                const s = sources[parseInt(n, 10) - 1];
+                if (!s) return match;
+                const tip = String(s.title || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+                if (s.url) {
+                    return `<a href="${s.url}" target="_blank" rel="noopener" class="kb-cite" data-tip="${tip}">${n}</a>`;
+                }
+                return `<span class="kb-cite kb-cite--fact" data-tip="${tip}">${n}</span>`;
+            });
+            return window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'data-tip', 'rel'] }) : html;
+        },
+        // Tooltip за цитат [N]: позиционира споделения .kb-tip спрямо badge-а (fixed, без отрязване/съкращаване).
+        citeHover(e) {
+            const el = e.target.closest && e.target.closest('.kb-cite[data-tip]');
+            if (!el) return;
+            const text = el.getAttribute('data-tip');
+            if (!text) return;
+            const r = el.getBoundingClientRect();
+            const m = 8, half = 140; // half ≈ max-width/2, държи tooltip-а в екрана хоризонтално
+            const x = Math.min(Math.max(r.left + r.width / 2, m + half), window.innerWidth - m - half);
+            this.chat.tip = { show: true, text, x, y: r.top - 6 };
+        },
+        citeOut(e) {
+            if (e.target.closest && e.target.closest('.kb-cite[data-tip]')) this.chat.tip.show = false;
+        },
+        escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s || '';
+            return d.innerHTML;
+        },
+        async sendFeedback(m, vote) {
+            if (!m || m.feedback || !m.id || String(m.id).startsWith('e') || String(m.id).startsWith('u')) return;
+            const prev = m.feedback || null;
+            m.feedback = vote; // оптимистично
+            try {
+                await this.api('/chat/' + m.id + '/feedback', { method: 'POST', json: { vote } });
+                if (vote === 'up') this.refresh(); // нов ресурс → опресни статистики/ресурси
+            } catch (e) {
+                m.feedback = prev;
+                this.error = e.message;
+            }
         },
         async sendChat() {
             const message = this.chat.input.trim();

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -65,6 +66,7 @@ class PerplexitySearchService
         }
 
         $lastException = null;
+        $startMs = (int) (microtime(true) * 1000);
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
             try {
                 $response = Http::withToken((string) $apiKey)
@@ -73,9 +75,24 @@ class PerplexitySearchService
                     ->post((string) config('services.perplexity.search_url', self::ENDPOINT), $payload);
 
                 if ($response->successful()) {
-                    LlmUsage::addFlatCost((float) config('services.perplexity.request_cost_usd', 0.005));
+                    $results = $this->normalizeResults($response->json());
+                    $flatCost = (float) config('services.perplexity.request_cost_usd', 0.005);
+                    LlmUsage::addFlatCost($flatCost);
 
-                    return $this->normalizeResults($response->json());
+                    // Per-request одит за admin "Разходи" (секция Външни API).
+                    LlmRequestRecorder::record(
+                        'perplexity', 'search',
+                        ($payload['search_type'] ?? null) === 'people' ? 'people_search' : 'web_search',
+                        null,
+                        is_array($query) ? implode(' | ', $query) : (string) $query,
+                        $this->resultsPreview($results),
+                        array_intersect_key($payload, array_flip(['max_results', 'country', 'search_type', 'search_domain_filter'])),
+                        0, 0,
+                        (int) (microtime(true) * 1000) - $startMs,
+                        costOverride: $flatCost,
+                    );
+
+                    return $results;
                 }
 
                 throw new \RuntimeException("Perplexity Search API error: HTTP {$response->status()}");
@@ -105,6 +122,21 @@ class PerplexitySearchService
         }
 
         return array_values(array_filter($results, 'is_array'));
+    }
+
+    /** Кратък преглед на резултатите за одит реда (response_text). */
+    private function resultsPreview(array $results): string
+    {
+        $lines = [];
+        foreach (array_slice($results, 0, 10) as $i => $result) {
+            $n = $i + 1;
+            $title = $result['title'] ?? 'No title';
+            $url = $result['url'] ?? '';
+            $snippet = $result['snippet'] ?? $result['description'] ?? '';
+            $lines[] = trim("[{$n}] {$title}\n{$url}\n{$snippet}");
+        }
+
+        return implode("\n\n", $lines);
     }
 
     private function emptyQuery(string|array $query): bool

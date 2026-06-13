@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Support\LlmContext;
+use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -62,6 +64,8 @@ class MistralOcrService
             return null;
         }
 
+        $startMs = (int) (microtime(true) * 1000);
+
         try {
             $response = Http::withToken((string) $apiKey)
                 ->acceptJson()
@@ -83,11 +87,37 @@ class MistralOcrService
             }
 
             $pages = $this->pageCount($json);
+            $markdown = $this->markdownFromResponse($json, $label);
+
             if ($pages > 0) {
-                LlmUsage::addFlatCost($pages * (float) config('services.mistral.ocr_page_cost_usd', 0.002));
+                $cost = $pages * (float) config('services.mistral.ocr_page_cost_usd', 0.002);
+                LlmUsage::addFlatCost($cost);
+
+                // Per-request одит за admin "Разходи" → секция Mistral OCR.
+                // knowledge_resource_id (от ingest контекста) дава линк към
+                // оригинала + digest в preview popup-а. Пазим повече от сканирания
+                // текст, защото това Е „на какво е сканирано" в preview-а.
+                $opts = ['pages' => $pages];
+                $resourceId = LlmContext::get()['knowledge_resource_id'] ?? null;
+                if ($resourceId) {
+                    $opts['knowledge_resource_id'] = $resourceId;
+                }
+
+                LlmRequestRecorder::record(
+                    'mistral',
+                    (string) config('services.mistral.ocr_model', 'mistral-ocr-latest'),
+                    'ocr',
+                    null,
+                    $label,
+                    mb_substr((string) $markdown, 0, 50000),
+                    $opts,
+                    0, 0,
+                    (int) (microtime(true) * 1000) - $startMs,
+                    costOverride: $cost,
+                );
             }
 
-            return $this->markdownFromResponse($json, $label);
+            return $markdown;
         } catch (\Throwable $e) {
             Log::warning('[MistralOCR] '.$e->getMessage());
 

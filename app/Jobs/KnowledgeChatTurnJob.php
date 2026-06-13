@@ -59,6 +59,7 @@ class KnowledgeChatTurnJob implements ShouldQueue
             $reply->update([
                 'content' => $result['content'],
                 'sources' => $result['sources'] ?: null,
+                'source_type' => $result['source_type'] ?? 'kb',
                 'cost_usd' => $result['cost_usd'],
                 'status' => 'completed',
             ]);
@@ -70,6 +71,8 @@ class KnowledgeChatTurnJob implements ShouldQueue
                     'role' => 'assistant',
                     'content' => $reply->content,
                     'sources' => $reply->sources ?? [],
+                    'source_type' => $reply->source_type,
+                    'feedback' => $reply->feedback,
                     'cost_usd' => $reply->cost_usd,
                 ],
             ], now()->addMinutes(15));

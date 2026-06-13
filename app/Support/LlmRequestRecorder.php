@@ -31,6 +31,7 @@ class LlmRequestRecorder
         int $durationMs,
         string $status = 'completed',
         ?string $error = null,
+        ?float $costOverride = null,
     ): void {
         try {
             $ctx = LlmContext::get();
@@ -57,7 +58,9 @@ class LlmRequestRecorder
                 'prompt_tokens' => $promptTokens ?: null,
                 'completion_tokens' => $completionTokens ?: null,
                 'total_tokens' => ($promptTokens + $completionTokens) ?: null,
-                'cost_usd' => round(LlmUsage::costFor($provider, $model, $promptTokens, $completionTokens), 6),
+                // Flat/page-priced услуги (Perplexity, OCR) подават явна цена —
+                // token-базираната costFor() не важи за тях.
+                'cost_usd' => round($costOverride ?? LlmUsage::costFor($provider, $model, $promptTokens, $completionTokens), 6),
                 'duration_ms' => $durationMs,
 
                 'status' => $status,

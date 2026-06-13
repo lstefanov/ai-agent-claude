@@ -10,12 +10,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Един РЕСУРС в базата знания на фирмата (NotebookLM стил): url (сайт/страница,
  * обхожда се BFS и ражда KnowledgePage-и), upload (документ), image (снимка →
- * OCR) или note (бележка, създавана в UI). Изтриването на ресурс "забравя"
- * всичко произлязло от него (страници/чанкове/факти — cascade + изрично).
+ * OCR), note (бележка, създавана в UI) или chat (одобрен с 👍 интернет-отговор
+ * от чата "Тествай знанията", промотиран в знание). Изтриването на ресурс
+ * "забравя" всичко произлязло от него (страници/чанкове/факти — cascade + изрично).
  */
 class KnowledgeResource extends Model
 {
-    public const TYPES = ['url', 'upload', 'image', 'note'];
+    public const TYPES = ['url', 'upload', 'image', 'note', 'chat'];
 
     protected $fillable = [
         'company_id', 'folder_id', 'type', 'title', 'original_name', 'mime',

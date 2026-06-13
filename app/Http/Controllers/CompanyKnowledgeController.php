@@ -5,16 +5,19 @@ namespace App\Http\Controllers;
 use App\Jobs\IngestResourceJob;
 use App\Jobs\IngestUrlResourceJob;
 use App\Models\Company;
+use App\Models\KnowledgeConflict;
 use App\Models\KnowledgeEvent;
 use App\Models\KnowledgeFact;
 use App\Models\KnowledgeFolder;
 use App\Models\KnowledgeGap;
 use App\Models\KnowledgePage;
 use App\Models\KnowledgeResource;
+use App\Services\Knowledge\KnowledgeConflictService;
 use App\Services\KnowledgeService;
 use App\Services\WebPageCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -72,6 +75,7 @@ class CompanyKnowledgeController extends Controller
                 'facts' => $company->knowledgeFacts()->active()->count(),
                 'events' => $company->knowledgeEvents()->count(),
                 'gaps' => KnowledgeGap::where('company_id', $company->id)->count(),
+                'conflicts' => KnowledgeConflict::where('company_id', $company->id)->open()->count(),
                 'cost_usd' => round((float) $company->knowledgeResources()->sum('cost_usd'), 4),
                 'foreign_provider_chunks' => $knowledge->foreignProviderChunks($company),
                 'provider_tag' => $knowledge->providerTag(),
@@ -225,6 +229,128 @@ class CompanyKnowledgeController extends Controller
             'total' => $total,
             'pages' => max(1, (int) ceil($total / $perPage)),
         ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Конфликти (противоречиви факти от различни източници)
+    // ──────────────────────────────────────────────────────────────────────
+
+    public function listConflicts(Request $request, Company $company): JsonResponse
+    {
+        $perPage = 15;
+        $page = max(1, (int) $request->query('page', 1));
+
+        $query = KnowledgeConflict::where('company_id', $company->id)->open()->latest('id');
+        $total = $query->count();
+        $conflicts = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+        $factIds = $conflicts->flatMap(fn (KnowledgeConflict $c) => (array) $c->fact_ids)->unique()->values();
+        $facts = $factIds->isNotEmpty()
+            ? KnowledgeFact::whereIn('id', $factIds)->get()->keyBy('id')
+            : collect();
+        $sources = $this->resolveFactSources($facts);
+
+        $items = $conflicts->map(fn (KnowledgeConflict $c) => [
+            'id' => $c->id,
+            'subject' => $c->subject,
+            'category' => $c->category,
+            'location' => $c->location,
+            'created_at' => $c->created_at->format('d.m.Y H:i'),
+            'candidates' => collect((array) $c->fact_ids)
+                ->map(fn ($id) => $facts->get($id))
+                ->filter()
+                ->map(fn (KnowledgeFact $f) => [
+                    'fact_id' => $f->id,
+                    'value' => $f->value,
+                    'source' => $sources[$f->id] ?? ucfirst((string) $f->source_type),
+                    'created_at' => $f->created_at?->format('d.m.Y H:i'),
+                    'confidence' => $f->confidence,
+                    'active' => $f->status === 'active',
+                ])
+                ->values(),
+        ]);
+
+        return response()->json([
+            'items' => $items,
+            'total' => $total,
+            'pages' => max(1, (int) ceil($total / $perPage)),
+        ]);
+    }
+
+    public function scanConflicts(Company $company, KnowledgeConflictService $service): JsonResponse
+    {
+        return response()->json(['found' => $service->scan($company)]);
+    }
+
+    public function resolveConflict(Request $request, Company $company, KnowledgeConflict $conflict, KnowledgeConflictService $service): JsonResponse
+    {
+        abort_unless($conflict->company_id === $company->id, 404);
+        $data = $request->validate(['winner_fact_id' => 'required|integer']);
+
+        if ($conflict->status !== 'open') {
+            return response()->json(['error' => 'Конфликтът вече е обработен.'], 422);
+        }
+        if (! in_array((int) $data['winner_fact_id'], array_map('intval', (array) $conflict->fact_ids), true)) {
+            return response()->json(['error' => 'Невалиден избор.'], 422);
+        }
+
+        $service->resolve($conflict, (int) $data['winner_fact_id']);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function ignoreConflict(Company $company, KnowledgeConflict $conflict, KnowledgeConflictService $service): JsonResponse
+    {
+        abort_unless($conflict->company_id === $company->id, 404);
+        $service->ignore($conflict);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Човешки етикет на източника per факт (resource/page/run/chat) — bulk,
+     * за да няма N+1.
+     *
+     * @param  Collection<int, KnowledgeFact>  $facts
+     * @return array<int, string>
+     */
+    private function resolveFactSources(Collection $facts): array
+    {
+        $resourceIds = $facts->where('source_type', 'resource')->pluck('source_id')->filter()->unique();
+        $pageIds = $facts->where('source_type', 'page')->pluck('source_id')->filter()->unique();
+
+        $resources = $resourceIds->isNotEmpty()
+            ? KnowledgeResource::whereIn('id', $resourceIds)->get(['id', 'type', 'title', 'original_name', 'url'])->keyBy('id')
+            : collect();
+        $pages = $pageIds->isNotEmpty()
+            ? KnowledgePage::whereIn('id', $pageIds)->get(['id', 'url', 'title'])->keyBy('id')
+            : collect();
+
+        $labels = [];
+        foreach ($facts as $f) {
+            $labels[$f->id] = match ($f->source_type) {
+                'resource' => (function () use ($f, $resources) {
+                    $r = $resources->get($f->source_id);
+                    if (! $r) {
+                        return 'Документ #'.$f->source_id;
+                    }
+
+                    return $r->type === 'url'
+                        ? 'URL: '.($r->title ?: $r->url)
+                        : 'Документ: '.($r->original_name ?: $r->title);
+                })(),
+                'page' => (function () use ($f, $pages) {
+                    $p = $pages->get($f->source_id);
+
+                    return $p ? 'Страница: '.($p->url ?: $p->title) : 'Страница #'.$f->source_id;
+                })(),
+                'run' => 'Run #'.($f->flow_run_id ?: $f->source_id),
+                'chat' => 'Чат',
+                default => ucfirst((string) $f->source_type),
+            };
+        }
+
+        return $labels;
     }
 
     public function toggle(Company $company): JsonResponse

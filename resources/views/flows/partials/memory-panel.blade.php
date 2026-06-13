@@ -244,7 +244,7 @@
                    x-text="memoryPanel.preview.nodeName"></p>
                 <p class="text-base font-bold text-gray-900 mt-0.5"
                    x-show="memoryPanel.preview.title"
-                   x-text="'„' + memoryPanel.preview.title + '"'"></p>
+                   x-text="'„' + memoryPanel.preview.title + '“'"></p>
             </div>
             <button @click="memoryPanel.preview.open = false" type="button"
                     class="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0 mt-0.5">✕</button>

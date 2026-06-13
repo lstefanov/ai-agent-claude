@@ -14,7 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class KnowledgeChatMessage extends Model
 {
     protected $fillable = [
-        'company_id', 'session', 'role', 'content', 'sources', 'status', 'error', 'cost_usd',
+        'company_id', 'session', 'role', 'content', 'sources', 'source_type',
+        'feedback', 'saved_resource_id', 'status', 'error', 'cost_usd',
     ];
 
     protected $casts = [

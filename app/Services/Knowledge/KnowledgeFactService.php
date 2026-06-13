@@ -21,6 +21,7 @@ class KnowledgeFactService
     public function __construct(
         EmbeddingService $embeddings,
         private KnowledgeGapService $gaps,
+        private KnowledgeConflictService $conflicts,
     ) {
         $this->embeddings = $embeddings->withProvider(
             config('services.knowledge.embedding_provider'),
@@ -108,6 +109,9 @@ class KnowledgeFactService
                 ['category' => $fact['category'], 'location' => $fact['location'], 'superseded_fact_id' => $existing->id],
             );
 
+            // СЛЕД supersede — за да не се брои легитимната замяна като конфликт.
+            $this->conflicts->detectForFact($company, $new);
+
             return 'updated';
         }
 
@@ -122,6 +126,9 @@ class KnowledgeFactService
         if ($vector !== null) {
             $this->gaps->resolveAgainstVectors($company, [$vector], "fact:{$new->id}");
         }
+
+        // Близък-но-различен активен факт → конфликт за ръчен преглед.
+        $this->conflicts->detectForFact($company, $new);
 
         return 'added';
     }
