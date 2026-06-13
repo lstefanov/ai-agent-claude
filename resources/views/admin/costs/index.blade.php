@@ -215,6 +215,53 @@
     <div id="costGrid"></div>
 </div>
 
+{{-- ── Chat Assistant (Builder Copilot) section ───────────────────────── --}}
+<div class="mt-8 mb-4">
+    <div class="flex items-center flex-wrap gap-3 mb-4">
+        <h2 class="text-lg font-bold text-gray-900">🤖 Чат асистент (Builder Copilot)</h2>
+        @if($chatModel)
+            @php [$pBorder, $pLabel] = $providerStyles[$chatProvider] ?? ['border-amber-200', 'text-amber-600']; @endphp
+            <span class="inline-block px-3 py-0.5 rounded-full text-xs font-semibold {{ $pLabel }} border {{ $pBorder }} bg-white">
+                {{ $chatProvider }} / {{ $chatModel }}
+            </span>
+        @endif
+    </div>
+
+    {{-- Stat cards --}}
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-4">
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Сесии</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($chatSummary['sessions']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Съобщения</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($chatSummary['messages']) }}</p>
+            <p class="text-xs text-gray-500 mt-1">{{ $fmtInt($chatSummary['calls']) }} LLM заявки</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Токени (общо)</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtInt($chatSummary['total_tokens']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Разход</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsdSmart($chatSummary['total_cost']) }}</p>
+        </div>
+        <div class="bg-white border border-amber-200 rounded-xl p-4">
+            <p class="text-xs text-amber-600 uppercase tracking-wide">Ср. разход / сесия</p>
+            <p class="text-2xl font-bold text-gray-900 mt-1">{{ $fmtUsdSmart($chatSummary['avg_cost']) }}</p>
+            @if($chatSummary['top_model'] !== '—')
+                <p class="text-xs text-gray-400 mt-1 truncate" title="{{ $chatSummary['top_model'] }}">{{ $chatSummary['top_model'] }}</p>
+            @endif
+        </div>
+    </div>
+
+    {{-- Chat sessions Grid.js table --}}
+    <div class="bg-white border border-gray-200 rounded-xl p-4 overflow-x-auto">
+        <p class="text-xs text-gray-400 mb-3">Кликни ред за да видиш пълния разговор (въпрос и отговор).</p>
+        <div id="chatGrid"></div>
+    </div>
+</div>
+
 {{-- ── Sub-table modal (drill-down: individual calls in a session) ────── --}}
 <div id="groupModal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black/40" id="groupModalOverlay"></div>
@@ -292,6 +339,29 @@
     </div>
 </div>
 
+{{-- ── Chat transcript modal ──────────────────────────────────────────── --}}
+<div id="chatModal" class="fixed inset-0 z-[70] hidden">
+    <div class="absolute inset-0 bg-black/40" id="chatModalOverlay"></div>
+    <div class="absolute inset-0 flex items-start justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-8 relative">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;white-space:nowrap;">🤖 Чат</span>
+                    <span id="cm-title" class="font-semibold text-gray-900 text-sm truncate"></span>
+                </div>
+                <button id="chatModalClose" class="text-gray-400 hover:text-gray-700 text-xl leading-none ml-4 shrink-0">&times;</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div id="cm-meta" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
+                <div>
+                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Разговор</p>
+                    <div id="cm-messages" class="space-y-3 max-h-[62vh] overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <link href="https://cdn.jsdelivr.net/npm/gridjs@6.0.6/dist/theme/mermaid.min.css" rel="stylesheet">
 <style>
 .gridjs-th, .gridjs-td { padding: 10px 12px !important; }
@@ -302,8 +372,10 @@
 <script>
 const CHARTS = @json($charts);
 const ROWS   = @json($rows);
-const DETAIL_URL      = "{{ url('admin/costs/detail') }}";
+const DETAIL_URL       = "{{ url('admin/costs/detail') }}";
 const GROUP_DETAIL_URL = "{{ url('admin/costs/group-detail') }}";
+const CHAT_DETAIL_URL  = "{{ url('admin/costs/chat-detail') }}";
+const CHAT_SESSIONS    = @json($chatSessions);
 
 // ── Linked filter dropdowns: "Модел" shows only the chosen provider's models ──
 const MODELS_BY_PROVIDER = @json($filterOptions['modelsByProvider']);
@@ -624,7 +696,9 @@ document.getElementById('costModalClose').addEventListener('click', () => costMo
 document.getElementById('costModalOverlay').addEventListener('click', () => costModal.classList.add('hidden'));
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        if (!costModal.classList.contains('hidden')) { costModal.classList.add('hidden'); }
+        const chatMod = document.getElementById('chatModal');
+        if (!chatMod.classList.contains('hidden')) { closeChatModal(); }
+        else if (!costModal.classList.contains('hidden')) { costModal.classList.add('hidden'); }
         else { closeGroupModal(); }
     }
 });
@@ -639,5 +713,125 @@ function toggleOllamaModels(btn) {
         ? `покажи всички (${btn.dataset.extra} още) ↓`
         : 'скрий ↑';
 }
+
+// ── Chat sessions Grid.js ─────────────────────────────────────────────
+const chatGrid = new gridjs.Grid({
+    data: CHAT_SESSIONS.map(r => [
+        r.session_id,    // 0 hidden
+        r.created_at,    // 1
+        r.provider,      // 2
+        r.model,         // 3
+        r.company,       // 4
+        r.flow,          // 5
+        r.msg_count,     // 6
+        r.total_tokens,  // 7
+        r.cost_usd,      // 8
+        r.status,        // 9
+    ]),
+    columns: [
+        { name: 'Сесия',               hidden: true },
+        { name: 'Последна активност',  width: '160px' },
+        { name: 'Провайдър',           width: '110px', formatter: c => gridjs.html(providerBadge(c)) },
+        { name: 'Модел',               width: '180px', formatter: c => c || '—' },
+        { name: 'Фирма',               width: '150px', formatter: c => c || '—' },
+        { name: 'Flow',                width: '180px', formatter: c => c || '—' },
+        { name: 'Съобщения',           width: '112px' },
+        { name: 'Токени',              width: '100px', formatter: c => c ? Number(c).toLocaleString() : '—' },
+        { name: 'Цена',                width: '84px',  formatter: c => '$' + Number(c || 0).toFixed(4) },
+        { name: 'Статус',              width: '100px', formatter: c => gridjs.html(statusBadge(c)) },
+    ],
+    search: true,
+    sort: true,
+    pagination: { limit: 25 },
+    language: {
+        search: { placeholder: 'Търси…' },
+        pagination: { previous: '‹', next: '›', showing: 'Показва', to: '–', of: 'от', results: () => 'разговора' },
+        noRecordsFound: 'Няма чат сесии за избраните филтри',
+        error: 'Грешка при зареждане',
+    },
+    style: { table: { 'font-size': '13px' }, th: { 'white-space': 'nowrap' } },
+});
+chatGrid.render(document.getElementById('chatGrid'));
+chatGrid.on('rowClick', (event, row) => {
+    const sessionId = row.cells[0].data;
+    const flowName  = row.cells[5].data || row.cells[4].data;
+    openChat(sessionId, flowName);
+});
+
+// ── Chat transcript modal ─────────────────────────────────────────────
+async function openChat(sessionId, title) {
+    const modal      = document.getElementById('chatModal');
+    const messagesEl = document.getElementById('cm-messages');
+    const metaEl     = document.getElementById('cm-meta');
+    const titleEl    = document.getElementById('cm-title');
+
+    messagesEl.innerHTML = '<p class="text-center text-gray-400 text-sm py-8">Зареждане…</p>';
+    metaEl.innerHTML = '';
+    titleEl.textContent = title || sessionId;
+    modal.classList.remove('hidden');
+
+    try {
+        const resp = await fetch(`${CHAT_DETAIL_URL}?session=${encodeURIComponent(sessionId)}`,
+            { headers: { Accept: 'application/json' } });
+        if (!resp.ok) { messagesEl.innerHTML = '<p class="text-red-500 text-sm text-center py-4">Грешка при зареждане.</p>'; return; }
+        const data = await resp.json();
+
+        // Meta header cards
+        const card = (label, value) =>
+            `<div class="bg-gray-50 rounded-lg p-3">
+                <p class="text-xs text-gray-400">${label}</p>
+                <p class="font-semibold text-gray-900 text-sm">${value ?? '—'}</p>
+             </div>`;
+        metaEl.innerHTML =
+            card('Flow', data.meta.flow) +
+            card('Фирма', data.meta.company) +
+            card('Модел', data.meta.models || '—') +
+            card('Токени', Number(data.meta.total_tokens || 0).toLocaleString()) +
+            card('Цена', '$' + Number(data.meta.cost_usd || 0).toFixed(4)) +
+            card('LLM заявки', data.meta.call_count);
+
+        titleEl.textContent = data.meta.flow || title || sessionId;
+
+        if (!data.messages || !data.messages.length) {
+            messagesEl.innerHTML = '<p class="text-center text-gray-400 text-sm py-4">Няма съобщения.</p>';
+            return;
+        }
+
+        messagesEl.innerHTML = data.messages.map(m => {
+            const isUser = m.role === 'user';
+            const bg    = isUser
+                ? 'background:#f0f9ff;border:1px solid #bae6fd;'
+                : 'background:#f9fafb;border:1px solid #e5e7eb;';
+            const roleBadge = isUser
+                ? '<span style="background:#0ea5e9;color:#fff;padding:1px 8px;border-radius:9999px;font-size:11px;font-weight:600;">Потребител</span>'
+                : '<span style="background:#fef9c3;color:#854d0e;padding:1px 8px;border-radius:9999px;font-size:11px;font-weight:600;">Асистент</span>';
+            const costStr = (!isUser && m.cost_usd != null)
+                ? `<span style="font-size:11px;color:#9ca3af;margin-left:6px;">$${Number(m.cost_usd).toFixed(4)}</span>` : '';
+            const timeStr = m.created_at
+                ? `<span style="font-size:11px;color:#9ca3af;margin-left:6px;">${m.created_at}</span>` : '';
+            const opsBadge = m.has_ops
+                ? '<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:9999px;font-size:10px;margin-left:4px;">+граф промени</span>' : '';
+            const errHtml = m.error
+                ? `<p style="color:#b91c1c;font-size:12px;margin-top:6px;font-style:italic;">${m.error.replace(/</g,'&lt;')}</p>` : '';
+            const content = m.content
+                ? m.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                : '<em style="color:#9ca3af">—</em>';
+            return `<div style="${bg}border-radius:10px;padding:12px 14px;">
+                        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin-bottom:8px;">
+                            ${roleBadge}${costStr}${timeStr}${opsBadge}
+                        </div>
+                        <p style="font-size:13px;color:#1f2937;white-space:pre-wrap;word-break:break-word;margin:0;">${content}</p>
+                        ${errHtml}
+                    </div>`;
+        }).join('');
+    } catch (e) {
+        console.error(e);
+        messagesEl.innerHTML = '<p class="text-red-500 text-sm text-center py-4">Мрежова грешка.</p>';
+    }
+}
+
+function closeChatModal() { document.getElementById('chatModal').classList.add('hidden'); }
+document.getElementById('chatModalClose').addEventListener('click', closeChatModal);
+document.getElementById('chatModalOverlay').addEventListener('click', closeChatModal);
 </script>
 @endsection

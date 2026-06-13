@@ -57,9 +57,10 @@ return [
         // Strong model used by FinalComposerService to assemble the final result
         // from the individual agent outputs (posts + titles + hashtags).
         'composer_model' => env('OLLAMA_COMPOSER_MODEL', 'gemma4:12b'),
-        // Local embeddings model (flow memory dedup) — pull it on the Ollama
-        // host first: `ollama pull nomic-embed-text`.
-        'embedding_model' => env('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text'),
+        // Local embeddings model (знания + памет) — pull it on the Ollama
+        // host first: `ollama pull bge-m3`. bge-m3 е мултиезичен (вкл. BG)
+        // с 8k контекст; nomic-embed-text е по-лек, но по-слаб на кирилица.
+        'embedding_model' => env('OLLAMA_EMBEDDING_MODEL', 'bge-m3'),
     ],
 
     // Which LLM provider plans the agents for a Flow: openai | anthropic | ollama.
@@ -100,8 +101,12 @@ return [
     'memory' => [
         // Глобален ключ; всеки flow има и собствен toggle (settings.memory.enabled).
         'enabled' => env('FLOW_MEMORY_ENABLED', true),
-        // Кой смята embeddings за сходството: openai | ollama (безплатно локално).
-        'embedding_provider' => env('MEMORY_EMBEDDING_PROVIDER', 'openai'),
+        // Кой смята embeddings за сходството: ollama (безплатно локално,
+        // default) | gemini (безплатен tier) | openai (платен). Виж
+        // EmbeddingService за детайли по опциите.
+        'embedding_provider' => env('MEMORY_EMBEDDING_PROVIDER', 'ollama'),
+        // null → per-provider default (ollama: OLLAMA_EMBEDDING_MODEL).
+        'embedding_model' => env('MEMORY_EMBEDDING_MODEL'),
         // Cosine ≥ прага = "твърде подобно" → retry с feedback. Евристично
         // съответствие на правилото "до 30-40% припокриване на съдържанието".
         'similarity_threshold' => env('MEMORY_SIMILARITY_THRESHOLD', 0.80),
@@ -115,24 +120,48 @@ return [
         'prompt_entries' => env('MEMORY_PROMPT_ENTRIES', 10),
     ],
 
-    // База знания на фирмата (RAG): качени документи + сайтът ѝ + история на
-    // run-ове. Памет = "какво сме произвели"; знание = "какво е вярно за фирмата".
+    // База знания на фирмата (RAG v2, NotebookLM стил): ресурси (url, файл,
+    // снимка, бележка) → страници → чанкове + факти (натрупващият се профил).
+    // Памет = "какво сме произвели"; знание = "какво е вярно за фирмата".
     'knowledge' => [
         // Глобален ключ; всяка фирма (settings.knowledge.enabled) и всеки flow
         // (flow settings.knowledge.enabled) имат собствен toggle.
         'enabled' => env('KNOWLEDGE_ENABLED', true),
-        // null → ползва MEMORY_EMBEDDING_PROVIDER (openai | ollama).
+        // Embeddings: ollama (безплатно локално, default) | gemini (безплатен
+        // tier) | openai (платен). null → MEMORY_EMBEDDING_PROVIDER. Смяната
+        // изисква re-ingest (виж EmbeddingService).
         'embedding_provider' => env('KNOWLEDGE_EMBEDDING_PROVIDER'),
+        // null → per-provider default (ollama: bge-m3).
+        'embedding_model' => env('KNOWLEDGE_EMBEDDING_MODEL'),
+        // СИНТЕЗ (digest на страница/документ + извличане на факти): най-
+        // тежката LLM работа при ingest → евтин/безплатен cloud по default
+        // (gemini flash-lite е free tier). Провайдъри: gemini | deepseek |
+        // openai | xai | qwen. model null → runtime_model на провайдъра.
+        'synth_provider' => env('KNOWLEDGE_SYNTH_PROVIDER', 'gemini'),
+        'synth_model' => env('KNOWLEDGE_SYNTH_MODEL'),
+        // Чатът "Тествай знанията": локален по default (безплатни въпроси).
+        // ollama + празен model → ModelSelector избира BG модела (BgGPT).
+        'chat_provider' => env('KNOWLEDGE_CHAT_PROVIDER', 'ollama'),
+        'chat_model' => env('KNOWLEDGE_CHAT_MODEL'),
+        'chat_history_limit' => 20,
         'chunk_size' => (int) env('KNOWLEDGE_CHUNK_SIZE', 1200),
         'chunk_overlap' => (int) env('KNOWLEDGE_CHUNK_OVERLAP', 150),
         // Колко чанка връща търсенето / влизат в "ЗНАНИЕ" блока.
         'top_k' => (int) env('KNOWLEDGE_TOP_K', 5),
+        // Диверсификация: максимум чанкове от ЕДНА страница/ресурс в topK
+        // (фактите не се броят) — иначе една страница запълва целия резултат.
+        'max_per_source' => (int) env('KNOWLEDGE_MAX_PER_SOURCE', 2),
+        // Тегло на keyword канала в RRF сливането (векторният е 1.0) — чист
+        // TF match на честа дума не бива да бие семантично уцелен чанк.
+        'rrf_keyword_weight' => (float) env('KNOWLEDGE_RRF_KEYWORD_WEIGHT', 0.75),
         'block_max_chars' => (int) env('KNOWLEDGE_BLOCK_MAX_CHARS', 2500),
         // Под този cosine score чанкът не влиза в "ЗНАНИЕ" блока.
         'min_score' => (float) env('KNOWLEDGE_MIN_SCORE', 0.25),
         // Под този best score grounding търсенето се логва като "пропуск"
         // (агент е търсил нещо, за което няма покритие в базата).
         'gap_threshold' => (float) env('KNOWLEDGE_GAP_THRESHOLD', 0.55),
+        // Cosine ≥ прага → нов чанк/факт "запълва" отворен пропуск (готов).
+        'gap_resolve_threshold' => (float) env('KNOWLEDGE_GAP_RESOLVE_THRESHOLD', 0.62),
         'max_gaps_per_company' => (int) env('KNOWLEDGE_MAX_GAPS', 200),
         'max_file_mb' => (int) env('KNOWLEDGE_MAX_FILE_MB', 20),
         // Предпазители срещу огромни файлове: редове per Excel лист и общ
@@ -141,7 +170,13 @@ return [
         'max_extract_chars' => (int) env('KNOWLEDGE_MAX_EXTRACT_CHARS', 600000),
         // Таван на сканираните чанкове при едно търсене (cursor scan).
         'max_scan_chunks' => (int) env('KNOWLEDGE_MAX_SCAN_CHUNKS', 8000),
-        'site_max_pages' => (int) env('KNOWLEDGE_SITE_MAX_PAGES', 30),
+        // Таван на BFS обхождането на един url ресурс (уникални страници).
+        'site_max_pages' => (int) env('KNOWLEDGE_SITE_MAX_PAGES', 200),
+        // Факт-дедупликация: cosine ≥ прага (същата категория) → новата
+        // стойност supersede-ва стария факт вместо да добави дубликат.
+        'fact_similarity_threshold' => (float) env('KNOWLEDGE_FACT_SIMILARITY', 0.86),
+        // Факти с по-нисък confidence от извличащия LLM се пропускат.
+        'fact_min_confidence' => (float) env('KNOWLEDGE_FACT_MIN_CONFIDENCE', 0.5),
     ],
 
     // FlowPlannerService tuning (the "agent that creates agents").
@@ -286,6 +321,8 @@ return [
         // thinking преамбюл, който да изгаря num_predict бюджета.
         'runtime_model' => env('GEMINI_RUNTIME_MODEL', 'gemini-3.1-flash-lite'),
         'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/openai'),
+        // Embeddings през OpenAI-compatible /embeddings (безплатен tier).
+        'embedding_model' => env('GEMINI_EMBEDDING_MODEL', 'gemini-embedding-001'),
         'structured_output' => env('GEMINI_STRUCTURED_OUTPUT', 'json_schema'),
         'max_tokens_param' => 'max_tokens',
         'pricing' => [
@@ -397,7 +434,13 @@ return [
         'url' => env('CRAWL_SERVICE_URL', 'http://localhost:8189'),
         'enabled' => env('CRAWL_SERVICE_ENABLED', true),
         'timeout' => env('CRAWL_SERVICE_TIMEOUT', 35),
-        'max_pages' => env('CRAWL_MAX_PAGES', 20),
+        // Таван страници за агентските crawl_site/discover_urls tools (BFS).
+        // Ingest-ът на знанията ползва отделния KNOWLEDGE_SITE_MAX_PAGES.
+        'max_pages' => env('CRAWL_MAX_PAGES', 30),
+        // Кои страници BFS-ът прескача: точни path сегменти + regex. Правните
+        // страници (условия/политики) се ПАЗЯТ — носят условия на бизнеса.
+        // Override-ни ги тук при нужда (виж CrawlService::isSkippedPage).
+        // 'skip_segments' => [...], 'skip_pattern' => '/.../',
         // Глобален markdown кеш на скрейпнати страници (web_page_cache):
         // в TTL прозореца страницата се връща без HTTP; след него fetch +
         // content-hash сравнение. Покрива и digest кеша на deep_researcher.

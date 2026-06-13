@@ -45,7 +45,7 @@
     <span class="text-xl">📚</span>
     <span class="font-semibold text-gray-900">База знания</span>
     <span class="text-sm text-gray-500">
-        {{ $knowledgeStats['documents'] }} документа · {{ $knowledgeStats['chunks'] }} откъса
+        {{ $knowledgeStats['documents'] }} ресурса · {{ $knowledgeStats['chunks'] }} откъса · {{ $knowledgeStats['facts'] }} факта
     </span>
     <span class="ml-auto text-indigo-600 text-sm font-medium group-hover:translate-x-0.5 transition-transform">Отвори →</span>
 </a>

@@ -620,10 +620,10 @@
             </button>
 
             <div class="flex items-center rounded-lg" :class="knowledgeEnabled ? '' : 'opacity-50'">
-                <a :href="config.knowledgeUrl" target="_blank"
+                <a :href="knowledgeUrl" target="_blank"
                    class="pl-2.5 pr-1 py-1.5 text-sm rounded-l-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                   title="База знания на фирмата — документи, сайт, история (отваря се в нов таб)">
-                    📚 Знание <span class="text-xs opacity-60" x-text="'(' + (config.knowledgeCount ?? 0) + ')'"></span>
+                   title="База знания на фирмата — ресурси, факти, история (отваря се в нов таб)">
+                    📚 Знание <span class="text-xs opacity-60" x-text="'(' + knowledgeCount + ')'"></span>
                 </a>
                 <button @click="toggleKnowledge()" type="button"
                         class="pr-2 pl-1 py-1.5 rounded-r-lg hover:bg-gray-50"
@@ -1983,6 +1983,10 @@ function flowBuilder(config) {
         genLogModal: { open: false, loading: false, logs: [], error: '' },
         memoryPanel: { open: false, loading: false, error: '', enabled: config.memoryEnabled ?? true, tab: 'outputs', outputs: [], lessons: [], clearing: false, toggling: false, search: '', sortCol: 'created_at', sortDir: 'desc', page: 1, pageSize: 15, preview: { open: false, nodeName: '', title: '', body: '' } },
         knowledgeEnabled: config.knowledgeEnabled ?? true,
+        // Alpine изразите не виждат closure аргумента `config` → линкът и
+        // броячът живеят като data properties (фикс на счупения href).
+        knowledgeUrl: config.knowledgeUrl || '#',
+        knowledgeCount: config.knowledgeCount ?? 0,
         knowledgeToggling: false,
 
         // ── Асистент (Builder Copilot) ──

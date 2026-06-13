@@ -2,7 +2,7 @@
 
 namespace App\Services\Knowledge;
 
-use App\Models\KnowledgeDocument;
+use App\Models\KnowledgeResource;
 use App\Services\MistralOcrService;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\IOFactory as SpreadsheetIOFactory;
@@ -14,9 +14,10 @@ use PhpOffice\PhpWord\IOFactory as WordIOFactory;
 use RuntimeException;
 
 /**
- * Turns an uploaded knowledge document into plain markdown-ish text for the
- * chunker. Routing by mime (extension fallback): PDF + images go through
- * Mistral OCR, Office formats through phpoffice readers, text formats raw.
+ * Turns an uploaded knowledge resource (документ/снимка) into plain
+ * markdown-ish text for the chunker. Routing by mime (extension fallback):
+ * PDF + images go through Mistral OCR, Office formats through phpoffice
+ * readers, text formats raw.
  */
 class DocumentTextExtractor
 {
@@ -25,7 +26,7 @@ class DocumentTextExtractor
     /**
      * @throws RuntimeException with a Bulgarian, user-facing message
      */
-    public function extract(KnowledgeDocument $document): string
+    public function extract(KnowledgeResource $document): string
     {
         if (! $document->storage_path || ! Storage::disk('local')->exists($document->storage_path)) {
             throw new RuntimeException('Файлът липсва в хранилището — качи документа отново.');

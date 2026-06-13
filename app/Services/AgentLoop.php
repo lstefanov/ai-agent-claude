@@ -31,6 +31,9 @@ final class AgentLoop
      * @param  array<string, mixed>  $wrapUpOptions  options for the wrap-up call (defaults to $options)
      * @param  ?float  $deadlineTs  Unix timestamp; when reached, tool rounds stop and the loop wraps up,
      *                              so the caller's job returns a partial result instead of dying on its queue timeout
+     * @param  ?string  $noToolsNudge  anti-lazy guard: if the FIRST response uses no tools at all, this is
+     *                                 injected once as a user message and the loop continues — flash-tier
+     *                                 models otherwise answer research missions from memory in one shot
      * @return array{content: string, steps: int, deadline_hit: bool}
      */
     public function run(
@@ -46,6 +49,7 @@ final class AgentLoop
         ?string $wrapUpPrompt = null,
         array $wrapUpOptions = [],
         ?float $deadlineTs = null,
+        ?string $noToolsNudge = null,
     ): array {
         $final = null;
         $steps = 0;
@@ -71,6 +75,16 @@ final class AgentLoop
             }
 
             if ($result['tool_calls'] === []) {
+                if ($step === 1 && $noToolsNudge !== null && $tools !== [] && ! $pastDeadline()) {
+                    if ($result['content'] !== '') {
+                        $messages[] = ['role' => 'assistant', 'content' => $result['content']];
+                    }
+                    $messages[] = ['role' => 'user', 'content' => $noToolsNudge];
+                    $noToolsNudge = null; // еднократно — втори директен отговор е финален
+
+                    continue;
+                }
+
                 $final = $result['content'];
                 break;
             }

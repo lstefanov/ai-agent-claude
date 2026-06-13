@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
-use App\Models\KnowledgeDocument;
-use App\Services\KnowledgeService;
+use App\Models\KnowledgeResource;
+use App\Services\Knowledge\KnowledgeIngestor;
 use App\Support\LlmUsage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,11 +13,12 @@ use Illuminate\Queue\SerializesModels;
 use Throwable;
 
 /**
- * Knowledge-base ingestion: extract → chunk → embed one document. Runs on the
- * DEFAULT queue so it never competes with node jobs for the `flows` workers.
- * The atomic pending→processing claim makes concurrent dispatches a no-op.
+ * Ingest на note/upload/image ресурс: extract → синтез → chunk → embed.
+ * Runs on the DEFAULT queue so it never competes with node jobs for the
+ * `flows` workers. The atomic pending→processing claim makes concurrent
+ * dispatches a no-op.
  */
-class IngestKnowledgeDocumentJob implements ShouldQueue
+class IngestResourceJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -26,11 +27,11 @@ class IngestKnowledgeDocumentJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public int $documentId) {}
+    public function __construct(public int $resourceId) {}
 
-    public function handle(KnowledgeService $knowledge): void
+    public function handle(KnowledgeIngestor $ingestor): void
     {
-        $claimed = KnowledgeDocument::whereKey($this->documentId)
+        $claimed = KnowledgeResource::whereKey($this->resourceId)
             ->where('status', 'pending')
             ->update(['status' => 'processing']);
 
@@ -38,17 +39,17 @@ class IngestKnowledgeDocumentJob implements ShouldQueue
             return; // already processed / in flight / deleted
         }
 
-        $document = KnowledgeDocument::find($this->documentId);
-        if (! $document) {
+        $resource = KnowledgeResource::find($this->resourceId);
+        if (! $resource) {
             return;
         }
 
         try {
-            $knowledge->ingest($document);
+            $ingestor->ingestResource($resource);
         } catch (Throwable $e) {
             // Drain accumulated usage so the worker's next job isn't misattributed.
             LlmUsage::take();
-            $document->update([
+            $resource->update([
                 'status' => 'failed',
                 'error' => mb_substr($e->getMessage(), 0, 2000),
             ]);

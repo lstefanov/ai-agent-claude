@@ -45,8 +45,9 @@ class CompanyController extends Controller
         $archivedFlows = $company->flows()->withCount($activeNodes)->where('is_archived', true)->latest()->get();
 
         $knowledgeStats = [
-            'documents' => $company->knowledgeDocuments()->count(),
+            'documents' => $company->knowledgeResources()->count(),
             'chunks' => $company->knowledgeChunks()->count(),
+            'facts' => $company->knowledgeFacts()->active()->count(),
         ];
 
         return view('companies.show', compact('company', 'flows', 'archivedFlows', 'knowledgeStats'));

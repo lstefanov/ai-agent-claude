@@ -11,6 +11,40 @@ class ScrapeRequest(BaseModel):
     timeout: int = 35
 
 
+def _extract_meta(result, page_url: str):
+    """Title, meta description and same-host internal links from the RENDERED
+    page (crawl4ai exposes them post-JS, so SPA menus/pagination are visible).
+    Links come back as absolute hrefs; the PHP side normalizes + filters."""
+    meta = getattr(result, "metadata", None) or {}
+    title = (meta.get("title") or meta.get("og:title") or "").strip()
+    description = (meta.get("description") or meta.get("og:description") or "").strip()
+
+    links = []
+    raw_links = getattr(result, "links", None) or {}
+    if isinstance(raw_links, dict):
+        for item in raw_links.get("internal", []) or []:
+            if isinstance(item, dict):
+                href = item.get("href")
+            elif isinstance(item, str):
+                href = item
+            else:
+                href = getattr(item, "href", None)
+            if isinstance(href, str) and href.strip():
+                links.append(href.strip())
+
+    # De-dup, keep order, hard-cap so pathological pages can't bloat the payload.
+    seen = set()
+    unique_links = []
+    for href in links:
+        if href not in seen:
+            seen.add(href)
+            unique_links.append(href)
+        if len(unique_links) >= 500:
+            break
+
+    return title, description, unique_links
+
+
 def _extract_markdown(result) -> str:
     """crawl4ai returns markdown either as a plain string or as a
     MarkdownGenerationResult object. Prefer fit_markdown, then raw markdown,
@@ -91,16 +125,22 @@ async def scrape(request: ScrapeRequest):
             _crawl(request.url, request.timeout),
             timeout=request.timeout * 2 + 10,
         )
+        title, description, links = _extract_meta(result, request.url)
         return {
             "url": request.url,
             "markdown": markdown or "",
+            "title": title,
+            "meta_description": description,
+            "internal_links": links,
             "success": bool(getattr(result, "success", False)),
             "status_code": getattr(result, "status_code", 200) or 200,
         }
     except asyncio.TimeoutError:
-        return {"url": request.url, "markdown": "", "success": False, "status_code": 408}
+        return {"url": request.url, "markdown": "", "title": "", "meta_description": "",
+                "internal_links": [], "success": False, "status_code": 408}
     except Exception:
-        return {"url": request.url, "markdown": "", "success": False, "status_code": 500}
+        return {"url": request.url, "markdown": "", "title": "", "meta_description": "",
+                "internal_links": [], "success": False, "status_code": 500}
 
 
 @app.get("/health")

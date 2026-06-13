@@ -2,10 +2,24 @@
 
 namespace App\Services;
 
+use App\Models\WebPageCache;
 use App\Support\NodeDeadline;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
+/**
+ * Локален скрейп/крал слой над Crawl4AI (scripts/crawl_service.py, Playwright
+ * + два rendering паса за JS/SPA сайтове) — никакви платени скрейп провайдъри.
+ *
+ * Централният примитив е fetchPage(): връща пълната структура на страница
+ * (markdown + title + meta + вътрешни линкове от РЕНДЕРИРАНИЯ DOM +
+ * content_hash) през глобалния WebPageCache (TTL + content-hash dedup).
+ *
+ * crawlSiteBfs() е истинско BFS обхождане: всяка посетена страница храни
+ * frontier-а със своите линкове (вкл. пагинация /page/2/, ?page=2 —
+ * нормализацията пази query string-а), уникалност по нормализиран URL,
+ * единственият таван е $max страници.
+ */
 class CrawlService
 {
     private string $baseUrl;
@@ -20,45 +34,81 @@ class CrawlService
     {
         $this->baseUrl = config('services.crawl.url', 'http://localhost:8189');
         $this->timeout = (int) config('services.crawl.timeout', 35);
-        // The scraper now does up to two render passes (networkidle → load+magic),
+        // The scraper does up to two render passes (domcontentloaded → load+magic),
         // so a single /scrape can take ~timeout*2+10s. Give the HTTP client headroom.
         $this->httpTimeout = $this->timeout * 2 + 20;
     }
 
     /**
-     * Scrape a URL and return clean markdown. Returns null on any failure.
-     * Fresh cache entries skip the HTTP call entirely; a failed fetch falls
-     * back to any cached copy (stale beats nothing).
+     * Пълната структура на една страница, през глобалния кеш:
+     *  - FRESH кеш ред → нула HTTP;
+     *  - иначе Crawl4AI fetch → store() (същият content_hash = само touch);
+     *  - неуспешен fetch → какъвто и да е кеш ред (stale beats nothing).
+     *
+     * @return array{url: string, title: ?string, meta_description: ?string, markdown: string, content_hash: string, links: array<int, string>, from_cache: bool}|null
      */
-    public function scrape(string $url, bool $bypassCache = false): ?string
+    public function fetchPage(string $url, bool $bypassCache = false): ?array
     {
-        $useCache = ! $bypassCache && $this->cache->enabled();
+        $normalized = $this->cache->normalizeUrl($url);
+        if ($normalized === null) {
+            return null;
+        }
 
-        if ($useCache && ($hit = $this->cache->freshHit($url)) !== null) {
-            return $hit;
+        $useCache = $this->cache->enabled();
+
+        if ($useCache && ! $bypassCache && ($entry = $this->cache->fresh($normalized)) !== null) {
+            return $this->pageFromCacheEntry($entry);
         }
 
         try {
             $response = Http::timeout($this->httpTimeout)->post("{$this->baseUrl}/scrape", [
-                'url' => $url,
+                'url' => $normalized,
                 'timeout' => $this->timeout,
             ]);
 
             if ($response->successful()) {
                 $markdown = $response->json('markdown');
                 if (is_string($markdown) && trim($markdown) !== '') {
-                    if ($this->cache->enabled()) {
-                        $this->cache->store($url, $markdown);
+                    $title = (string) ($response->json('title') ?? '');
+                    $meta = (string) ($response->json('meta_description') ?? '');
+                    $links = array_values(array_filter((array) ($response->json('internal_links') ?? []), 'is_string'));
+
+                    if ($links === []) {
+                        $links = $this->linksFromMarkdown($markdown, $normalized);
                     }
 
-                    return $markdown;
+                    if ($useCache) {
+                        $this->cache->store($normalized, $markdown, $title ?: null, $meta ?: null, $links);
+                    }
+
+                    return [
+                        'url' => $normalized,
+                        'title' => $title ?: null,
+                        'meta_description' => $meta ?: null,
+                        'markdown' => $markdown,
+                        'content_hash' => hash('sha256', trim($markdown)),
+                        'links' => $links,
+                        'from_cache' => false,
+                    ];
                 }
             }
         } catch (\Exception) {
             // пада към stale кеша
         }
 
-        return $useCache ? $this->cache->any($url) : null;
+        if ($useCache && ($entry = $this->cache->any($normalized)) !== null) {
+            return $this->pageFromCacheEntry($entry);
+        }
+
+        return null;
+    }
+
+    /**
+     * Scrape a URL and return clean markdown. Returns null on any failure.
+     */
+    public function scrape(string $url, bool $bypassCache = false): ?string
+    {
+        return $this->fetchPage($url, $bypassCache)['markdown'] ?? null;
     }
 
     /**
@@ -80,8 +130,8 @@ class CrawlService
         $toFetch = [];
 
         foreach (array_values($urls) as $url) {
-            if ($useCache && ($hit = $this->cache->freshHit($url)) !== null) {
-                $out[$url] = $hit;
+            if ($useCache && ($entry = $this->cache->fresh($url)) !== null) {
+                $out[$url] = $entry->markdown;
             } else {
                 $toFetch[] = $url;
             }
@@ -114,7 +164,13 @@ class CrawlService
                         if (is_string($md) && trim($md) !== '') {
                             $out[$url] = $md;
                             if ($this->cache->enabled()) {
-                                $this->cache->store($url, $md);
+                                $this->cache->store(
+                                    $url,
+                                    $md,
+                                    ((string) $resp->json('title')) ?: null,
+                                    ((string) $resp->json('meta_description')) ?: null,
+                                    array_values(array_filter((array) ($resp->json('internal_links') ?? []), 'is_string')),
+                                );
                             }
 
                             continue;
@@ -125,7 +181,7 @@ class CrawlService
                 }
 
                 if ($this->cache->enabled() && ($stale = $this->cache->any($url)) !== null) {
-                    $out[$url] = $stale;
+                    $out[$url] = $stale->markdown;
                 }
             }
         }
@@ -143,48 +199,91 @@ class CrawlService
     }
 
     /**
-     * Crawl an entire site: discover its pages (sitemap → internal links) and
-     * scrape each one to markdown.
+     * Истинско BFS обхождане на сайт: start URL + sitemap seeds → всяка
+     * посетена страница добавя линковете си (от рендерирания DOM) във
+     * frontier-а → пак и пак, докато frontier-ът се изчерпи или стигнем $max
+     * УНИКАЛНИ страници. Пагинацията се следва като нормални линкове.
      *
-     * Pages are ordered so that product/service pages (path starts with /p/)
-     * come first — they carry the most business-relevant data (names, prices).
-     * The homepage is always first regardless.
-     *
-     * @return array<string, string> map of url => markdown (only non-empty pages)
+     * @param  float|null  $deadlineTs  microtime(true) бюджет на викащия job —
+     *                                  при изтичане връща събраното дотук.
+     * @param  callable|null  $onProgress  fn(int $parsed, int $discovered) за UI прогрес.
+     * @return array<int, array{url: string, title: ?string, meta_description: ?string, markdown: string, content_hash: string, links: array<int, string>, from_cache: bool}>
      */
-    public function crawlSite(string $url, ?int $max = null): array
-    {
-        $max = $max ?? (int) config('services.crawl.max_pages', 20);
-        $urls = $this->discoverUrls($url, $max);
+    public function crawlSiteBfs(
+        string $startUrl,
+        ?int $max = null,
+        bool $bypassCache = false,
+        ?float $deadlineTs = null,
+        ?callable $onProgress = null,
+    ): array {
+        $max = $max ?? (int) config('services.knowledge.site_max_pages', 200);
+        $start = $this->cache->normalizeUrl($startUrl);
+        if ($start === null) {
+            return [];
+        }
+        $host = parse_url($start, PHP_URL_HOST);
 
-        // Prioritise: homepage first, then /p/ product/service pages, then the rest.
-        $homepage = rtrim($this->rootUrl($url) ?? '', '/');
-        usort($urls, function (string $a, string $b) use ($homepage): int {
-            $aHome = rtrim($a, '/') === $homepage ? 0 : 1;
-            $bHome = rtrim($b, '/') === $homepage ? 0 : 1;
-            if ($aHome !== $bHome) {
-                return $aHome - $bHome;
+        /** @var \SplQueue<string> $frontier */
+        $frontier = new \SplQueue;
+        $seen = [$start => true];
+        $frontier->enqueue($start);
+
+        // Sitemap-ите са помощни seeds (страници, до които няма навигация);
+        // BFS-ът остава основният откривател.
+        foreach ($this->sitemapUrls($this->rootUrl($start) ?? $start) as $sitemap) {
+            foreach ($this->locsFromSitemap($sitemap) as $loc) {
+                $norm = $this->cache->normalizeUrl($loc);
+                if ($norm !== null
+                    && parse_url($norm, PHP_URL_HOST) === $host
+                    && ! isset($seen[$norm])
+                    && ! $this->isAsset($norm)
+                    && ! $this->isSkippedPage($norm)) {
+                    $seen[$norm] = true;
+                    $frontier->enqueue($norm);
+                }
+                if (count($seen) >= $max * 5) {
+                    break 2; // bound the frontier — линковете от BFS-а допълват
+                }
             }
-            $aProduct = str_contains(parse_url($a, PHP_URL_PATH) ?? '', '/p/') ? 0 : 1;
-            $bProduct = str_contains(parse_url($b, PHP_URL_PATH) ?? '', '/p/') ? 0 : 1;
-
-            return $aProduct - $bProduct;
-        });
+        }
 
         $pages = [];
-        foreach ($urls as $pageUrl) {
-            if (count($pages) >= $max) {
+
+        while (! $frontier->isEmpty() && count($pages) < $max) {
+            // Времеви бюджети: на node job-а (агентски контекст) и на викащия
+            // ingest job — частичен crawl е по-добър от умрял job.
+            if (NodeDeadline::passed(45) || ($deadlineTs !== null && microtime(true) >= $deadlineTs)) {
                 break;
             }
-            // Времевият бюджет на node job-а изтича → връщаме събраното дотук:
-            // частичен crawl е по-добър от job, умрял с TimeoutExceededException.
-            // Буфер 45s — типична страница е ~10s, worst е httpTimeout-ът (90s).
-            if (NodeDeadline::passed(45)) {
-                break;
+
+            $url = $frontier->dequeue();
+            $page = $this->fetchPage($url, $bypassCache);
+
+            if ($page === null || trim($page['markdown']) === '') {
+                continue;
             }
-            $markdown = $this->scrape($pageUrl);
-            if ($markdown !== null && trim($markdown) !== '') {
-                $pages[$pageUrl] = $markdown;
+
+            $pages[] = $page;
+
+            foreach ($page['links'] as $link) {
+                $abs = $this->absoluteUrl($link, $page['url']);
+                $norm = $abs === null ? null : $this->cache->normalizeUrl($abs);
+
+                if ($norm === null
+                    || isset($seen[$norm])
+                    || parse_url($norm, PHP_URL_HOST) !== $host
+                    || $this->isAsset($norm)
+                    || $this->isSkippedPage($norm)
+                    || count($seen) >= $max * 10) {
+                    continue;
+                }
+
+                $seen[$norm] = true;
+                $frontier->enqueue($norm);
+            }
+
+            if ($onProgress !== null) {
+                $onProgress(count($pages), count($seen));
             }
         }
 
@@ -192,65 +291,125 @@ class CrawlService
     }
 
     /**
-     * Discover internal page URLs for a site. Order: homepage first, then sitemap
-     * entries, then links found by crawling the homepage (and a few sub-pages).
+     * Crawl an entire site to markdown (агентският crawl_site tool).
+     *
+     * @return array<string, string> map of url => markdown (only non-empty pages)
+     */
+    public function crawlSite(string $url, ?int $max = null): array
+    {
+        $max = $max ?? (int) config('services.crawl.max_pages', 30);
+
+        $pages = [];
+        foreach ($this->crawlSiteBfs($url, $max) as $page) {
+            $pages[$page['url']] = $page['markdown'];
+        }
+
+        return $pages;
+    }
+
+    /**
+     * Discover internal page URLs WITHOUT full rendering: лек BFS върху суров
+     * HTML (бърз, без JS) + sitemap seeds. За SPA сайтове без сървърен HTML
+     * sitemap-ът е основният източник.
      *
      * @return array<int, string>
      */
     public function discoverUrls(string $url, ?int $max = null): array
     {
-        $max = $max ?? (int) config('services.crawl.max_pages', 20);
-        $root = $this->rootUrl($url);
-        if ($root === null) {
+        $max = $max ?? (int) config('services.crawl.max_pages', 30);
+        $start = $this->cache->normalizeUrl($url);
+        if ($start === null) {
             return [];
         }
-        $host = parse_url($root, PHP_URL_HOST);
+        $host = parse_url($start, PHP_URL_HOST);
 
-        $homepage = rtrim($url, '/') ?: $root;
-        $found = array_filter([$this->normalizeUrl($homepage)]);
+        /** @var \SplQueue<string> $frontier */
+        $frontier = new \SplQueue;
+        $seen = [$start => true];
+        $found = [];
+        $frontier->enqueue($start);
 
-        // 1) sitemap(s) — most complete source of pages
-        foreach ($this->sitemapUrls($root) as $sitemap) {
+        foreach ($this->sitemapUrls($this->rootUrl($start) ?? $start) as $sitemap) {
             foreach ($this->locsFromSitemap($sitemap) as $loc) {
-                $found[] = $loc;
-                if (count(array_unique($found)) >= $max) {
+                $norm = $this->cache->normalizeUrl($loc);
+                if ($norm !== null
+                    && parse_url($norm, PHP_URL_HOST) === $host
+                    && ! isset($seen[$norm])
+                    && ! $this->isAsset($norm)
+                    && ! $this->isSkippedPage($norm)) {
+                    $seen[$norm] = true;
+                    $frontier->enqueue($norm);
+                }
+                if (count($seen) >= $max * 5) {
                     break 2;
                 }
             }
         }
 
-        // 2) link discovery from the homepage (+ a few discovered pages) if we are
-        //    still short of pages — covers sites without a sitemap.
-        if (count(array_unique($found)) < $max) {
-            $linkSeeds = array_slice(array_values(array_unique($found)), 0, 6);
-            foreach ($linkSeeds as $seed) {
-                foreach ($this->internalLinks($seed, $host) as $link) {
-                    $found[] = $link;
-                }
-                if (count(array_unique($found)) >= $max) {
-                    break;
+        // Линковете се вадят от суров HTML само докато списъкът не е пълен.
+        $fetched = 0;
+        while (! $frontier->isEmpty() && count($found) < $max) {
+            $current = $frontier->dequeue();
+            $found[] = $current;
+
+            if (count($found) + $frontier->count() >= $max || $fetched >= $max) {
+                continue; // frontier-ът вече покрива тавана — само източваме
+            }
+
+            $fetched++;
+            foreach ($this->internalLinks($current, $host) as $link) {
+                if (! isset($seen[$link]) && ! $this->isSkippedPage($link)) {
+                    $seen[$link] = true;
+                    $frontier->enqueue($link);
                 }
             }
         }
 
-        // normalise, keep same host, drop assets + utility pages, dedupe, cap
-        $clean = [];
-        foreach ($found as $candidate) {
-            $norm = $this->normalizeUrl($candidate);
-            if ($norm === null
-                || parse_url($norm, PHP_URL_HOST) !== $host
-                || $this->isAsset($norm)
-                || $this->isUtilityPage($norm)
-                || in_array($norm, $clean, true)) {
-                continue;
-            }
-            $clean[] = $norm;
-            if (count($clean) >= $max) {
-                break;
+        return array_slice($found, 0, $max);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Internals
+    // ──────────────────────────────────────────────────────────────────────
+
+    /** @return array{url: string, title: ?string, meta_description: ?string, markdown: string, content_hash: string, links: array<int, string>, from_cache: bool} */
+    private function pageFromCacheEntry(WebPageCache $entry): array
+    {
+        $links = is_array($entry->links) ? $entry->links : [];
+        if ($links === []) {
+            $links = $this->linksFromMarkdown($entry->markdown, $entry->url);
+        }
+
+        return [
+            'url' => $entry->url,
+            'title' => $entry->title ?: null,
+            'meta_description' => $entry->meta_description ?: null,
+            'markdown' => $entry->markdown,
+            'content_hash' => $entry->content_hash,
+            'links' => $links,
+            'from_cache' => true,
+        ];
+    }
+
+    /**
+     * Fallback линк-екстракция от markdown (за кеш редове отпреди links
+     * колоната или ако скрейпърът не върна links): [text](url) + голи URL-и.
+     *
+     * @return array<int, string>
+     */
+    private function linksFromMarkdown(string $markdown, string $baseUrl): array
+    {
+        preg_match_all('/\]\(([^)\s]+)\)/', $markdown, $m);
+
+        $links = [];
+        foreach (array_slice($m[1] ?? [], 0, 500) as $href) {
+            $abs = $this->absoluteUrl($href, $baseUrl);
+            if ($abs !== null && ! $this->isAsset($abs)) {
+                $links[] = $abs;
             }
         }
 
-        return $clean;
+        return array_values(array_unique($links));
     }
 
     /** @return array<int, string> */
@@ -296,7 +455,8 @@ class CrawlService
     }
 
     /**
-     * Extract same-host internal links from a page's HTML.
+     * Extract same-host internal links from a page's RAW HTML (без JS — бързият
+     * път за discoverUrls).
      *
      * @return array<int, string>
      */
@@ -312,12 +472,16 @@ class CrawlService
         $links = [];
         foreach ($m[1] ?? [] as $href) {
             $abs = $this->absoluteUrl($href, $pageUrl);
-            if ($abs !== null && parse_url($abs, PHP_URL_HOST) === $host && ! $this->isAsset($abs)) {
-                $links[] = $this->normalizeUrl($abs);
+            if ($abs === null || parse_url($abs, PHP_URL_HOST) !== $host || $this->isAsset($abs)) {
+                continue;
+            }
+            $norm = $this->cache->normalizeUrl($abs);
+            if ($norm !== null) {
+                $links[] = $norm;
             }
         }
 
-        return array_values(array_unique(array_filter($links)));
+        return array_values(array_unique($links));
     }
 
     private function fetchRaw(string $url): ?string
@@ -339,18 +503,6 @@ class CrawlService
         $host = parse_url($url, PHP_URL_HOST);
 
         return $host ? $scheme.'://'.$host : null;
-    }
-
-    private function normalizeUrl(string $url): ?string
-    {
-        $url = trim($url);
-        if ($url === '' || ! preg_match('#^https?://#i', $url)) {
-            return null;
-        }
-        // strip fragment and trailing slash
-        $url = preg_replace('/#.*$/', '', $url);
-
-        return rtrim($url, '/');
     }
 
     private function absoluteUrl(string $href, string $base): ?string
@@ -387,37 +539,37 @@ class CrawlService
     }
 
     /**
-     * Returns true for pages that carry no business-relevant content: login,
-     * cart, checkout, account, legal notices, cookie/privacy policies, feeds, etc.
+     * Страници без съдържателна стойност: количка/вход/чекаут/wp-json/feed и
+     * т.н. ПРАВНИТЕ страници (общи условия, политики) се ПАЗЯТ — носят реални
+     * условия на бизнеса. Списъците са конфигурируеми (services.crawl).
      */
-    private function isUtilityPage(string $url): bool
+    private function isSkippedPage(string $url): bool
     {
-        // URL-decode before matching so Cyrillic slugs like /общи-условия are
-        // compared as plain text, not as %d0%be%d0%b1%d1%89%d0%b8-... hex sequences.
+        // URL-decode before matching so Cyrillic slugs like /количка are
+        // compared as plain text, not as %d0%ba… hex sequences.
         $path = strtolower(urldecode(parse_url($url, PHP_URL_PATH) ?? ''));
 
-        // Exact-segment patterns (matches /login, /s/login, /bg/login, etc.)
         $segments = array_filter(explode('/', $path));
-        $utilitySegments = [
+        $skipSegments = (array) config('services.crawl.skip_segments', [
             'login', 'logout', 'register', 'signup', 'sign-up', 'sign-in',
             'cart', 'checkout', 'basket', 'order', 'orders', 'payment',
             'account', 'profile', 'dashboard', 'wishlist', 'favorites',
             'search', 'feed', 'rss', 'sitemap', 'robots',
-            'tag', 'tags', 'category', 'categories',
-            'author', 'authors', 'wp-json', 'embed', 'amp',
-        ];
+            'tag', 'tags', 'author', 'authors', 'wp-json', 'embed', 'amp',
+            'количка', 'кошница', 'вход', 'изход', 'регистрация',
+            'плащане', 'поръчка', 'профил',
+        ]);
         foreach ($segments as $segment) {
-            if (in_array($segment, $utilitySegments, true)) {
+            if (in_array($segment, $skipSegments, true)) {
                 return true;
             }
         }
 
-        // Substring patterns (catches /cookie-policy, /политика-за-поверителност, etc.)
-        return (bool) preg_match(
-            '/cookie[_-]?polic|privacy[_-]?polic|polic[iy]|terms[_-]?of|general[_-]?condition'
-            .'|повери|условия|поверит|gdpr|disclaimer|impressum|imprint|legal|404|500'
-            .'|sitemap\.xml|wp-admin|wp-login|xmlrpc|wp-json|oembed|\/embed|wp-content/i',
-            $path
+        $pattern = (string) config(
+            'services.crawl.skip_pattern',
+            '/wp-admin|wp-login|xmlrpc|oembed|\/embed|wp-content|sitemap\.xml|\/404$|\/500$/i',
         );
+
+        return (bool) preg_match($pattern, $path);
     }
 }

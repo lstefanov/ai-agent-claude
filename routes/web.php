@@ -15,6 +15,7 @@ use App\Http\Controllers\FlowKnowledgeController;
 use App\Http\Controllers\FlowMemoryController;
 use App\Http\Controllers\FlowRunController;
 use App\Http\Controllers\FlowVersionController;
+use App\Http\Controllers\KnowledgeChatController;
 use App\Http\Controllers\LlmModelController;
 use App\Http\Controllers\PlanAbController;
 use Illuminate\Support\Facades\Route;
@@ -79,7 +80,7 @@ Route::get('flows/{flow}/memory', [FlowMemoryController::class, 'show'])->name('
 Route::post('flows/{flow}/memory/toggle', [FlowMemoryController::class, 'toggle'])->name('flows.memory.toggle');
 Route::delete('flows/{flow}/memory', [FlowMemoryController::class, 'clear'])->name('flows.memory.clear');
 
-// База знания на фирмата — страница + JSON endpoints (Alpine polling)
+// База знания на фирмата v2 — страница + JSON endpoints (Alpine polling)
 Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->group(function () {
     Route::get('/', [CompanyKnowledgeController::class, 'index'])->name('index');
     Route::get('data', [CompanyKnowledgeController::class, 'data'])->name('data');
@@ -87,14 +88,30 @@ Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->gr
     Route::post('folders', [CompanyKnowledgeController::class, 'storeFolder'])->name('folders.store');
     Route::patch('folders/{folder}', [CompanyKnowledgeController::class, 'renameFolder'])->name('folders.rename');
     Route::delete('folders/{folder}', [CompanyKnowledgeController::class, 'destroyFolder'])->name('folders.destroy');
-    Route::post('documents', [CompanyKnowledgeController::class, 'upload'])->name('documents.upload');
-    Route::delete('documents/{document}', [CompanyKnowledgeController::class, 'destroyDocument'])->name('documents.destroy');
-    Route::post('documents/{document}/reingest', [CompanyKnowledgeController::class, 'reingest'])->name('documents.reingest');
-    Route::post('search-test', [CompanyKnowledgeController::class, 'searchTest'])->name('search-test');
-    Route::post('refresh-site', [CompanyKnowledgeController::class, 'refreshSite'])->name('refresh-site');
-    Route::post('recrawl-setting', [CompanyKnowledgeController::class, 'recrawlSetting'])->name('recrawl-setting');
+    // Пагинирани списъци (server-side search/sort/page)
+    Route::get('resources', [CompanyKnowledgeController::class, 'listResources'])->name('resources.list');
+    Route::get('facts', [CompanyKnowledgeController::class, 'listFacts'])->name('facts.list');
+    Route::get('events', [CompanyKnowledgeController::class, 'listEvents'])->name('events.list');
+    Route::get('gaps', [CompanyKnowledgeController::class, 'listGaps'])->name('gaps.list');
+    // Ресурси: файлове/снимки, бележки, URL-и
+    Route::post('uploads', [CompanyKnowledgeController::class, 'upload'])->name('uploads.store');
+    Route::post('notes', [CompanyKnowledgeController::class, 'storeNote'])->name('notes.store');
+    Route::patch('notes/{resource}', [CompanyKnowledgeController::class, 'updateNote'])->name('notes.update');
+    Route::post('urls', [CompanyKnowledgeController::class, 'storeUrl'])->name('urls.store');
+    Route::delete('resources/{resource}', [CompanyKnowledgeController::class, 'destroyResource'])->name('resources.destroy');
+    Route::post('resources/{resource}/reingest', [CompanyKnowledgeController::class, 'reingest'])->name('resources.reingest');
+    Route::get('resources/{resource}/download', [CompanyKnowledgeController::class, 'download'])->name('resources.download');
+    Route::get('resources/{resource}/digest', [CompanyKnowledgeController::class, 'digest'])->name('resources.digest');
+    Route::get('resources/{resource}/pages', [CompanyKnowledgeController::class, 'pages'])->name('resources.pages');
+    Route::get('pages/{page}/digest', [CompanyKnowledgeController::class, 'pageDigest'])->name('pages.digest');
+    Route::delete('pages/{page}', [CompanyKnowledgeController::class, 'destroyPage'])->name('pages.destroy');
+    Route::delete('facts/{fact}', [CompanyKnowledgeController::class, 'destroyFact'])->name('facts.destroy');
     Route::delete('gaps', [CompanyKnowledgeController::class, 'clearGaps'])->name('gaps.clear');
+    // Чат "Тествай знанията" (queue + token poll, като Builder Copilot)
+    Route::post('chat', [KnowledgeChatController::class, 'send'])->name('chat.send');
+    Route::get('chat/history', [KnowledgeChatController::class, 'history'])->name('chat.history');
 });
+Route::get('knowledge-chat-status/{token}', [KnowledgeChatController::class, 'status'])->name('companies.knowledge.chat.status');
 
 // Знание на ниво flow — toggle от builder-а (огледало на flows.memory.toggle)
 Route::post('flows/{flow}/knowledge/toggle', [FlowKnowledgeController::class, 'toggle'])->name('flows.knowledge.toggle');
@@ -163,6 +180,7 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     Route::get('costs', [AdminCostController::class, 'index'])->name('costs.index');
     Route::get('costs/detail', [AdminCostController::class, 'show'])->name('costs.show');
     Route::get('costs/group-detail', [AdminCostController::class, 'groupDetail'])->name('costs.group-detail');
+    Route::get('costs/chat-detail', [AdminCostController::class, 'chatDetail'])->name('costs.chat-detail');
 });
 
 // Home
