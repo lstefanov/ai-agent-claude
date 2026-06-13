@@ -53,10 +53,59 @@ class CompanyKnowledgeController extends Controller
                 'doc_count' => $f->resources_count,
             ]);
 
-        $resources = $company->knowledgeResources()
-            ->withCount('pages')
-            ->latest('id')
-            ->take(500)
+        $factCategories = $company->knowledgeFacts()
+            ->active()
+            ->distinct()
+            ->orderBy('category')
+            ->pluck('category')
+            ->toArray();
+
+        return response()->json([
+            'enabled' => KnowledgeService::enabled($company),
+            'folders' => $folders,
+            'fact_categories' => $factCategories,
+            'stats' => [
+                'resources' => $company->knowledgeResources()->count(),
+                'ready' => $company->knowledgeResources()->where('status', 'ready')->count(),
+                'pages' => (int) $company->knowledgePages()->count(),
+                'chunks' => (int) $company->knowledgeChunks()->count(),
+                'facts' => $company->knowledgeFacts()->active()->count(),
+                'events' => $company->knowledgeEvents()->count(),
+                'gaps' => KnowledgeGap::where('company_id', $company->id)->count(),
+                'cost_usd' => round((float) $company->knowledgeResources()->sum('cost_usd'), 4),
+                'foreign_provider_chunks' => $knowledge->foreignProviderChunks($company),
+                'provider_tag' => $knowledge->providerTag(),
+            ],
+            'busy' => $company->knowledgeResources()->whereIn('status', ['pending', 'processing'])->exists(),
+        ]);
+    }
+
+    public function listResources(Request $request, Company $company): JsonResponse
+    {
+        $perPage = 15;
+        $search = (string) $request->query('search', '');
+        $folderId = $request->query('folder_id');
+        $sort = (string) $request->query('sort', 'created_at');
+        $dir = (string) $request->query('dir', 'desc');
+        $page = max(1, (int) $request->query('page', 1));
+
+        $sort = in_array($sort, ['title', 'status', 'created_at', 'chunk_count']) ? $sort : 'created_at';
+        $dir = $dir === 'asc' ? 'asc' : 'desc';
+
+        $query = $company->knowledgeResources()->withCount('pages');
+
+        if ($search !== '') {
+            $query->where(fn ($q) => $q->where('title', 'like', '%'.$search.'%')
+                ->orWhere('url', 'like', '%'.$search.'%'));
+        }
+        if ($folderId !== null) {
+            $query->where('folder_id', (int) $folderId);
+        }
+
+        $total = $query->count();
+        $items = $query->orderBy($sort, $dir)
+            ->skip(($page - 1) * $perPage)
+            ->take($perPage)
             ->get()
             ->map(fn (KnowledgeResource $r) => [
                 'id' => $r->id,
@@ -80,10 +129,28 @@ class CompanyKnowledgeController extends Controller
                 'created_at' => $r->created_at->format('d.m.Y H:i'),
             ]);
 
-        $facts = $company->knowledgeFacts()
-            ->active()
-            ->latest('updated_at')
-            ->take(500)
+        return response()->json([
+            'items' => $items,
+            'total' => $total,
+            'pages' => max(1, (int) ceil($total / $perPage)),
+        ]);
+    }
+
+    public function listFacts(Request $request, Company $company): JsonResponse
+    {
+        $perPage = 15;
+        $category = (string) $request->query('category', 'all');
+        $page = max(1, (int) $request->query('page', 1));
+
+        $query = $company->knowledgeFacts()->active()->latest('updated_at');
+
+        if ($category !== 'all' && $category !== '') {
+            $query->where('category', $category);
+        }
+
+        $total = $query->count();
+        $items = $query->skip(($page - 1) * $perPage)
+            ->take($perPage)
             ->get()
             ->map(fn (KnowledgeFact $f) => [
                 'id' => $f->id,
@@ -97,9 +164,22 @@ class CompanyKnowledgeController extends Controller
                 'updated_at' => $f->updated_at->format('d.m.Y H:i'),
             ]);
 
-        $events = $company->knowledgeEvents()
-            ->latest('id')
-            ->take(200)
+        return response()->json([
+            'items' => $items,
+            'total' => $total,
+            'pages' => max(1, (int) ceil($total / $perPage)),
+        ]);
+    }
+
+    public function listEvents(Request $request, Company $company): JsonResponse
+    {
+        $perPage = 15;
+        $page = max(1, (int) $request->query('page', 1));
+
+        $query = $company->knowledgeEvents()->latest('id');
+        $total = $query->count();
+        $items = $query->skip(($page - 1) * $perPage)
+            ->take($perPage)
             ->get()
             ->map(fn ($e) => [
                 'id' => $e->id,
@@ -112,9 +192,22 @@ class CompanyKnowledgeController extends Controller
                 'created_at' => $e->created_at->format('d.m.Y H:i'),
             ]);
 
-        $gaps = KnowledgeGap::where('company_id', $company->id)
-            ->latest('id')
-            ->take(200)
+        return response()->json([
+            'items' => $items,
+            'total' => $total,
+            'pages' => max(1, (int) ceil($total / $perPage)),
+        ]);
+    }
+
+    public function listGaps(Request $request, Company $company): JsonResponse
+    {
+        $perPage = 15;
+        $page = max(1, (int) $request->query('page', 1));
+
+        $query = KnowledgeGap::where('company_id', $company->id)->latest('id');
+        $total = $query->count();
+        $items = $query->skip(($page - 1) * $perPage)
+            ->take($perPage)
             ->get()
             ->map(fn (KnowledgeGap $g) => [
                 'id' => $g->id,
@@ -128,23 +221,9 @@ class CompanyKnowledgeController extends Controller
             ]);
 
         return response()->json([
-            'enabled' => KnowledgeService::enabled($company),
-            'folders' => $folders,
-            'resources' => $resources,
-            'facts' => $facts,
-            'events' => $events,
-            'gaps' => $gaps,
-            'stats' => [
-                'resources' => $resources->count(),
-                'ready' => $resources->where('status', 'ready')->count(),
-                'pages' => (int) $company->knowledgePages()->count(),
-                'chunks' => (int) $company->knowledgeChunks()->count(),
-                'facts' => $facts->count(),
-                'cost_usd' => round((float) $company->knowledgeResources()->sum('cost_usd'), 4),
-                'foreign_provider_chunks' => $knowledge->foreignProviderChunks($company),
-                'provider_tag' => $knowledge->providerTag(),
-            ],
-            'busy' => $company->knowledgeResources()->whereIn('status', ['pending', 'processing'])->exists(),
+            'items' => $items,
+            'total' => $total,
+            'pages' => max(1, (int) ceil($total / $perPage)),
         ]);
     }
 

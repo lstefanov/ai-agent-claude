@@ -42,66 +42,58 @@
         <button class="float-right text-red-400 hover:text-red-600" @click="error = ''">✕</button>
     </div>
 
-    <div class="flex gap-6 items-start">
+    {{-- ─────────── Folder sub-header ─────────── --}}
+    <div class="flex items-center gap-1.5 mb-4 bg-white border border-gray-200 rounded-xl px-3 py-2 flex-wrap">
+        <button @click="selectedFolder = null; rTab.page = 1; if (tab === 'resources') loadResources()"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                :class="selectedFolder === null ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'">
+            Всички
+            <span class="text-xs text-gray-400 ml-0.5" x-text="'(' + (stats.resources || 0) + ')'"></span>
+        </button>
 
-        {{-- ─────────── Sidebar: папки + тип ─────────── --}}
-        <div class="w-60 shrink-0 bg-white rounded-xl border border-gray-200 p-4">
-            <h2 class="text-sm font-semibold text-gray-700 mb-3">Папки</h2>
-
-            <button @click="selectedFolder = null"
-                    class="w-full text-left px-2 py-1.5 rounded-lg text-sm mb-1 transition"
-                    :class="selectedFolder === null ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'">
-                Всички
-                <span class="text-xs text-gray-400 float-right mt-0.5" x-text="resources.length"></span>
-            </button>
-
-            <template x-for="folder in folderTree()" :key="folder.id">
-                <div class="group flex items-center gap-1 rounded-lg transition"
-                     :class="selectedFolder === folder.id ? 'bg-indigo-50' : 'hover:bg-gray-50'">
-                    <button @click="selectedFolder = folder.id"
-                            class="flex-1 text-left px-2 py-1.5 text-sm truncate"
-                            :class="selectedFolder === folder.id ? 'text-indigo-700 font-medium' : 'text-gray-600'"
-                            :style="'padding-left:' + (8 + folder.depth * 14) + 'px'">
-                        <span x-show="renaming !== folder.id">📁 <span x-text="folder.name"></span>
-                            <span class="text-xs text-gray-400" x-text="'(' + folder.doc_count + ')'"></span>
-                        </span>
-                    </button>
-                    <input x-show="renaming === folder.id" x-cloak type="text"
-                           class="flex-1 border border-indigo-300 rounded px-1.5 py-0.5 text-sm mx-1"
-                           :id="'rename-' + folder.id" :value="folder.name"
-                           @keydown.enter="renameFolder(folder.id, $event.target.value)"
-                           @keydown.escape="renaming = null">
-                    <div class="opacity-0 group-hover:opacity-100 flex shrink-0 pr-1">
-                        <button @click="startRename(folder.id)" title="Преименувай"
-                                class="p-1 text-gray-400 hover:text-indigo-600 text-xs">✏</button>
-                        <button @click="addSubfolder(folder.id)" title="Подпапка"
-                                class="p-1 text-gray-400 hover:text-indigo-600 text-xs">＋</button>
-                        <button @click="deleteFolder(folder)" title="Изтрий"
-                                class="p-1 text-gray-400 hover:text-red-600 text-xs">🗑</button>
-                    </div>
+        <template x-for="folder in folderTree()" :key="folder.id">
+            <div class="group relative inline-flex items-center">
+                <button x-show="renaming !== folder.id"
+                        @click="selectedFolder = folder.id; rTab.page = 1; if (tab === 'resources') loadResources()"
+                        class="px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                        :class="selectedFolder === folder.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'">
+                    📁 <span x-text="folder.name"></span>
+                    <span class="text-xs text-gray-400 ml-0.5" x-text="'(' + folder.doc_count + ')'"></span>
+                </button>
+                <input x-show="renaming === folder.id" x-cloak type="text"
+                       class="border border-indigo-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36"
+                       :id="'rename-' + folder.id" :value="folder.name"
+                       @keydown.enter="renameFolder(folder.id, $event.target.value)"
+                       @keydown.escape="renaming = null">
+                <div x-show="renaming !== folder.id"
+                     class="opacity-0 group-hover:opacity-100 flex shrink-0 ml-0.5 transition-opacity">
+                    <button @click.stop="startRename(folder.id)" title="Преименувай"
+                            class="p-1 text-gray-400 hover:text-indigo-600 text-xs leading-none">✏</button>
+                    <button @click.stop="deleteFolder(folder)" title="Изтрий"
+                            class="p-1 text-gray-400 hover:text-red-600 text-xs leading-none">🗑</button>
                 </div>
-            </template>
-
-            <div class="mt-3 flex gap-1">
-                <input type="text" x-model="newFolderName" placeholder="Нова папка…"
-                       @keydown.enter="createFolder()"
-                       class="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                <button @click="createFolder()"
-                        class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-600 transition">＋</button>
             </div>
+        </template>
 
-            <div class="mt-4 pt-3 border-t border-gray-100">
-                <h3 class="text-xs font-semibold text-gray-400 uppercase mb-2">Тип ресурс</h3>
-                <div class="flex flex-wrap gap-1.5">
-                    <template x-for="f in typeFilters" :key="f.key">
-                        <button @click="typeFilter = f.key"
-                                class="px-2 py-1 rounded-full text-xs font-medium transition"
-                                :class="typeFilter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
-                                x-text="f.label"></button>
-                    </template>
-                </div>
+        <div class="flex items-center gap-1 ml-auto">
+            <button x-show="!addingFolder" @click="addingFolder = true; $nextTick(() => $refs.newFolderInput?.focus())"
+                    class="px-2 py-1 text-xs text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition">
+                ＋ Нова папка
+            </button>
+            <div x-show="addingFolder" x-cloak class="flex gap-1 items-center">
+                <input x-ref="newFolderInput" type="text" x-model="newFolderName" placeholder="Нова папка…"
+                       @keydown.enter="createFolder(); addingFolder = false"
+                       @keydown.escape="addingFolder = false; newFolderName = ''"
+                       class="border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36">
+                <button @click="createFolder(); addingFolder = false"
+                        class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm transition">＋</button>
+                <button @click="addingFolder = false; newFolderName = ''"
+                        class="px-2 py-1 text-gray-400 hover:text-gray-600 text-sm">✕</button>
             </div>
         </div>
+    </div>
+
+    <div class="flex gap-6 items-start">
 
         {{-- ─────────── Main: tabs ─────────── --}}
         <div class="flex-1 min-w-0">
@@ -124,31 +116,39 @@
             {{-- ── TAB: Ресурси ── --}}
             <div x-show="tab === 'resources'" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-                    <input type="text" x-model="search" placeholder="Търси по заглавие…"
+                    <input type="text" x-model="rTab.search" placeholder="Търси по заглавие или URL…"
                            class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500">
                 </div>
 
-                <div x-show="loading" class="px-4 py-10 text-center text-gray-400 text-sm">Зареждане…</div>
+                <div x-show="loading || rTab.loading" class="px-4 py-10 text-center text-gray-400 text-sm">Зареждане…</div>
 
-                <div x-show="!loading && filteredResources().length === 0" x-cloak class="px-4 py-12 text-center">
+                <div x-show="!loading && !rTab.loading && rTab.items.length === 0" x-cloak class="px-4 py-12 text-center">
                     <p class="text-2xl mb-2">📚</p>
                     <p class="text-gray-500 font-medium mb-1">Няма ресурси</p>
                     <p class="text-gray-400 text-sm">Добави URL на сайта, ценоразписи, каталози или бележки — агентите ще ги ползват като достоверен източник.</p>
                 </div>
 
-                <table x-show="!loading && filteredResources().length > 0" x-cloak class="w-full text-sm">
+                <table x-show="!loading && !rTab.loading && rTab.items.length > 0" x-cloak class="w-full text-sm">
                     <thead>
                         <tr class="text-left text-xs text-gray-400 uppercase border-b border-gray-100">
-                            <th class="px-4 py-2 cursor-pointer hover:text-gray-600" @click="sortBy('title')">Ресурс</th>
+                            <th class="px-4 py-2 cursor-pointer hover:text-gray-600 select-none" @click="sortBy('title')">
+                                Ресурс <span class="opacity-50" x-text="rTab.sort === 'title' ? (rTab.dir === 'asc' ? '↑' : '↓') : '↕'"></span>
+                            </th>
                             <th class="px-2 py-2">Папка</th>
-                            <th class="px-2 py-2 cursor-pointer hover:text-gray-600" @click="sortBy('status')">Статус</th>
-                            <th class="px-2 py-2 text-right">Чанкове</th>
-                            <th class="px-2 py-2 cursor-pointer hover:text-gray-600" @click="sortBy('created_at')">Дата</th>
+                            <th class="px-2 py-2 cursor-pointer hover:text-gray-600 select-none" @click="sortBy('status')">
+                                Статус <span class="opacity-50" x-text="rTab.sort === 'status' ? (rTab.dir === 'asc' ? '↑' : '↓') : '↕'"></span>
+                            </th>
+                            <th class="px-2 py-2 text-right cursor-pointer hover:text-gray-600 select-none" @click="sortBy('chunk_count')">
+                                Чанкове <span class="opacity-50" x-text="rTab.sort === 'chunk_count' ? (rTab.dir === 'asc' ? '↑' : '↓') : '↕'"></span>
+                            </th>
+                            <th class="px-2 py-2 cursor-pointer hover:text-gray-600 select-none" @click="sortBy('created_at')">
+                                Дата <span class="opacity-50" x-text="rTab.sort === 'created_at' ? (rTab.dir === 'asc' ? '↑' : '↓') : '↕'"></span>
+                            </th>
                             <th class="px-2 py-2"></th>
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-for="r in pagedResources()" :key="r.id">
+                        <template x-for="r in rTab.items" :key="r.id">
                             <tr class="border-b border-gray-50 hover:bg-gray-50 group">
                                 <td class="px-4 py-2.5">
                                     <div class="flex items-center gap-2 min-w-0">
@@ -200,13 +200,13 @@
                     </tbody>
                 </table>
 
-                <div x-show="!loading && filteredResources().length > pageSize" x-cloak
+                <div x-show="!loading && rTab.pages > 1" x-cloak
                      class="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 text-sm text-gray-500">
-                    <span x-text="'Стр. ' + page + ' от ' + totalPages()"></span>
+                    <span x-text="'Стр. ' + rTab.page + ' от ' + rTab.pages + ' (' + rTab.total + ' общо)'"></span>
                     <div class="flex gap-1">
-                        <button @click="page = Math.max(1, page - 1)" :disabled="page === 1"
+                        <button @click="rTab.page = Math.max(1, rTab.page - 1); loadResources()" :disabled="rTab.page === 1"
                                 class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">←</button>
-                        <button @click="page = Math.min(totalPages(), page + 1)" :disabled="page === totalPages()"
+                        <button @click="rTab.page = Math.min(rTab.pages, rTab.page + 1); loadResources()" :disabled="rTab.page === rTab.pages"
                                 class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">→</button>
                     </div>
                 </div>
@@ -214,20 +214,25 @@
 
             {{-- ── TAB: Факти ── --}}
             <div x-show="tab === 'facts'" x-cloak class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 flex-wrap">
-                    <template x-for="c in factCategories()" :key="c">
-                        <button @click="factCategory = c"
+                <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+                    <input type="text" x-model="fTab.search" placeholder="Търси по факт или стойност…"
+                           class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-100 flex-wrap">
+                    <template x-for="c in factCategories" :key="c">
+                        <button @click="fTab.category = c; fTab.page = 1; loadFacts()"
                                 class="px-2 py-1 rounded-full text-xs font-medium transition"
-                                :class="factCategory === c ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+                                :class="fTab.category === c ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
                                 x-text="categoryLabel(c)"></button>
                     </template>
                 </div>
-                <div x-show="filteredFacts().length === 0" class="px-4 py-12 text-center">
+                <div x-show="fTab.loading" class="px-4 py-10 text-center text-gray-400 text-sm">Зареждане…</div>
+                <div x-show="!fTab.loading && fTab.items.length === 0" class="px-4 py-12 text-center">
                     <p class="text-2xl mb-2">💡</p>
                     <p class="text-gray-500 font-medium mb-1">Още няма факти</p>
                     <p class="text-gray-400 text-sm">Фактите се извличат автоматично при добавяне на ресурси и след всеки успешен run на flow.</p>
                 </div>
-                <table x-show="filteredFacts().length > 0" x-cloak class="w-full text-sm">
+                <table x-show="!fTab.loading && fTab.items.length > 0" x-cloak class="w-full text-sm">
                     <thead>
                         <tr class="text-left text-xs text-gray-400 uppercase border-b border-gray-100">
                             <th class="px-4 py-2">Факт</th>
@@ -239,7 +244,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-for="f in filteredFacts()" :key="f.id">
+                        <template x-for="f in fTab.items" :key="f.id">
                             <tr class="border-b border-gray-50 hover:bg-gray-50 group align-top">
                                 <td class="px-4 py-2.5">
                                     <div class="font-medium text-gray-800" x-text="f.name"></div>
@@ -263,14 +268,29 @@
                         </template>
                     </tbody>
                 </table>
+                <div x-show="!fTab.loading && fTab.pages > 1" x-cloak
+                     class="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 text-sm text-gray-500">
+                    <span x-text="'Стр. ' + fTab.page + ' от ' + fTab.pages + ' (' + fTab.total + ' общо)'"></span>
+                    <div class="flex gap-1">
+                        <button @click="fTab.page = Math.max(1, fTab.page - 1); loadFacts()" :disabled="fTab.page === 1"
+                                class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">←</button>
+                        <button @click="fTab.page = Math.min(fTab.pages, fTab.page + 1); loadFacts()" :disabled="fTab.page === fTab.pages"
+                                class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">→</button>
+                    </div>
+                </div>
             </div>
 
             {{-- ── TAB: История ── --}}
             <div x-show="tab === 'history'" x-cloak class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div x-show="events.length === 0" class="px-4 py-12 text-center text-gray-400 text-sm">
+                <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+                    <input type="text" x-model="hTab.search" placeholder="Търси по заглавие…"
+                           class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div x-show="hTab.loading" class="px-4 py-10 text-center text-gray-400 text-sm">Зареждане…</div>
+                <div x-show="!hTab.loading && hTab.items.length === 0" class="px-4 py-12 text-center text-gray-400 text-sm">
                     Още няма събития — историята записва всяко добавено/обновено/изтрито знание.
                 </div>
-                <table x-show="events.length > 0" x-cloak class="w-full text-sm">
+                <table x-show="!hTab.loading && hTab.items.length > 0" x-cloak class="w-full text-sm">
                     <thead>
                         <tr class="text-left text-xs text-gray-400 uppercase border-b border-gray-100">
                             <th class="px-4 py-2">Знание</th>
@@ -281,7 +301,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-for="e in events" :key="e.id">
+                        <template x-for="e in hTab.items" :key="e.id">
                             <tr class="border-b border-gray-50 hover:bg-gray-50 group">
                                 <td class="px-4 py-2.5">
                                     <span x-text="subjectIcon(e.subject_type)"></span>
@@ -306,22 +326,38 @@
                         </template>
                     </tbody>
                 </table>
+                <div x-show="!hTab.loading && hTab.pages > 1" x-cloak
+                     class="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 text-sm text-gray-500">
+                    <span x-text="'Стр. ' + hTab.page + ' от ' + hTab.pages + ' (' + hTab.total + ' общо)'"></span>
+                    <div class="flex gap-1">
+                        <button @click="hTab.page = Math.max(1, hTab.page - 1); loadEvents()" :disabled="hTab.page === 1"
+                                class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">←</button>
+                        <button @click="hTab.page = Math.min(hTab.pages, hTab.page + 1); loadEvents()" :disabled="hTab.page === hTab.pages"
+                                class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">→</button>
+                    </div>
+                </div>
             </div>
 
             {{-- ── TAB: Пропуски ── --}}
-            <div x-show="tab === 'gaps'" x-cloak class="bg-white rounded-xl border border-gray-200 p-4">
+            <div x-show="tab === 'gaps'" x-cloak class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+                    <input type="text" x-model="gTab.search" placeholder="Търси по заявка…"
+                           class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div class="p-4">
                 <div class="flex items-center justify-between mb-3">
                     <p class="text-xs text-gray-400">
                         Агентите (или чатът) са търсили това, но не са намерили добро покритие — качи ресурс по темата.
                         Когато ново знание покрие пропуска, той става <span class="text-green-600 font-medium">готов</span> автоматично.
                     </p>
-                    <button x-show="gaps.length" @click="clearGaps()"
+                    <button x-show="stats.gaps > 0" @click="clearGaps()"
                             class="text-xs text-gray-400 hover:text-red-600 transition shrink-0 ml-3">Изчисти всички</button>
                 </div>
-                <div x-show="!gaps.length" class="text-sm text-gray-400 py-2">
+                <div x-show="gTab.loading" class="py-8 text-center text-gray-400 text-sm">Зареждане…</div>
+                <div x-show="!gTab.loading && gTab.items.length === 0" class="text-sm text-gray-400 py-2">
                     Няма пропуски — търсенията намират покритие.
                 </div>
-                <table x-show="gaps.length" x-cloak class="w-full text-sm">
+                <table x-show="!gTab.loading && gTab.items.length > 0" x-cloak class="w-full text-sm">
                     <thead>
                         <tr class="text-left text-xs text-gray-400 uppercase border-b border-gray-100">
                             <th class="py-2 pr-2">Заявка</th>
@@ -332,7 +368,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-for="gap in gaps" :key="gap.id">
+                        <template x-for="gap in gTab.items" :key="gap.id">
                             <tr class="border-b border-gray-50">
                                 <td class="py-2 pr-2 text-gray-700" x-text="gap.query"></td>
                                 <td class="py-2 pr-2">
@@ -353,6 +389,17 @@
                         </template>
                     </tbody>
                 </table>
+                <div x-show="!gTab.loading && gTab.pages > 1" x-cloak
+                     class="flex items-center justify-between pt-3 mt-3 border-t border-gray-100 text-sm text-gray-500">
+                    <span x-text="'Стр. ' + gTab.page + ' от ' + gTab.pages + ' (' + gTab.total + ' общо)'"></span>
+                    <div class="flex gap-1">
+                        <button @click="gTab.page = Math.max(1, gTab.page - 1); loadGaps()" :disabled="gTab.page === 1"
+                                class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">←</button>
+                        <button @click="gTab.page = Math.min(gTab.pages, gTab.page + 1); loadGaps()" :disabled="gTab.page === gTab.pages"
+                                class="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-40">→</button>
+                    </div>
+                </div>
+                </div>{{-- /p-4 --}}
             </div>
         </div>
 
@@ -367,7 +414,7 @@
                 <div x-show="chat.messages.length === 0 && !chat.pending" class="text-center text-gray-400 text-sm py-8 px-4">
                     Питай на човешки език:<br>
                     <button @click="chat.input = 'Каква е цената на лазерна епилация на подмишници?'"
-                            class="mt-2 text-xs text-indigo-500 hover:underline">„Каква е цената на лазерна епилация на подмишници?“</button>
+                            class="mt-2 text-xs text-indigo-500 hover:underline">„Каква е цената на лазерна епилация на подмишници?"</button>
                 </div>
 
                 <template x-for="m in chat.messages" :key="m.id">
@@ -488,8 +535,8 @@
         </div>
     </div>
 
-    {{-- ─────────── Modal: digest / snippet преглед ─────────── --}}
-    <div x-show="preview.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    {{-- ─────────── Modal: digest / snippet преглед (z-60 — над pagesModal) ─────────── --}}
+    <div x-show="preview.open" x-cloak class="fixed inset-0 z-60 flex items-center justify-center p-4"
          @keydown.escape.window="preview.open = false">
         <div class="absolute inset-0 bg-black/40" @click="preview.open = false"></div>
         <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl p-5 max-h-[85vh] flex flex-col">
@@ -565,10 +612,12 @@
 @push('scripts')
 <script>
 function knowledgePage(config) {
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
     return {
         config,
         enabled: true, loading: true, error: '', busy: false,
-        folders: [], resources: [], facts: [], events: [], gaps: [], stats: {},
+        folders: [], stats: {}, factCategories: ['all'],
         tab: 'resources',
         tabs: [
             { key: 'resources', label: '📚 Ресурси' },
@@ -576,16 +625,12 @@ function knowledgePage(config) {
             { key: 'history', label: '🕓 История' },
             { key: 'gaps', label: '🕳 Пропуски' },
         ],
-        selectedFolder: null, typeFilter: 'all', factCategory: 'all',
-        search: '', sortCol: 'created_at', sortDir: 'desc', page: 1, pageSize: 15,
-        newFolderName: '', renaming: null, pollTimer: null,
-        typeFilters: [
-            { key: 'all', label: 'Всички' },
-            { key: 'url', label: '🌐 URL' },
-            { key: 'upload', label: '📄 Файлове' },
-            { key: 'image', label: '🖼 Снимки' },
-            { key: 'note', label: '📝 Бележки' },
-        ],
+        selectedFolder: null,
+        newFolderName: '', renaming: null, addingFolder: false, pollTimer: null,
+        rTab: { items: [], total: 0, pages: 1, page: 1, search: '', sort: 'created_at', dir: 'desc', loading: false },
+        fTab: { items: [], total: 0, pages: 1, page: 1, search: '', category: 'all', loading: false },
+        hTab: { items: [], total: 0, pages: 1, page: 1, search: '', loading: false },
+        gTab: { items: [], total: 0, pages: 1, page: 1, search: '', loading: false },
         addModal: { open: false, kind: 'url', url: '', noteTitle: '', noteContent: '', busy: false },
         noteEdit: { open: false, id: null, title: '', content: '', busy: false },
         preview: { open: false, loading: false, title: '', url: null, subtitle: '', content: '' },
@@ -593,6 +638,11 @@ function knowledgePage(config) {
         chat: { messages: [], input: '', session: null, pending: false, stage: '', pollTimer: null },
 
         init() {
+            this.$watch('tab', key => this.loadTab(key));
+            this.$watch('rTab.search', debounce(() => { this.rTab.page = 1; this.loadResources(); }, 300));
+            this.$watch('fTab.search', debounce(() => { this.fTab.page = 1; this.loadFacts(); }, 300));
+            this.$watch('hTab.search', debounce(() => { this.hTab.page = 1; this.loadEvents(); }, 300));
+            this.$watch('gTab.search', debounce(() => { this.gTab.page = 1; this.loadGaps(); }, 300));
             this.refresh();
             this.loadChatHistory();
         },
@@ -619,19 +669,79 @@ function knowledgePage(config) {
                 const data = await this.api('/data');
                 this.enabled = data.enabled;
                 this.folders = data.folders;
-                this.resources = data.resources;
-                this.facts = data.facts;
-                this.events = data.events;
-                this.gaps = data.gaps || [];
                 this.stats = data.stats;
+                this.factCategories = ['all', ...(data.fact_categories || [])];
                 this.busy = data.busy;
+                this.error = '';
                 clearTimeout(this.pollTimer);
                 if (this.busy) this.pollTimer = setTimeout(() => this.refresh(), 4000);
+                this.loadTab(this.tab);
             } catch (e) {
                 this.error = e.message;
             } finally {
                 this.loading = false;
             }
+        },
+
+        loadTab(key) {
+            if (key === 'resources') this.loadResources();
+            else if (key === 'facts') this.loadFacts();
+            else if (key === 'history') this.loadEvents();
+            else if (key === 'gaps') this.loadGaps();
+        },
+
+        async loadResources() {
+            this.rTab.loading = true;
+            try {
+                const params = new URLSearchParams({
+                    search: this.rTab.search,
+                    sort: this.rTab.sort,
+                    dir: this.rTab.dir,
+                    page: this.rTab.page,
+                });
+                if (this.selectedFolder !== null) params.set('folder_id', this.selectedFolder);
+                const data = await this.api('/resources?' + params);
+                this.rTab.items = data.items;
+                this.rTab.total = data.total;
+                this.rTab.pages = data.pages;
+            } catch (e) { this.error = e.message; }
+            finally { this.rTab.loading = false; }
+        },
+
+        async loadFacts() {
+            this.fTab.loading = true;
+            try {
+                const params = new URLSearchParams({ search: this.fTab.search, category: this.fTab.category, page: this.fTab.page });
+                const data = await this.api('/facts?' + params);
+                this.fTab.items = data.items;
+                this.fTab.total = data.total;
+                this.fTab.pages = data.pages;
+            } catch (e) { this.error = e.message; }
+            finally { this.fTab.loading = false; }
+        },
+
+        async loadEvents() {
+            this.hTab.loading = true;
+            try {
+                const params = new URLSearchParams({ search: this.hTab.search, page: this.hTab.page });
+                const data = await this.api('/events?' + params);
+                this.hTab.items = data.items;
+                this.hTab.total = data.total;
+                this.hTab.pages = data.pages;
+            } catch (e) { this.error = e.message; }
+            finally { this.hTab.loading = false; }
+        },
+
+        async loadGaps() {
+            this.gTab.loading = true;
+            try {
+                const params = new URLSearchParams({ search: this.gTab.search, page: this.gTab.page });
+                const data = await this.api('/gaps?' + params);
+                this.gTab.items = data.items;
+                this.gTab.total = data.total;
+                this.gTab.pages = data.pages;
+            } catch (e) { this.error = e.message; }
+            finally { this.gTab.loading = false; }
         },
 
         async toggleEnabled() {
@@ -640,8 +750,11 @@ function knowledgePage(config) {
         },
 
         tabCount(key) {
-            return { resources: this.resources.length, facts: this.facts.length,
-                     history: this.events.length, gaps: this.gaps.length }[key] ?? 0;
+            if (key === 'resources') return this.stats.resources ?? 0;
+            if (key === 'facts') return this.stats.facts ?? 0;
+            if (key === 'history') return this.stats.events ?? 0;
+            if (key === 'gaps') return this.stats.gaps ?? 0;
+            return 0;
         },
 
         // ── Папки ──
@@ -666,12 +779,6 @@ function knowledgePage(config) {
                 this.refresh();
             } catch (e) { this.error = e.message; }
         },
-        addSubfolder(parentId) {
-            const name = prompt('Име на подпапката:');
-            if (!name || !name.trim()) return;
-            this.api('/folders', { method: 'POST', json: { name: name.trim(), parent_id: parentId } })
-                .then(() => this.refresh()).catch(e => this.error = e.message);
-        },
         startRename(id) {
             this.renaming = id;
             this.$nextTick(() => document.getElementById('rename-' + id)?.focus());
@@ -685,7 +792,7 @@ function knowledgePage(config) {
             } catch (e) { this.error = e.message; }
         },
         async deleteFolder(folder) {
-            if (!confirm('Изтрий папка „' + folder.name + '“? Ресурсите в нея остават (падат в корена).')) return;
+            if (!confirm('Изтрий папка „' + folder.name + '"? Ресурсите в нея остават (падат в корена).')) return;
             try {
                 await this.api('/folders/' + folder.id, { method: 'DELETE' });
                 if (this.selectedFolder === folder.id) this.selectedFolder = null;
@@ -747,7 +854,7 @@ function knowledgePage(config) {
             catch (e) { this.error = e.message; }
         },
         async deleteResource(r) {
-            if (!confirm('Изтрий „' + r.title + '“? Цялото извлечено знание от него ще бъде забравено.')) return;
+            if (!confirm('Изтрий „' + r.title + '"? Цялото извлечено знание от него ще бъде забравено.')) return;
             try { await this.api('/resources/' + r.id, { method: 'DELETE' }); this.refresh(); }
             catch (e) { this.error = e.message; }
         },
@@ -775,6 +882,20 @@ function knowledgePage(config) {
             finally { this.noteEdit.busy = false; }
         },
 
+        // ── Таблица (сортиране) ──
+        sortBy(col) {
+            if (this.rTab.sort === col) this.rTab.dir = this.rTab.dir === 'asc' ? 'desc' : 'asc';
+            else { this.rTab.sort = col; this.rTab.dir = 'desc'; }
+            this.rTab.page = 1;
+            this.loadResources();
+        },
+        typeIcon(t) { return { url: '🌐', upload: '📄', image: '🖼', note: '📝' }[t] || '📄'; },
+        typeLabel(t) { return { url: 'URL', upload: 'файл', image: 'снимка', note: 'бележка' }[t] || t; },
+        formatSize(bytes) {
+            if (!bytes) return '';
+            return bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.round(bytes / 1024) + ' KB';
+        },
+
         // ── Страници ──
         async openPages(r) {
             this.pagesModal = { open: true, loading: true, resource: r, pages: [] };
@@ -793,7 +914,7 @@ function knowledgePage(config) {
             finally { this.preview.loading = false; }
         },
         async deletePage(p) {
-            if (!confirm('Изтрий страницата „' + (p.title || p.url) + '“ от знанията?')) return;
+            if (!confirm('Изтрий страницата „' + (p.title || p.url) + '" от знанията?')) return;
             try {
                 await this.api('/pages/' + p.id, { method: 'DELETE' });
                 this.pagesModal.pages = this.pagesModal.pages.filter(x => x.id !== p.id);
@@ -802,12 +923,6 @@ function knowledgePage(config) {
         },
 
         // ── Факти ──
-        factCategories() {
-            return ['all', ...new Set(this.facts.map(f => f.category))];
-        },
-        filteredFacts() {
-            return this.factCategory === 'all' ? this.facts : this.facts.filter(f => f.category === this.factCategory);
-        },
         categoryLabel(c) {
             return { all: 'Всички', services: 'Услуги', prices: 'Цени', contacts: 'Контакти',
                      locations: 'Локации', about: 'За фирмата', team: 'Екип',
@@ -817,7 +932,7 @@ function knowledgePage(config) {
             return { resource: 'ресурс', page: 'страница', run: 'flow run', chat: 'чат' }[t] || t;
         },
         async deleteFact(f) {
-            if (!confirm('Изтрий факта „' + f.name + '“?')) return;
+            if (!confirm('Изтрий факта „' + f.name + '"?')) return;
             try { await this.api('/facts/' + f.id, { method: 'DELETE' }); this.refresh(); }
             catch (e) { this.error = e.message; }
         },
@@ -836,33 +951,6 @@ function knowledgePage(config) {
             if (!confirm('Изчисти всички записани пропуски?')) return;
             try { await this.api('/gaps', { method: 'DELETE' }); this.refresh(); }
             catch (e) { this.error = e.message; }
-        },
-
-        // ── Таблица (ресурси) ──
-        filteredResources() {
-            let rs = this.resources;
-            if (this.selectedFolder !== null) rs = rs.filter(r => r.folder_id === this.selectedFolder);
-            if (this.typeFilter !== 'all') rs = rs.filter(r => r.type === this.typeFilter);
-            const q = this.search.trim().toLowerCase();
-            if (q) rs = rs.filter(r => (r.title || '').toLowerCase().includes(q) || (r.url || '').toLowerCase().includes(q));
-            const dir = this.sortDir === 'asc' ? 1 : -1;
-            const col = this.sortCol;
-            return [...rs].sort((a, b) => (a[col] > b[col] ? 1 : a[col] < b[col] ? -1 : 0) * dir);
-        },
-        pagedResources() {
-            return this.filteredResources().slice((this.page - 1) * this.pageSize, this.page * this.pageSize);
-        },
-        totalPages() { return Math.max(1, Math.ceil(this.filteredResources().length / this.pageSize)); },
-        sortBy(col) {
-            if (this.sortCol === col) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
-            else { this.sortCol = col; this.sortDir = 'desc'; }
-            this.page = 1;
-        },
-        typeIcon(t) { return { url: '🌐', upload: '📄', image: '🖼', note: '📝' }[t] || '📄'; },
-        typeLabel(t) { return { url: 'URL', upload: 'файл', image: 'снимка', note: 'бележка' }[t] || t; },
-        formatSize(bytes) {
-            if (!bytes) return '';
-            return bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.round(bytes / 1024) + ' KB';
         },
 
         // ── Чат ──
@@ -904,7 +992,7 @@ function knowledgePage(config) {
                         this.chat.pending = false;
                         this.chat.messages.push(data.message);
                         this.scrollChat();
-                        this.refresh(); // нов gap може да се е появил
+                        this.refresh();
                         return;
                     }
                     if (data.status === 'failed' || data.status === 'expired') {

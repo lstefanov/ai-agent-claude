@@ -88,6 +88,11 @@ Route::prefix('companies/{company}/knowledge')->name('companies.knowledge.')->gr
     Route::post('folders', [CompanyKnowledgeController::class, 'storeFolder'])->name('folders.store');
     Route::patch('folders/{folder}', [CompanyKnowledgeController::class, 'renameFolder'])->name('folders.rename');
     Route::delete('folders/{folder}', [CompanyKnowledgeController::class, 'destroyFolder'])->name('folders.destroy');
+    // Пагинирани списъци (server-side search/sort/page)
+    Route::get('resources', [CompanyKnowledgeController::class, 'listResources'])->name('resources.list');
+    Route::get('facts', [CompanyKnowledgeController::class, 'listFacts'])->name('facts.list');
+    Route::get('events', [CompanyKnowledgeController::class, 'listEvents'])->name('events.list');
+    Route::get('gaps', [CompanyKnowledgeController::class, 'listGaps'])->name('gaps.list');
     // Ресурси: файлове/снимки, бележки, URL-и
     Route::post('uploads', [CompanyKnowledgeController::class, 'upload'])->name('uploads.store');
     Route::post('notes', [CompanyKnowledgeController::class, 'storeNote'])->name('notes.store');
