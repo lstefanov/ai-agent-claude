@@ -37,12 +37,20 @@ class CompanyController extends Controller
 
     public function show(Company $company)
     {
-        // Nodes are materialized per template (version) — count only the
-        // active template's, else every version would inflate the number.
-        $activeNodes = ['nodes' => fn ($q) => $q->whereHas('version', fn ($v) => $v->where('is_active', true))];
+        // Each card shows live metrics: active-template node count (count only the
+        // active template's nodes, else every version would inflate the number),
+        // template count, run outcomes and total runtime cost across all runs.
+        $enrich = fn ($query) => $query
+            ->withCount([
+                'nodes' => fn ($q) => $q->whereHas('version', fn ($v) => $v->where('is_active', true)),
+                'versions',
+                'flowRuns as successful_runs_count' => fn ($q) => $q->where('status', 'completed'),
+                'flowRuns as failed_runs_count' => fn ($q) => $q->where('status', 'failed'),
+            ])
+            ->withSum('nodeRuns as total_cost_usd', 'cost_usd');
 
-        $flows = $company->flows()->withCount($activeNodes)->where('is_archived', false)->latest()->get();
-        $archivedFlows = $company->flows()->withCount($activeNodes)->where('is_archived', true)->latest()->get();
+        $flows = $enrich($company->flows())->where('is_archived', false)->latest()->get();
+        $archivedFlows = $enrich($company->flows())->where('is_archived', true)->latest()->get();
 
         $knowledgeStats = [
             'documents' => $company->knowledgeResources()->count(),

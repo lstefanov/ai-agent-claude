@@ -95,6 +95,29 @@ class NodeExecutorService
                 return;
             }
 
+            // Persist the run row up-front so it has an id, then open the paid-call
+            // attribution frame for the WHOLE node lifecycle. Everything below —
+            // mcp_action, the memory/knowledge pre-pass, the agentic tool loop, and
+            // the dedup/QA/replan work between attempts — records to llm_requests
+            // with this run/node (the frame is cleared in the finally; nested owners
+            // like the planner revision save/restore it). node_runs.cost_usd uses the
+            // context-free LlmUsage accumulator, so it was already correct.
+            $nodeRun->fill([
+                'node_key' => $node->node_key,
+                'status' => 'running',
+                'started_at' => $nodeRun->started_at ?? now(),
+            ])->save();
+
+            LlmContext::set([
+                'purpose' => 'runtime',
+                'company_id' => $flowRun->flow?->company_id,
+                'flow_id' => $node->flow_id,
+                'flow_run_id' => $flowRun->id,
+                'node_run_id' => $nodeRun->id,
+                'agent_name' => $node->name,
+                'agent_type' => $node->type,
+            ]);
+
             // Human-in-the-loop: the node never executes an agent — it pauses the
             // run until a person approves/rejects via the run UI. Exception: when
             // every mcp_action it gates is explicitly marked requires_approval=false
@@ -130,6 +153,7 @@ class NodeExecutorService
 
             $this->runWithQaRetry($flowRun, $node, $nodeRun);
         } finally {
+            LlmContext::clear();
             NodeDeadline::clear();
         }
     }
@@ -703,17 +727,6 @@ class NodeExecutorService
         $agentInstance = null;
         $startMs = now()->valueOf();
 
-        // Attribute every paid call this node makes (see LlmRequestRecorder).
-        LlmContext::set([
-            'purpose' => 'runtime',
-            'company_id' => $flowRun->flow?->company_id,
-            'flow_id' => $node->flow_id,
-            'flow_run_id' => $flowRun->id,
-            'node_run_id' => $nodeRun->id,
-            'agent_name' => $node->name,
-            'agent_type' => $node->type,
-        ]);
-
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
             try {
                 if ($attempt > 1) {
@@ -736,9 +749,9 @@ class NodeExecutorService
         $durationMs = now()->valueOf() - $startMs;
 
         // Collect paid-provider usage accumulated during this node execution
-        // (openai/* chat calls + any planner revision calls it triggered).
+        // (openai/* chat calls + any planner revision calls it triggered). The
+        // LlmContext frame is owned by executeNode() and spans every attempt.
         $usage = LlmUsage::take();
-        LlmContext::clear();
 
         if ($lastError !== null) {
             $message = "Node {$node->name} failed after ".self::MAX_ATTEMPTS.' attempts: '.$lastError->getMessage();

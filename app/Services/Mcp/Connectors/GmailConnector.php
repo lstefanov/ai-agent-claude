@@ -7,6 +7,7 @@ use App\Services\Mcp\ScopeException;
 use App\Services\Mcp\SsrfGuard;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 /**
  * Gmail конектор (OAuth2 access_token). Read: list_emails, get_email. Write:
@@ -277,16 +278,26 @@ class GmailConnector extends AbstractConnector
             }
         }
 
+        $html = Str::markdown($body, ['html_input' => 'strip']);
+
         if ($attachment === null) {
-            $headers = array_merge($baseHeaders, ['Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64']);
-            $mime = implode("\r\n", $headers)."\r\n\r\n".chunk_split(base64_encode($body));
+            $boundary = 'mcp'.bin2hex(random_bytes(8));
+            $headers = array_merge($baseHeaders, ['Content-Type: multipart/alternative; boundary="'.$boundary.'"']);
+            $mime = implode("\r\n", $headers)."\r\n\r\n"
+                ."--{$boundary}\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($body))."\r\n"
+                ."--{$boundary}\r\nContent-Type: text/html; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($html))."\r\n"
+                ."--{$boundary}--";
         } else {
             [$mimeType, $binary] = $attachment;
             $filename = basename((string) (parse_url((string) $params['attachment_url'], PHP_URL_PATH) ?: 'attachment')) ?: 'attachment';
+            $altBoundary = 'alt'.bin2hex(random_bytes(8));
             $boundary = 'mcp'.bin2hex(random_bytes(8));
             $headers = array_merge($baseHeaders, ['Content-Type: multipart/mixed; boundary="'.$boundary.'"']);
+            $altPart = "--{$altBoundary}\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($body))."\r\n"
+                ."--{$altBoundary}\r\nContent-Type: text/html; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($html))."\r\n"
+                ."--{$altBoundary}--";
             $mime = implode("\r\n", $headers)."\r\n\r\n"
-                ."--{$boundary}\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($body))."\r\n"
+                ."--{$boundary}\r\nContent-Type: multipart/alternative; boundary=\"{$altBoundary}\"\r\n\r\n{$altPart}\r\n"
                 ."--{$boundary}\r\nContent-Type: {$mimeType}\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"{$filename}\"\r\n\r\n".chunk_split(base64_encode($binary))."\r\n"
                 ."--{$boundary}--";
         }

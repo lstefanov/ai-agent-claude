@@ -298,7 +298,7 @@ class CostController extends Controller
             ."GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR ', ') as model, "
             .'COALESCE(SUM(prompt_tokens),0) as prompt_tokens, '
             .'COALESCE(SUM(completion_tokens),0) as completion_tokens, '
-            .'ROUND(SUM(cost_usd),6) as cost_usd, '
+            .'ROUND(SUM(cost_usd),4) as cost_usd, '
             .'COALESCE(SUM(duration_ms),0) as duration_ms, '
             .'MAX(created_at) as created_at, '
             .'MIN(status) as status';
@@ -385,7 +385,7 @@ class CostController extends Controller
                 ."GROUP_CONCAT(DISTINCT provider ORDER BY provider SEPARATOR ', ') as provider, "
                 ."GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR ', ') as model, "
                 .'COUNT(*) as call_count, COALESCE(SUM(total_tokens),0) as total_tokens, '
-                .'ROUND(SUM(cost_usd),6) as cost_usd, MAX(created_at) as last_at, MIN(status) as status')
+                .'ROUND(SUM(cost_usd),4) as cost_usd, MAX(created_at) as last_at, MIN(status) as status')
             ->groupBy('session_id');
 
         $outer = DB::query()->fromSub($sub, 's');
@@ -502,7 +502,7 @@ class CostController extends Controller
                 'started_at' => $run?->started_at?->format('Y-m-d H:i:s'),
                 'completed_at' => $run?->completed_at?->format('Y-m-d H:i:s'),
                 'agents' => (int) ($agg->c ?? 0),
-                'cost_usd' => round((float) ($agg->cost ?? 0), 6),
+                'cost_usd' => round((float) ($agg->cost ?? 0), 4),
                 'tokens' => (int) ($agg->tokens ?? 0),
                 'duration_ms' => (int) ($agg->dur ?? 0),
             ];
@@ -567,7 +567,7 @@ class CostController extends Controller
                 COALESCE(SUM(total_tokens), 0) as total_tokens,
                 COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
                 COALESCE(SUM(completion_tokens), 0) as completion_tokens,
-                ROUND(SUM(cost_usd), 6) as cost_usd,
+                ROUND(SUM(cost_usd), 4) as cost_usd,
                 COUNT(*) as call_count,
                 MIN(created_at) as first_at,
                 MAX(created_at) as last_at
@@ -668,15 +668,15 @@ class CostController extends Controller
         $ollamaRequests = (int) $this->filtered($r)->where('provider', 'ollama')->count();
 
         return [
-            'total_cost' => round($totalCost, 2),
-            'month_cost' => round((float) $this->filtered($r)->where('created_at', '>=', now()->startOfMonth())->sum('cost_usd'), 2),
-            'today_cost' => round((float) $this->filtered($r)->whereDate('created_at', today())->sum('cost_usd'), 2),
+            'total_cost' => round($totalCost, 4),
+            'month_cost' => round((float) $this->filtered($r)->where('created_at', '>=', now()->startOfMonth())->sum('cost_usd'), 4),
+            'today_cost' => round((float) $this->filtered($r)->whereDate('created_at', today())->sum('cost_usd'), 4),
             'paid_tokens' => (int) $this->filtered($r)->where('provider', '!=', 'ollama')->sum('total_tokens'),
             'free_tokens' => (int) $this->filtered($r)->where('provider', 'ollama')->sum('total_tokens'),
             'total_requests' => $paidRequests + $ollamaRequests,
             'paid_requests' => $paidRequests,
             'ollama_requests' => $ollamaRequests,
-            'avg_cost' => $paidRequests > 0 ? round($totalCost / $paidRequests, 2) : 0.0,
+            'avg_cost' => $paidRequests > 0 ? round($totalCost / $paidRequests, 4) : 0.0,
         ];
     }
 
@@ -712,7 +712,7 @@ class CostController extends Controller
             $pricing = config("services.{$provider}.pricing", []);
 
             $dbGroup = $dbByProvider->get($provider, collect());
-            $total = round((float) $dbGroup->sum('cost'), 6);
+            $total = round((float) $dbGroup->sum('cost'), 4);
             $requests = (int) $dbGroup->sum('cnt');
 
             // Start with DB-used models
@@ -763,7 +763,7 @@ class CostController extends Controller
 
             $result[] = [
                 'provider' => 'ollama',
-                'total' => round((float) $ollamaGroup->sum('cost'), 6),
+                'total' => round((float) $ollamaGroup->sum('cost'), 4),
                 'requests' => (int) $ollamaGroup->sum('cnt'),
                 'models' => $ollamaModels,
             ];
@@ -810,7 +810,7 @@ class CostController extends Controller
 
         return [
             'labels' => array_keys($days),
-            'cost' => array_map(fn ($d) => round($d['cost'], 2), array_values($days)),
+            'cost' => array_map(fn ($d) => round($d['cost'], 4), array_values($days)),
             'promptTokens' => array_map(fn ($d) => $d['prompt'], array_values($days)),
             'completionTokens' => array_map(fn ($d) => $d['completion'], array_values($days)),
         ];
@@ -833,7 +833,7 @@ class CostController extends Controller
 
         return [
             'labels' => $rows->pluck('label')->map(fn ($l) => $l ?: '—')->values(),
-            'data' => $rows->pluck('total')->map(fn ($t) => round((float) $t, 2))->values(),
+            'data' => $rows->pluck('total')->map(fn ($t) => round((float) $t, 4))->values(),
         ];
     }
 
@@ -851,7 +851,7 @@ class CostController extends Controller
 
         return [
             'labels' => $rows->pluck('label')->map(fn ($l) => $l ?: '— (без фирма)')->values(),
-            'data' => $rows->pluck('total')->map(fn ($t) => round((float) $t, 2))->values(),
+            'data' => $rows->pluck('total')->map(fn ($t) => round((float) $t, 4))->values(),
         ];
     }
 
@@ -889,7 +889,7 @@ class CostController extends Controller
                 COUNT(DISTINCT session_id) as sessions,
                 COUNT(*) as calls,
                 COALESCE(SUM(total_tokens), 0) as total_tokens,
-                ROUND(SUM(cost_usd), 6) as total_cost
+                ROUND(SUM(cost_usd), 4) as total_cost
             ')
             ->first();
 

@@ -18,34 +18,34 @@
 
 <div class="space-y-3">
     <div class="flex items-center justify-between gap-2">
-        <div class="text-xs text-gray-400">Провайдър и модел за всяка фаза на планирането.</div>
+        <div class="text-xs text-subtle">Провайдър и модел за всяка фаза на планирането.</div>
         <button type="button" @click="picker.randomize()"
-                class="shrink-0 text-xs bg-white border border-violet-300 hover:border-violet-500 text-violet-700 font-medium px-2.5 py-1.5 rounded-lg transition"
+                class="shrink-0 text-xs bg-surface border border-primary hover:border-primary text-primary font-medium px-2.5 py-1.5 rounded-lg transition"
                 title="Умна комбинация: силен модел за дизайна, евтини/безплатни за леките фази, без повторение на една и съща настройка навсякъде.">
             🎲 Генерирай комбинация
         </button>
     </div>
 
     <template x-for="phase in picker.phaseOrder" :key="phase">
-        <div class="border border-gray-200 rounded-xl p-3.5 bg-gray-50/50">
+        <div class="border border-line rounded-xl p-3.5 bg-surface-subtle/50">
             <div class="flex flex-wrap items-start justify-between gap-2 mb-2">
                 <div class="min-w-0">
-                    <div class="text-sm font-semibold text-gray-900" x-text="picker.meta[phase].name"></div>
-                    <div class="text-xs text-gray-500 mt-0.5" x-text="picker.meta[phase].desc"></div>
-                    <div class="text-[11px] text-gray-400 mt-0.5 italic" x-text="picker.meta[phase].example"></div>
+                    <div class="text-sm font-semibold text-ink" x-text="picker.meta[phase].name"></div>
+                    <div class="text-xs text-muted mt-0.5" x-text="picker.meta[phase].desc"></div>
+                    <div class="text-[11px] text-subtle mt-0.5 italic" x-text="picker.meta[phase].example"></div>
                 </div>
                 <div class="text-xs font-medium tabular-nums shrink-0"
-                     :class="picker.phaseCost(phase) === null ? 'text-gray-400' : (picker.phaseCost(phase) > 0 ? 'text-amber-600' : 'text-green-600')"
+                     :class="picker.phaseCost(phase) === null ? 'text-subtle' : (picker.phaseCost(phase) > 0 ? 'text-amber-600' : 'text-green-600')"
                      x-text="picker.phaseCostLabel(phase)"></div>
             </div>
             <div class="grid grid-cols-2 gap-2">
                 <div>
-                    <label class="block text-[11px] font-medium text-gray-500 mb-0.5">Провайдър</label>
+                    <label class="block text-[11px] font-medium text-muted mb-0.5">Провайдър</label>
                     {{-- :selected е задължителен: опциите от x-for се щамповат СЛЕД
                          като x-model е bind-нат, иначе селектът визуално пада на
                          първата опция, въпреки че състоянието е вярно. --}}
                     <select x-model="picker.phases[phase].provider" @change="picker.providerChanged(phase)"
-                            class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                            class="w-full border border-line rounded-lg px-2 py-1.5 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40">
                         <template x-for="p in picker.opts.providers" :key="p">
                             <option :value="p" :selected="picker.phases[phase].provider === p"
                                     :disabled="!picker.opts.availability[p]"
@@ -54,15 +54,15 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-[11px] font-medium text-gray-500 mb-0.5">Модел</label>
+                    <label class="block text-[11px] font-medium text-muted mb-0.5">Модел</label>
                     <select x-model="picker.phases[phase].model"
-                            class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                            class="w-full border border-line rounded-lg px-2 py-1.5 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40">
                         <template x-for="m in picker.modelsFor(phase)" :key="m.value">
                             <option :value="m.value" :selected="picker.phases[phase].model === m.value"
                                     :title="m.title || ''" x-text="m.label"></option>
                         </template>
                     </select>
-                    <p class="text-[11px] text-gray-400 mt-1"
+                    <p class="text-[11px] text-subtle mt-1"
                        x-show="picker.phaseModelHint(phase)"
                        x-text="picker.phaseModelHint(phase)"></p>
                 </div>
@@ -70,19 +70,19 @@
         </div>
     </template>
 
-    <div class="flex items-center justify-between rounded-xl bg-violet-50 border border-violet-200 px-4 py-3">
-        <div class="text-sm font-semibold text-violet-900">Приблизителна цена на генерацията</div>
+    <div class="flex items-center justify-between rounded-xl bg-info-soft border border-info px-4 py-3">
+        <div class="text-sm font-semibold text-primary-hover">Приблизителна цена на генерацията</div>
         <div class="text-sm font-bold tabular-nums"
              :class="picker.totalCost() > 0 ? 'text-amber-700' : 'text-green-700'"
              x-text="picker.totalCostLabel()"></div>
     </div>
-    <p class="text-[11px] text-gray-400 -mt-1">
+    <p class="text-[11px] text-subtle -mt-1">
         Оценката е по типични обеми токени на фаза (intent ~1.5K/0.8K, design ~9K/8K, critique ~9K/4K) — реалната цена
         зависи от описанието на flow-а. Ревизията е адаптивна (изпълнява се само при нужда по време на run) и не влиза в оценката.
     </p>
 
-    <details class="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
-        <summary class="cursor-pointer select-none font-medium text-gray-800">ℹ Как да комбинирам фазите? Примери</summary>
+    <details class="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-muted">
+        <summary class="cursor-pointer select-none font-medium text-ink">ℹ Как да комбинирам фазите? Примери</summary>
         <div class="mt-3 space-y-3 text-xs leading-relaxed">
             <p>
                 Дизайнът (pipeline design) определя качеството на плана — там си заслужава силен модел. Леките фази
@@ -90,55 +90,55 @@
                 да губи качество.
             </p>
             <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">⭐ Препоръчан хибрид (~$0.09)</div>
-                    <div class="font-mono text-[11px] text-gray-600">design = anthropic<br>intent = gemini<br>critique = gemini<br>revision = openai</div>
-                    <div class="text-gray-400 mt-1">Плаща се само Claude дизайнът; останалото е безплатно.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">⭐ Препоръчан хибрид (~$0.09)</div>
+                    <div class="font-mono text-[11px] text-muted">design = anthropic<br>intent = gemini<br>critique = gemini<br>revision = openai</div>
+                    <div class="text-subtle mt-1">Плаща се само Claude дизайнът; останалото е безплатно.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">🆓 Изцяло безплатно ($0)</div>
-                    <div class="font-mono text-[11px] text-gray-600">всички фази = gemini<br><span class="text-gray-400">или ollama (локално)</span></div>
-                    <div class="text-gray-400 mt-1">$0, но по-слаб дизайн от Claude/GPT-4o.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">🆓 Изцяло безплатно ($0)</div>
+                    <div class="font-mono text-[11px] text-muted">всички фази = gemini<br><span class="text-subtle">или ollama (локално)</span></div>
+                    <div class="text-subtle mt-1">$0, но по-слаб дизайн от Claude/GPT-4o.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">💧 Почти безплатно (~$0.005)</div>
-                    <div class="font-mono text-[11px] text-gray-600">всички фази = deepseek</div>
-                    <div class="text-gray-400 mt-1">Стабилно качество на минимална цена.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">💧 Почти безплатно (~$0.005)</div>
+                    <div class="font-mono text-[11px] text-muted">всички фази = deepseek</div>
+                    <div class="text-subtle mt-1">Стабилно качество на минимална цена.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">🏠 Локален + Claude дизайн (~$0.13)</div>
-                    <div class="font-mono text-[11px] text-gray-600">design = anthropic<br>intent = ollama (qwen3:14b)<br>critique = ollama (qwen3:14b)<br>revision = ollama</div>
-                    <div class="text-gray-400 mt-1">Леките фази остават на твоя хардуер — нула данни към облака извън дизайна.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">🏠 Локален + Claude дизайн (~$0.13)</div>
+                    <div class="font-mono text-[11px] text-muted">design = anthropic<br>intent = ollama (qwen3:14b)<br>critique = ollama (qwen3:14b)<br>revision = ollama</div>
+                    <div class="text-subtle mt-1">Леките фази остават на твоя хардуер — нула данни към облака извън дизайна.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">🔑 Само OpenAI (~$0.07)</div>
-                    <div class="font-mono text-[11px] text-gray-600">design = openai (gpt-4o)<br>останалите = openai:gpt-4o-mini</div>
-                    <div class="text-gray-400 mt-1">Един API ключ, предвидимо качество, без втора регистрация.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">🔑 Само OpenAI (~$0.07)</div>
+                    <div class="font-mono text-[11px] text-muted">design = openai (gpt-4o)<br>останалите = openai:gpt-4o-mini</div>
+                    <div class="text-subtle mt-1">Един API ключ, предвидимо качество, без втора регистрация.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">💎 Максимално качество (~$0.31)</div>
-                    <div class="font-mono text-[11px] text-gray-600">всички фази = anthropic<br>(claude-sonnet-4-6)</div>
-                    <div class="text-gray-400 mt-1">Най-скъпият вариант — ползвай го като еталон при сравнение на шаблони.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">💎 Максимално качество (~$0.31)</div>
+                    <div class="font-mono text-[11px] text-muted">всички фази = anthropic<br>(claude-sonnet-4-6)</div>
+                    <div class="text-subtle mt-1">Най-скъпият вариант — ползвай го като еталон при сравнение на шаблони.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">⚡ Само Grok (~$0.06)</div>
-                    <div class="font-mono text-[11px] text-gray-600">всички фази = xai (grok-4.3)</div>
-                    <div class="text-gray-400 mt-1">Един API ключ, топ мултиезичност и 1M контекст за дълги описания.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">⚡ Само Grok (~$0.06)</div>
+                    <div class="font-mono text-[11px] text-muted">всички фази = xai (grok-4.3)</div>
+                    <div class="text-subtle mt-1">Един API ключ, топ мултиезичност и 1M контекст за дълги описания.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">🐉 Само Qwen (~$0.02)</div>
-                    <div class="font-mono text-[11px] text-gray-600">design = qwen (qwen3.7-plus)<br>останалите = qwen (qwen3.5-flash)</div>
-                    <div class="text-gray-400 mt-1">Най-евтиният изцяло платен стек — флагман дизайн на цена на кафе.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">🐉 Само Qwen (~$0.02)</div>
+                    <div class="font-mono text-[11px] text-muted">design = qwen (qwen3.7-plus)<br>останалите = qwen (qwen3.5-flash)</div>
+                    <div class="text-subtle mt-1">Най-евтиният изцяло платен стек — флагман дизайн на цена на кафе.</div>
                 </div>
-                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <div class="font-semibold text-gray-800 mb-1">🧬 Бюджетен микс (~$0.015)</div>
-                    <div class="font-mono text-[11px] text-gray-600">design = deepseek (v4-pro)<br>intent/critique = qwen (qwen3.5-flash)<br>revision = xai (grok-4.3)</div>
-                    <div class="text-gray-400 mt-1">Reasoning дизайн почти без пари; леките фази на ultra-cheap модели.</div>
+                <div class="rounded-lg bg-surface-subtle border border-line p-3">
+                    <div class="font-semibold text-ink mb-1">🧬 Бюджетен микс (~$0.015)</div>
+                    <div class="font-mono text-[11px] text-muted">design = deepseek (v4-pro)<br>intent/critique = qwen (qwen3.5-flash)<br>revision = xai (grok-4.3)</div>
+                    <div class="text-subtle mt-1">Reasoning дизайн почти без пари; леките фази на ultra-cheap модели.</div>
                 </div>
             </div>
-            <p class="text-gray-400">
-                Същите комбинации могат да се запишат за постоянно в <code class="bg-gray-100 px-1 rounded">.env</code>
-                чрез <code class="bg-gray-100 px-1 rounded">PLANNER_*_PROVIDER</code> / <code class="bg-gray-100 px-1 rounded">PLANNER_*_MODEL</code>.
+            <p class="text-subtle">
+                Същите комбинации могат да се запишат за постоянно в <code class="bg-neutral-soft px-1 rounded">.env</code>
+                чрез <code class="bg-neutral-soft px-1 rounded">PLANNER_*_PROVIDER</code> / <code class="bg-neutral-soft px-1 rounded">PLANNER_*_MODEL</code>.
             </p>
         </div>
     </details>

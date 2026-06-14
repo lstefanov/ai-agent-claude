@@ -110,47 +110,47 @@ window.__runData = {
 <div class="flex items-start justify-between mb-6">
     <div>
         <a href="{{ route('flows.show', $flowRun->flow) }}"
-           class="text-indigo-600 hover:underline text-sm inline-flex items-center gap-1">
-            ← {{ $flowRun->flow->name }}
+           class="text-muted hover:text-ink text-sm inline-flex items-center gap-1 transition">
+            <x-icon name="arrow-left" size="4" /> {{ $flowRun->flow->name }}
         </a>
-        <h1 class="text-3xl font-bold text-gray-900 mt-2 flex items-center gap-3 flex-wrap">
+        <h1 class="text-2xl font-display font-bold text-ink mt-2 flex items-center gap-3 flex-wrap">
             Run #{{ $flowRun->id }}
             <span x-html="statusBadge(flowStatus)"
                   class="transition-all duration-500 text-sm font-medium px-3 py-1 rounded-full border inline-flex items-center">
             </span>
         </h1>
-        <p class="text-gray-400 mt-1 text-sm flex items-center gap-2 flex-wrap">
+        <p class="text-subtle mt-1 text-sm flex items-center gap-2 flex-wrap">
             <span>{{ $flowRun->triggered_by === 'manual' ? '▶ Ръчно' : '⏰ Планиран' }}</span>
             @if($flowRun->flowVersion)
                 <span>·</span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100"
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-info-soft text-primary border border-info"
                       title="Шаблон, с който е изпълнен този run">{{ $flowRun->flowVersion->name }}</span>
             @endif
             @if($flowRun->created_at)
                 <span>·</span><span>{{ $flowRun->created_at->format('d.m.Y H:i') }}</span>
             @endif
             <template x-if="totalDuration !== null">
-                <span>· <span class="font-medium text-gray-600" x-text="formatSecs(totalDuration) + ' общо'"></span></span>
+                <span>· <span class="font-medium text-muted" x-text="formatSecs(totalDuration) + ' общо'"></span></span>
             </template>
             <template x-if="flowStatus === 'running' && elapsed > 0">
-                <span class="text-indigo-500 font-mono tabular-nums" x-text="'⏱ ' + formatSecs(elapsed)"></span>
+                <span class="text-primary font-mono tabular-nums" x-text="'⏱ ' + formatSecs(elapsed)"></span>
             </template>
         </p>
     </div>
     <a :href="logUrl" target="_blank"
-       class="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition shrink-0 mt-1">
-        📋 Лог файл
+       class="text-xs text-subtle hover:text-ink border border-line px-3 py-1.5 rounded-md inline-flex items-center gap-1.5 transition shrink-0 mt-1">
+        <x-icon name="document-text" size="4" /> Лог файл
     </a>
 </div>
 
 {{-- ── PROGRESS BAR ────────────────────────────────────────────── --}}
-<div class="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+<div class="bg-surface rounded-xl border border-line p-5 mb-6">
     <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-sm font-semibold text-gray-700"
+            <span class="text-sm font-semibold text-ink"
                   x-text="completedCount + ' от ' + agents.length + ' агента'"></span>
             <template x-if="currentRunningName">
-                <span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium"
+                <span class="text-xs bg-info-soft text-primary px-2 py-0.5 rounded-full font-medium"
                       x-text="'▶ ' + currentRunningName"></span>
             </template>
             <template x-if="flowStatus === 'completed'">
@@ -166,13 +166,13 @@ window.__runData = {
                 <span class="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">✗ Грешка</span>
             </template>
             <template x-if="flowStatus === 'waiting_approval'">
-                <span class="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium animate-pulse"
+                <span class="text-xs bg-info-soft text-primary border border-info px-2 py-0.5 rounded-full font-medium animate-pulse"
                       title="Изпълнението е спряно на възел „Одобрение от човек“ — одобри/отхвърли от builder изгледа на run-а">
                     ✋ Чака одобрение от човек
                 </span>
             </template>
             <template x-if="flowStatus === 'pending'">
-                <span class="text-xs text-gray-400">подготовка…</span>
+                <span class="text-xs text-subtle">подготовка…</span>
             </template>
         </div>
         <div class="flex items-center gap-3">
@@ -182,7 +182,7 @@ window.__runData = {
                       x-text="'$' + costUsd.toFixed(4)"></span>
             </template>
             <button @click="openLogModal()"
-                    class="text-xs text-gray-400 hover:text-indigo-600 transition flex items-center gap-1"
+                    class="text-xs text-subtle hover:text-primary transition flex items-center gap-1"
                     title="Лог на изпълнението">
                 📄 <span class="hidden sm:inline">Лог</span>
             </button>
@@ -190,8 +190,8 @@ window.__runData = {
                   :class="{
                     'text-green-600':  flowStatus === 'completed',
                     'text-red-500':    flowStatus === 'failed',
-                    'text-indigo-600': flowStatus === 'running',
-                    'text-gray-400':   flowStatus === 'pending',
+                    'text-primary': flowStatus === 'running',
+                    'text-subtle':   flowStatus === 'pending',
                   }"
                   x-text="progressPercent + '%'">
             </span>
@@ -203,21 +203,21 @@ window.__runData = {
 
     {{-- Фаза 3: адаптивни ревизии — какво поправи planner-ът по време на run-а --}}
     <template x-if="Object.keys(replans).length">
-        <div class="mt-3 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2 text-sm">
-            <div class="font-semibold text-violet-800 mb-1">🛠 Адаптивни ревизии на агенти (по време на run-а)</div>
+        <div class="mt-3 rounded-lg bg-info-soft border border-info px-3 py-2 text-sm">
+            <div class="font-medium text-primary-hover mb-1 inline-flex items-center gap-1.5"><x-icon name="wrench-screwdriver" size="4" /> Адаптивни ревизии на агенти (по време на run-а)</div>
             <template x-for="[nodeKey, entries] in Object.entries(replans)" :key="nodeKey">
-                <div class="py-1.5 border-t border-violet-100 first:border-t-0">
+                <div class="py-1.5 border-t border-info first:border-t-0">
                     <template x-for="(entry, idx) in entries" :key="idx">
-                        <div class="flex flex-wrap items-center gap-2 text-violet-900">
+                        <div class="flex flex-wrap items-center gap-2 text-primary-hover">
                             <span class="font-medium" x-text="nodeNames[nodeKey] || nodeKey"></span>
-                            <span class="text-violet-600 text-xs" x-text="entry.planner_reason || entry.trigger"></span>
+                            <span class="text-primary text-xs" x-text="entry.planner_reason || entry.trigger"></span>
                             <template x-if="entry.escalated_to">
                                 <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
                                       x-text="'⤴ ' + entry.escalated_to"></span>
                             </template>
                             <template x-if="entry.succeeded && entry.payload && !entry.applied_at && !applyingRevision[nodeKey]">
                                 <button @click="applyRevision(nodeKey)"
-                                        class="text-xs bg-violet-600 hover:bg-violet-700 text-white px-2 py-0.5 rounded-md transition">
+                                        class="text-xs bg-primary hover:bg-primary-hover text-white px-2 py-0.5 rounded-md transition">
                                     Приложи в графа
                                 </button>
                             </template>
@@ -225,7 +225,7 @@ window.__runData = {
                                 <span class="text-xs text-green-700 font-medium">✓ приложено в графа</span>
                             </template>
                             <template x-if="entry.succeeded && !entry.applied_at && applyingRevision[nodeKey] === 'busy'">
-                                <span class="text-xs text-violet-400">прилагане…</span>
+                                <span class="text-xs text-primary">прилагане…</span>
                             </template>
                         </div>
                     </template>
@@ -236,17 +236,17 @@ window.__runData = {
 
     {{-- Памет: дедупликация — изходи, твърде подобни на вече създадено съдържание --}}
     <template x-if="Object.keys(memoryDedup).length">
-        <div class="mt-3 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2 text-sm">
-            <div class="font-semibold text-sky-800 mb-1">🧠 Памет · дедупликация</div>
+        <div class="mt-3 rounded-lg bg-info-soft border border-info px-3 py-2 text-sm">
+            <div class="font-medium text-info-strong mb-1 inline-flex items-center gap-1.5"><x-icon name="circle-stack" size="4" /> Памет · дедупликация</div>
             <template x-for="[nodeKey, entries] in Object.entries(memoryDedup)" :key="nodeKey">
-                <div class="py-1.5 border-t border-sky-100 first:border-t-0">
+                <div class="py-1.5 border-t border-info first:border-t-0">
                     <template x-for="(entry, idx) in entries" :key="idx">
                         <div class="flex flex-wrap items-center gap-2 text-sky-900">
                             <span class="font-medium" x-text="nodeNames[nodeKey] || nodeKey"></span>
-                            <span class="text-sky-600 text-xs"
+                            <span class="text-primary text-xs"
                                   x-text="Math.round(entry.similarity * 100) + '% сходство със „' + (entry.matched_title || 'предишно съдържание') + '“'"></span>
                             <template x-if="entry.action === 'retry'">
-                                <span class="text-[10px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full">↻ пренаписан</span>
+                                <span class="text-[10px] bg-sky-100 text-info-strong px-1.5 py-0.5 rounded-full">↻ пренаписан</span>
                             </template>
                             <template x-if="entry.action === 'accepted_flagged'">
                                 <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">⚠ приет с предупреждение</span>
@@ -267,7 +267,7 @@ window.__runData = {
         </div>
     </template>
 
-    <div class="relative h-2.5 bg-gray-100 rounded-full overflow-hidden"
+    <div class="relative h-2.5 bg-neutral-soft rounded-full overflow-hidden"
          role="progressbar"
          aria-valuemin="0"
          aria-valuemax="100"
@@ -277,7 +277,7 @@ window.__runData = {
                  'progress-bar-running': flowStatus === 'running',
                  'bg-gradient-to-r from-green-400 to-emerald-500': flowStatus === 'completed',
                  'bg-red-400':  flowStatus === 'failed',
-                 'bg-gray-300': flowStatus === 'pending',
+                 'bg-line-strong': flowStatus === 'pending',
              }"
              :style="{ width: progressPercent + '%' }">
         </div>
@@ -295,43 +295,43 @@ window.__runData = {
 {{-- Show whenever there's output — even if QA failed the flow --}}
 <template x-if="finalOutput && (flowStatus === 'completed' || flowStatus === 'failed')">
     <div class="mb-6">
-        <h2 class="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <h2 class="text-base font-semibold text-ink mb-3 flex items-center gap-2">
             🎯 Финален резултат
-            <span class="text-xs text-gray-400 font-normal">— обединен изход от агентите</span>
+            <span class="text-xs text-subtle font-normal">— обединен изход от агентите</span>
         </h2>
 
         @if($postPlatform === 'facebook')
         {{-- Facebook preview --}}
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm max-w-lg">
-            <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-                <div class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+        <div class="bg-surface rounded-xl border border-line shadow-sm max-w-lg">
+            <div class="flex items-center gap-3 px-4 py-3 border-b border-line">
+                <div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
                     {{ $companyInitial }}
                 </div>
                 <div>
-                    <p class="font-semibold text-gray-900 text-sm">{{ $companyName }}</p>
-                    <p class="text-xs text-gray-400">Сега · 🌐</p>
+                    <p class="font-semibold text-ink text-sm">{{ $companyName }}</p>
+                    <p class="text-xs text-subtle">Сега · 🌐</p>
                 </div>
                 <button @click="copyFinalOutput()"
-                        class="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
+                        class="ml-auto text-xs text-subtle hover:text-muted transition"
                         x-text="copied ? '✓ Копирано' : '📋 Копирай'"></button>
             </div>
             <div class="px-4 py-3">
-                <div class="md-output text-sm text-gray-800 leading-relaxed"
+                <div class="md-output text-sm text-ink leading-relaxed"
                      x-html="renderMd(formatPostText(finalOutput))"></div>
             </div>
             <template x-if="hasImage(finalOutput)">
-                <div class="border-t border-gray-100">
+                <div class="border-t border-line">
                     <img :src="extractImageUrl(finalOutput)" class="w-full object-cover max-h-72" alt="Post image">
                 </div>
             </template>
             <template x-if="extractHashtags(finalOutput).length > 0">
                 <div class="px-4 pb-3 flex flex-wrap gap-1">
                     <template x-for="tag in extractHashtags(finalOutput)" :key="tag">
-                        <span class="text-sm text-indigo-600 hover:underline cursor-pointer" x-text="tag"></span>
+                        <span class="text-sm text-primary hover:underline cursor-pointer" x-text="tag"></span>
                     </template>
                 </div>
             </template>
-            <div class="px-4 py-2 border-t border-gray-100 flex items-center gap-5 text-gray-500 text-sm">
+            <div class="px-4 py-2 border-t border-line flex items-center gap-5 text-muted text-sm">
                 <button class="flex items-center gap-1.5 hover:text-blue-600 transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg>
                     Харесай
@@ -348,44 +348,44 @@ window.__runData = {
         </div>
 
         @elseif($postPlatform === 'instagram')
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm max-w-sm">
-            <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100">
+        <div class="bg-surface rounded-xl border border-line shadow-sm max-w-sm">
+            <div class="flex items-center gap-2 px-3 py-2.5 border-b border-line">
                 <div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center text-white font-bold text-xs shrink-0">
                     {{ $companyInitial }}
                 </div>
-                <span class="font-semibold text-sm text-gray-900">{{ Str::slug($companyName, '_') }}</span>
-                <button @click="copyFinalOutput()" class="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
+                <span class="font-semibold text-sm text-ink">{{ Str::slug($companyName, '_') }}</span>
+                <button @click="copyFinalOutput()" class="ml-auto text-xs text-subtle hover:text-muted transition"
                         x-text="copied ? '✓' : '📋'"></button>
             </div>
             <template x-if="hasImage(finalOutput)">
                 <img :src="extractImageUrl(finalOutput)" class="w-full aspect-square object-cover" alt="">
             </template>
             <div class="px-3 py-2.5">
-                <div class="md-output text-sm text-gray-800 leading-relaxed" x-html="renderMd(formatPostText(finalOutput))"></div>
+                <div class="md-output text-sm text-ink leading-relaxed" x-html="renderMd(formatPostText(finalOutput))"></div>
                 <div class="flex flex-wrap gap-1 mt-1">
                     <template x-for="tag in extractHashtags(finalOutput)" :key="tag">
-                        <span class="text-sm text-indigo-600 cursor-pointer hover:underline" x-text="tag"></span>
+                        <span class="text-sm text-primary cursor-pointer hover:underline" x-text="tag"></span>
                     </template>
                 </div>
             </div>
         </div>
 
         @elseif($postPlatform === 'twitter')
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm max-w-lg p-4">
+        <div class="bg-surface rounded-xl border border-line shadow-sm max-w-lg p-4">
             <div class="flex gap-3">
-                <div class="w-10 h-10 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-sm shrink-0">{{ $companyInitial }}</div>
+                <div class="w-10 h-10 rounded-full bg-ink flex items-center justify-center text-white font-bold text-sm shrink-0">{{ $companyInitial }}</div>
                 <div class="flex-1">
                     <div class="flex items-center gap-2 mb-0.5">
-                        <span class="font-bold text-gray-900 text-sm">{{ $companyName }}</span>
-                        <span class="text-gray-400 text-sm">@{{ Str::slug($companyName) }}</span>
-                        <button @click="copyFinalOutput()" class="ml-auto text-xs text-gray-400 hover:text-gray-600 transition"
+                        <span class="font-bold text-ink text-sm">{{ $companyName }}</span>
+                        <span class="text-subtle text-sm">@{{ Str::slug($companyName) }}</span>
+                        <button @click="copyFinalOutput()" class="ml-auto text-xs text-subtle hover:text-muted transition"
                                 x-text="copied ? '✓ Копирано' : '📋'"></button>
                     </div>
-                    <div class="md-output text-sm text-gray-900 leading-relaxed" x-html="renderMd(formatPostText(finalOutput))"></div>
+                    <div class="md-output text-sm text-ink leading-relaxed" x-html="renderMd(formatPostText(finalOutput))"></div>
                     <template x-if="hasImage(finalOutput)">
-                        <img :src="extractImageUrl(finalOutput)" class="mt-2 rounded-xl max-h-48 w-full object-cover border border-gray-100" alt="">
+                        <img :src="extractImageUrl(finalOutput)" class="mt-2 rounded-xl max-h-48 w-full object-cover border border-line" alt="">
                     </template>
-                    <div class="flex items-center gap-4 mt-3 text-gray-400 text-xs">
+                    <div class="flex items-center gap-4 mt-3 text-subtle text-xs">
                         <span>💬 0</span><span>🔁 0</span><span>❤️ 0</span>
                     </div>
                 </div>
@@ -394,19 +394,19 @@ window.__runData = {
 
         @else
         {{-- Generic output --}}
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm w-full">
-            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
-                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Финален изход</p>
-                <button @click="copyFinalOutput()" class="text-xs text-gray-400 hover:text-gray-600 transition"
+        <div class="bg-surface rounded-xl border border-line shadow-sm w-full">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-line bg-surface-subtle">
+                <p class="text-xs font-semibold text-muted uppercase tracking-wider">Финален изход</p>
+                <button @click="copyFinalOutput()" class="text-xs text-subtle hover:text-muted transition"
                         x-text="copied ? '✓ Копирано' : '📋 Копирай'"></button>
             </div>
             <template x-if="hasImage(finalOutput)">
-                <div class="p-4 border-b border-gray-100">
-                    <img :src="extractImageUrl(finalOutput)" class="rounded-lg max-h-56 object-cover border border-gray-200" alt="">
+                <div class="p-4 border-b border-line">
+                    <img :src="extractImageUrl(finalOutput)" class="rounded-lg max-h-56 object-cover border border-line" alt="">
                 </div>
             </template>
             <div class="overflow-x-auto">
-                <div class="md-output px-5 py-4 text-sm text-gray-800 leading-relaxed min-w-0"
+                <div class="md-output px-5 py-4 text-sm text-ink leading-relaxed min-w-0"
                      x-html="renderMd(finalOutput)"></div>
             </div>
         </div>
@@ -442,15 +442,15 @@ window.__runData = {
                         <span>✗</span>
                     </template>
                     <template x-if="runStatus(agent.id) === 'pending'">
-                        <span class="text-gray-400" x-text="idx + 1"></span>
+                        <span class="text-subtle" x-text="idx + 1"></span>
                     </template>
                 </div>
 
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-lg leading-none" x-text="agent.icon || '🤖'"></span>
-                        <span class="font-medium text-gray-900 text-sm" x-text="agent.name"></span>
-                        <span class="text-xs text-gray-400 font-mono hidden sm:inline" x-text="agent.type"></span>
+                        <span class="font-medium text-ink text-sm" x-text="agent.name"></span>
+                        <span class="text-xs text-subtle font-mono hidden sm:inline" x-text="agent.type"></span>
                         <template x-if="agent.is_verifier && runStatus(agent.id) === 'pending'">
                             <select x-model.number="agent.qa_threshold"
                                     @click.stop
@@ -466,12 +466,12 @@ window.__runData = {
                         </template>
                     </div>
                     <template x-if="runStatus(agent.id) === 'running'">
-                        <p class="text-xs text-indigo-500 mt-0.5 flex items-center gap-1">
+                        <p class="text-xs text-primary mt-0.5 flex items-center gap-1">
                             Обработва се
                             <span class="inline-flex gap-0.5 ml-0.5">
-                                <span class="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:0s"></span>
-                                <span class="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:.15s"></span>
-                                <span class="w-1 h-1 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:.3s"></span>
+                                <span class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay:0s"></span>
+                                <span class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay:.15s"></span>
+                                <span class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay:.3s"></span>
                             </span>
                         </p>
                     </template>
@@ -493,13 +493,13 @@ window.__runData = {
                               x-text="qaScore(agent.id) + '%'"></span>
                     </template>
                     <template x-if="getRun(agent.id) && getRun(agent.id).duration_ms">
-                        <span class="text-xs text-gray-400 font-mono tabular-nums"
+                        <span class="text-xs text-subtle font-mono tabular-nums"
                               x-text="formatMs(getRun(agent.id).duration_ms)"></span>
                     </template>
                     <span class="text-xs font-mono px-2 py-0.5 rounded hidden md:inline"
-                          :class="runStatus(agent.id) === 'pending' ? 'text-gray-300 bg-gray-100' : 'text-indigo-600 bg-indigo-50'"
+                          :class="runStatus(agent.id) === 'pending' ? 'text-subtle bg-neutral-soft' : 'text-primary bg-info-soft'"
                           x-text="(getRun(agent.id) && getRun(agent.id).model_used) ? getRun(agent.id).model_used : agent.model"></span>
-                    <span class="text-gray-300 text-xs transition-transform duration-200"
+                    <span class="text-subtle text-xs transition-transform duration-200"
                           :class="expanded[agent.id] ? 'rotate-180' : ''"
                           x-show="runStatus(agent.id) !== 'pending'">▼</span>
                 </div>
@@ -511,15 +511,15 @@ window.__runData = {
 
                     {{-- Process strip: phase · elapsed · current activity --}}
                     <div class="flex items-center gap-2 flex-wrap text-xs">
-                        <span class="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
-                            <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                        <span class="inline-flex items-center gap-1.5 bg-info-soft text-primary px-2 py-0.5 rounded-full font-medium">
+                            <span class="w-1.5 h-1.5 bg-info-soft0 rounded-full animate-pulse"></span>
                             <span x-text="phaseLabel(progress.phase)"></span>
                         </span>
                         <template x-if="agentElapsed(agent.id) !== null">
-                            <span class="text-gray-400 tabular-nums" x-text="'⏱ ' + formatSecs(agentElapsed(agent.id))"></span>
+                            <span class="text-subtle tabular-nums" x-text="'⏱ ' + formatSecs(agentElapsed(agent.id))"></span>
                         </template>
                         <template x-if="progress.last_line">
-                            <span class="text-gray-400 font-mono truncate max-w-full" x-text="progress.last_line"></span>
+                            <span class="text-subtle font-mono truncate max-w-full" x-text="progress.last_line"></span>
                         </template>
                     </div>
 
@@ -527,17 +527,17 @@ window.__runData = {
                     <template x-if="progress.pages_total > 0">
                         <div>
                             <div class="flex items-center justify-between mb-1 text-xs">
-                                <span class="text-gray-500 font-medium"
+                                <span class="text-muted font-medium"
                                       x-text="progress.pages_done + ' / ' + progress.pages_total + ' страници'"></span>
-                                <span class="text-gray-400 tabular-nums">
+                                <span class="text-subtle tabular-nums">
                                     <span x-text="pagesPercent() + '%'"></span>
                                     <template x-if="progress.pages_failed > 0">
                                         <span class="text-amber-600" x-text="' · ' + progress.pages_failed + ' неуспешни'"></span>
                                     </template>
                                 </span>
                             </div>
-                            <div class="relative h-2 bg-gray-100 rounded-full overflow-hidden">
-                                <div class="absolute inset-y-0 left-0 h-full rounded-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-700 ease-out"
+                            <div class="relative h-2 bg-neutral-soft rounded-full overflow-hidden">
+                                <div class="absolute inset-y-0 left-0 h-full rounded-full bg-gradient-to-r from-primary to-primary transition-all duration-700 ease-out"
                                      :style="{ width: pagesPercent() + '%' }"></div>
                             </div>
                         </div>
@@ -545,20 +545,20 @@ window.__runData = {
 
                     {{-- Indeterminate bar when no page counters (non-map-reduce agents) --}}
                     <template x-if="!(progress.pages_total > 0)">
-                        <div class="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div class="relative h-2 bg-neutral-soft rounded-full overflow-hidden">
                             <div class="progress-bar-running absolute inset-y-0 left-0 h-full w-1/3 rounded-full"></div>
                         </div>
                     </template>
 
                     {{-- Live log tail --}}
-                    <details open class="rounded-lg border border-gray-200 bg-gray-900">
-                        <summary class="cursor-pointer px-3 py-1.5 text-xs font-semibold text-gray-300 flex items-center justify-between">
+                    <details open class="rounded-lg border border-line bg-ink">
+                        <summary class="cursor-pointer px-3 py-1.5 text-xs font-semibold text-subtle flex items-center justify-between">
                             <span>⚡ На живо</span>
                             <button type="button" @click.prevent="openLogModal()"
-                                    class="text-gray-400 hover:text-white transition font-normal">Виж пълния лог →</button>
+                                    class="text-subtle hover:text-white transition font-normal">Виж пълния лог →</button>
                         </summary>
                         <pre x-ref="tail"
-                             class="text-[11px] leading-relaxed text-gray-300 px-3 pb-2 overflow-auto max-h-48 whitespace-pre-wrap font-mono"
+                             class="text-[11px] leading-relaxed text-subtle px-3 pb-2 overflow-auto max-h-48 whitespace-pre-wrap font-mono"
                              x-text="(progress.tail || []).join('\n')"
                              x-effect="progress.tail; $nextTick(() => { if ($refs.tail) $refs.tail.scrollTop = $refs.tail.scrollHeight })"></pre>
                     </details>
@@ -569,7 +569,7 @@ window.__runData = {
             <div x-show="expanded[agent.id] && runStatus(agent.id) !== 'running' && runStatus(agent.id) !== 'pending'"
                  x-cloak
                  class="border-t"
-                 :class="runStatus(agent.id) === 'failed' ? 'border-red-100' : 'border-gray-100'">
+                 :class="runStatus(agent.id) === 'failed' ? 'border-red-100' : 'border-line'">
 
                 <template x-if="getRun(agent.id) && getRun(agent.id).error">
                     <div class="px-5 py-4 bg-red-50">
@@ -582,26 +582,26 @@ window.__runData = {
                 <template x-if="getRun(agent.id) && hasImage(getRun(agent.id).output)">
                     <div class="px-5 pt-4">
                         <img :src="extractImageUrl(getRun(agent.id).output)"
-                             class="rounded-lg max-h-56 object-cover border border-gray-200 shadow-sm" alt="Generated image">
+                             class="rounded-lg max-h-56 object-cover border border-line shadow-sm" alt="Generated image">
                     </div>
                 </template>
 
                 <template x-if="getRun(agent.id) && getRun(agent.id).output">
                     <div class="px-5 py-4" x-data="{ copiedAgent: false }">
                         <div class="flex items-center justify-between mb-2">
-                            <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Изход</p>
+                            <p class="text-xs font-semibold text-subtle uppercase tracking-wider">Изход</p>
                             <div class="flex items-center gap-3">
                                 <template x-if="getRun(agent.id) && getRun(agent.id).started_at">
-                                    <span class="text-xs text-gray-300"
+                                    <span class="text-xs text-subtle"
                                           x-text="getRun(agent.id).started_at + ' → ' + (getRun(agent.id).completed_at || '')"></span>
                                 </template>
                                 <button @click="navigator.clipboard.writeText(plainText(getRun(agent.id).output || '')); copiedAgent=true; setTimeout(()=>copiedAgent=false,2000)"
-                                        class="text-xs text-gray-400 hover:text-gray-600 transition"
+                                        class="text-xs text-subtle hover:text-muted transition"
                                         x-text="copiedAgent ? '✓ Копирано' : '📋 Копирай'">
                                 </button>
                             </div>
                         </div>
-                        <div class="md-output bg-gray-50 rounded-lg p-3 text-xs text-gray-700 overflow-auto max-h-60 leading-relaxed border border-gray-100"
+                        <div class="md-output bg-surface-subtle rounded-lg p-3 text-xs text-ink overflow-auto max-h-60 leading-relaxed border border-line"
                              x-html="renderMd(getRun(agent.id).output)"></div>
                     </div>
                 </template>
@@ -619,7 +619,7 @@ window.__runData = {
                 </template>
 
                 <template x-if="getRun(agent.id) && getRun(agent.id).tokens_used && !agent.is_verifier">
-                    <div class="px-5 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400">
+                    <div class="px-5 py-2 bg-surface-subtle border-t border-line text-xs text-subtle">
                         Токени: <span x-text="Number(getRun(agent.id).tokens_used).toLocaleString()"></span>
                     </div>
                 </template>
@@ -631,31 +631,31 @@ window.__runData = {
 
 {{-- ── SUMMARY ─────────────────────────────────────────────────── --}}
 <template x-if="flowStatus === 'completed' || flowStatus === 'failed'">
-    <div class="mt-6 bg-white rounded-xl border border-gray-200 px-5 py-4 flex items-center gap-5 flex-wrap text-sm">
+    <div class="mt-6 bg-surface rounded-xl border border-line px-5 py-4 flex items-center gap-5 flex-wrap text-sm">
         <div class="flex items-center gap-1.5">
-            <span class="text-gray-400">Агенти:</span>
-            <span class="font-semibold text-gray-900" x-text="agents.length"></span>
+            <span class="text-subtle">Агенти:</span>
+            <span class="font-semibold text-ink" x-text="agents.length"></span>
         </div>
         <template x-if="totalDuration !== null">
             <div class="flex items-center gap-1.5">
-                <span class="text-gray-400">Общо:</span>
-                <span class="font-semibold text-gray-900" x-text="formatSecs(totalDuration)"></span>
+                <span class="text-subtle">Общо:</span>
+                <span class="font-semibold text-ink" x-text="formatSecs(totalDuration)"></span>
             </div>
         </template>
         <div class="flex items-center gap-1.5">
-            <span class="text-gray-400">Успешни:</span>
+            <span class="text-subtle">Успешни:</span>
             <span class="font-semibold text-green-600"
                   x-text="Object.values(runs).filter(r => r.status === 'completed').length"></span>
         </div>
         <template x-if="Object.values(runs).some(r => r.status === 'failed')">
             <div class="flex items-center gap-1.5">
-                <span class="text-gray-400">Неуспешни:</span>
+                <span class="text-subtle">Неуспешни:</span>
                 <span class="font-semibold text-red-500"
                       x-text="Object.values(runs).filter(r => r.status === 'failed').length"></span>
             </div>
         </template>
         <a :href="logUrl" target="_blank"
-           class="ml-auto text-xs text-gray-400 hover:text-gray-600 transition">📋 Пълен лог</a>
+           class="ml-auto text-xs text-subtle hover:text-muted transition">📋 Пълен лог</a>
     </div>
 </template>
 
@@ -663,25 +663,25 @@ window.__runData = {
 <div x-show="logModalOpen" x-cloak
      class="fixed inset-0 z-50 flex items-center justify-center p-4"
      @keydown.escape.window="logModalOpen = false">
-    <div class="absolute inset-0 bg-black/50" @click="logModalOpen = false"></div>
-    <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
-        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-            <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+    <div class="absolute inset-0 bg-ink/50" @click="logModalOpen = false"></div>
+    <div class="relative bg-surface rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-line">
+            <h3 class="text-sm font-semibold text-ink flex items-center gap-2">
                 📄 Лог на изпълнението
-                <span class="text-xs text-gray-400 font-normal">Run #{{ $flowRun->id }}</span>
+                <span class="text-xs text-subtle font-normal">Run #{{ $flowRun->id }}</span>
             </h3>
             <div class="flex items-center gap-3">
-                <button @click="openLogModal()" class="text-xs text-gray-400 hover:text-indigo-600 transition"
+                <button @click="openLogModal()" class="text-xs text-subtle hover:text-primary transition"
                         :disabled="logModalLoading"
                         x-text="logModalLoading ? '⏳ Зареждане…' : '↻ Опресни'"></button>
                 <button @click="navigator.clipboard.writeText(logModalText); logCopied=true; setTimeout(()=>logCopied=false,2000)"
-                        class="text-xs text-gray-400 hover:text-gray-600 transition"
+                        class="text-xs text-subtle hover:text-muted transition"
                         x-text="logCopied ? '✓ Копирано' : '📋 Копирай'"></button>
-                <button @click="logModalOpen = false" class="text-gray-400 hover:text-gray-700 transition text-lg leading-none">×</button>
+                <button @click="logModalOpen = false" class="text-subtle hover:text-ink transition text-lg leading-none">×</button>
             </div>
         </div>
         <pre x-ref="modalLog"
-             class="text-[11px] leading-relaxed text-gray-200 bg-gray-900 p-4 overflow-auto flex-1 whitespace-pre-wrap font-mono rounded-b-xl"
+             class="text-[11px] leading-relaxed text-line bg-ink p-4 overflow-auto flex-1 whitespace-pre-wrap font-mono rounded-b-xl"
              x-text="logModalText || 'Няма лог записи още.'"></pre>
     </div>
 </div>
@@ -998,7 +998,7 @@ function flowRunMonitor() {
 
         stepQaBadgeClass(color) {
             const map = {
-                grey:   'bg-gray-100 text-gray-500',
+                grey:   'bg-neutral-soft text-muted',
                 yellow: 'bg-yellow-100 text-yellow-700',
                 green:  'bg-green-100 text-green-700',
                 orange: 'bg-orange-100 text-orange-700',
@@ -1101,26 +1101,26 @@ function flowRunMonitor() {
         // ── CSS class helpers ──────────────────────────────────────
         cardClass(agentId) {
             const s = this.runStatus(agentId);
-            if (s === 'running')   return 'border-indigo-300 shadow-sm bg-white';
-            if (s === 'completed') return 'border-green-200 bg-white';
-            if (s === 'failed')    return 'border-red-200 bg-white';
-            return 'border-gray-200 bg-gray-50 opacity-60';
+            if (s === 'running')   return 'border-primary shadow-sm bg-surface';
+            if (s === 'completed') return 'border-green-200 bg-surface';
+            if (s === 'failed')    return 'border-red-200 bg-surface';
+            return 'border-line bg-surface-subtle opacity-60';
         },
 
         iconBgClass(agentId) {
             const s = this.runStatus(agentId);
-            if (s === 'running')   return 'bg-indigo-100 text-indigo-600';
+            if (s === 'running')   return 'bg-info-soft text-primary';
             if (s === 'completed') return 'bg-green-100 text-green-700';
             if (s === 'failed')    return 'bg-red-100 text-red-600';
-            return 'bg-gray-100 text-gray-400';
+            return 'bg-neutral-soft text-subtle';
         },
 
         stepDotClass(agentId) {
             const s = this.runStatus(agentId);
-            if (s === 'running')   return 'bg-indigo-400 animate-pulse';
+            if (s === 'running')   return 'bg-primary animate-pulse';
             if (s === 'completed') return 'bg-green-400';
             if (s === 'failed')    return 'bg-red-400';
-            return 'bg-gray-200';
+            return 'bg-neutral-soft';
         },
 
         statusBadge(status) {

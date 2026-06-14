@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'Admin') — FlowAI Admin</title>
-    {{-- Fonts: Geist (display) · Instrument Sans (body) · Geist Mono --}}
+    {{-- Fonts: IBM Plex Sans (display + body) · JetBrains Mono --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
     {{-- Tailwind v4 + app assets via Vite (replaces the old Tailwind play CDN) --}}
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -16,24 +16,24 @@
     <script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <nav class="bg-gray-900 text-white px-6 py-3 flex items-center justify-between">
+<body class="bg-surface-subtle min-h-screen">
+    <nav class="bg-ink text-white px-6 py-3 flex items-center justify-between">
         <span class="font-bold text-lg flex items-center gap-2">
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
             FlowAI Admin
         </span>
         <div class="flex items-center gap-4 text-sm">
             <a href="{{ route('admin.agent-templates.index') }}"
-               class="hover:text-gray-300 {{ request()->routeIs('admin.agent-templates.*') ? 'text-white font-semibold' : 'text-gray-400' }}">
+               class="hover:text-subtle {{ request()->routeIs('admin.agent-templates.*') ? 'text-white font-semibold' : 'text-subtle' }}">
                 Системни агенти
             </a>
             <a href="{{ route('admin.costs.index') }}"
-               class="hover:text-gray-300 {{ request()->routeIs('admin.costs.*') ? 'text-white font-semibold' : 'text-gray-400' }}">
+               class="hover:text-subtle {{ request()->routeIs('admin.costs.*') ? 'text-white font-semibold' : 'text-subtle' }}">
                 Разходи
             </a>
             <form action="{{ route('admin.logout') }}" method="POST">
                 @csrf
-                <button class="text-gray-400 hover:text-white">Изход</button>
+                <button class="text-subtle hover:text-white">Изход</button>
             </form>
         </div>
     </nav>

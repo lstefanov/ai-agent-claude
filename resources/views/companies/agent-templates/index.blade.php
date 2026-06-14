@@ -4,50 +4,42 @@
 
 @section('content')
 <div class="mb-2">
-    <a href="{{ route('companies.show', $company) }}" class="text-indigo-600 hover:underline text-sm">← {{ $company->name }}</a>
-</div>
-<div class="flex items-start justify-between mb-6">
-    <div>
-        <h1 class="text-2xl font-bold text-gray-900">🤖 Агенти на компанията</h1>
-        <p class="text-sm text-gray-500 mt-1">Шаблони достъпни само за {{ $company->name }}</p>
-    </div>
-    <a href="{{ route('companies.agent-templates.create', $company) }}"
-       class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
-        ＋ Нов агент шаблон
+    <a href="{{ route('companies.show', $company) }}" class="inline-flex items-center gap-1 text-sm text-muted hover:text-ink transition">
+        <x-icon name="arrow-left" size="4" /> {{ $company->name }}
     </a>
 </div>
-
-@if(session('success'))
-    <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-700 rounded-xl text-sm">✓ {{ session('success') }}</div>
-@endif
+<div class="flex items-start justify-between gap-4 mb-6">
+    <div>
+        <h1 class="text-2xl font-display font-bold text-ink">Агенти на компанията</h1>
+        <p class="text-sm text-muted mt-1">Шаблони достъпни само за {{ $company->name }}</p>
+    </div>
+    <x-button size="sm" icon="plus" :href="route('companies.agent-templates.create', $company)">Нов агент шаблон</x-button>
+</div>
 
 @if($templates->isEmpty())
-    <div class="bg-white border border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-400">
-        <p class="text-3xl mb-3">🤖</p>
-        <p class="text-sm">Няма агент шаблони за тази компания.</p>
-        <a href="{{ route('companies.agent-templates.create', $company) }}" class="text-indigo-600 underline text-sm mt-2 inline-block">Добави първия →</a>
-    </div>
+    <x-card :padding="false">
+        <x-empty-state icon="cpu-chip" title="Няма агент шаблони за тази компания">
+            <x-button size="sm" :href="route('companies.agent-templates.create', $company)" icon="plus">Добави първия</x-button>
+        </x-empty-state>
+    </x-card>
 @else
-    <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div class="bg-surface border border-line rounded-xl overflow-hidden">
         @foreach($templates as $template)
-        <div class="flex items-center gap-4 px-5 py-4 border-b border-gray-100 last:border-0 hover:bg-gray-50">
-            <span class="text-2xl w-8 text-center">{{ $template->icon }}</span>
+        <div class="flex items-center gap-4 px-5 py-4 border-b border-line last:border-0 hover:bg-surface-subtle transition">
+            <span class="text-2xl w-8 text-center shrink-0">{{ $template->icon }}</span>
             <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                    <span class="font-semibold text-gray-900 text-sm">{{ $template->name }}</span>
-                    <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-mono">{{ $template->type }}</span>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-medium text-ink text-sm">{{ $template->name }}</span>
+                    <span class="text-xs font-mono bg-info-soft text-info-strong px-1.5 py-0.5 rounded">{{ $template->type }}</span>
                 </div>
-                <p class="text-xs text-gray-500 truncate">{{ $template->description }}</p>
+                <p class="text-xs text-muted truncate">{{ $template->description }}</p>
             </div>
-            <div class="flex gap-2 shrink-0">
-                <a href="{{ route('companies.agent-templates.edit', [$company, $template]) }}"
-                   class="border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg text-xs">
-                    ✏ Редактирай
-                </a>
+            <div class="flex items-center gap-2 shrink-0">
+                <x-button size="sm" variant="secondary" icon="pencil-square" :href="route('companies.agent-templates.edit', [$company, $template])">Редактирай</x-button>
                 <form action="{{ route('companies.agent-templates.destroy', [$company, $template]) }}" method="POST"
                       onsubmit="return confirm('Изтрий шаблон {{ $template->name }}?')">
                     @csrf @method('DELETE')
-                    <button class="border border-red-200 text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg text-xs">✕ Изтрий</button>
+                    <x-button size="sm" variant="danger-outline" type="submit" icon="trash">Изтрий</x-button>
                 </form>
             </div>
         </div>

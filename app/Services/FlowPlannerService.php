@@ -779,13 +779,14 @@ PROMPT;
                 ));
             }
 
-            // mcp_action: резолвираме конектора по префикса на tool-а (gmail.* →
-            // gmail) към активен конектор на фирмата. Параметрите идват като
-            // {key,value} двойки → обект. Без конектор → config.connector_id=null
-            // (генераторът ще го отсее).
+            // mcp_action: резолвираме конектора по namespace-а на tool-а
+            // (gmail.* → gmail, sheets.* → google_sheets) към активен конектор на
+            // фирмата. Параметрите идват като {key,value} двойки → обект. Без
+            // конектор → config.connector_id=null (генераторът ще го отсее).
             if ($type === 'mcp_action') {
                 $mcpTool = (string) ($spec['mcp_tool'] ?? '');
-                $connectorType = explode('.', $mcpTool)[0];
+                $ns = explode('.', $mcpTool)[0];
+                $connectorType = config("mcp.tool_namespaces.$ns", $ns);
                 $connector = $flow->company?->connectors()->active()
                     ->where('connector_type', $connectorType)->first();
                 $config['connector_id'] = $connector?->id;
@@ -1121,6 +1122,14 @@ PROMPT;
         ]);
         $startMs = (int) (microtime(true) * 1000);
 
+        // Planning normally owns the top-level frame, but an adaptive REVISION runs
+        // nested inside a node's execution — restore the enclosing node frame rather
+        // than clearing it, so the rest of that node's calls stay attributed.
+        $prevCtx = LlmContext::get();
+        $restoreCtx = static function () use ($prevCtx): void {
+            $prevCtx === [] ? LlmContext::clear() : LlmContext::set($prevCtx);
+        };
+
         LlmContext::set([
             'purpose' => 'planner:'.$phase,
             'session_id' => $logToken,
@@ -1131,7 +1140,7 @@ PROMPT;
         try {
             $result = $this->generator->chatJson($system, $user, $phase, $schema, $options);
         } catch (Throwable $e) {
-            LlmContext::clear();
+            $restoreCtx();
             $log->update(array_merge(LlmUsage::take(), [
                 'status' => 'failed',
                 'error' => $e->getMessage(),
@@ -1141,7 +1150,7 @@ PROMPT;
             throw $e;
         }
 
-        LlmContext::clear();
+        $restoreCtx();
 
         $parsed = $result['agents'] ?? $result['revised_agents'] ?? $result;
 

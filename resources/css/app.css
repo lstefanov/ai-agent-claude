@@ -10,11 +10,12 @@
    Light theme. Single source of truth — no hardcoded hex in Blade.
    ============================================================ */
 @theme {
-    /* Typography — Geist (display) + Instrument Sans (body) + Geist Mono */
-    --font-display: 'Geist', ui-sans-serif, system-ui, sans-serif;
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    /* Typography — IBM Plex Sans (display + body) + JetBrains Mono.
+       "Control-room" technical pairing; distinctive vs the AI-default faces. */
+    --font-display: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
-    --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
     /* Surfaces */
     --color-canvas: #ffffff;
@@ -28,18 +29,48 @@
     --color-muted: #52525b;
     --color-subtle: #a1a1aa;
 
-    /* Brand + semantic */
-    --color-primary: #4f46e5;
-    --color-primary-hover: #4338ca;
+    /* Brand + semantic — "instrument azure": one confident accent on zinc neutrals.
+       primary = deep azure (white text ≥4.5:1, AND ≥4.5:1 as text on white — safe both ways).
+       accent  = vivid azure for DECORATIVE signals only (focus glow, running/active state,
+                 graph lines). Never use accent for small body text on white. */
+    --color-primary: #0369a1;
+    --color-primary-hover: #075985;
     --color-primary-fg: #ffffff;
+    --color-accent: #0ea5e9;
     --color-success: #16a34a;
     --color-warning: #d97706;
     --color-danger: #dc2626;
-    --color-info: #2563eb;
+    --color-info: #0284c7;
+
+    /* Status "soft" tint + "strong" readable text — for badges/alerts (≥4.5:1 text on its soft bg).
+       Used via static utilities bg-{x}-soft / text-{x}-strong (PHP match-map, never dynamic class). */
+    --color-success-soft: #eaf6ef;
+    --color-success-strong: #15803d;
+    --color-warning-soft: #fdf3e3;
+    --color-warning-strong: #b45309;
+    --color-danger-soft: #fdecec;
+    --color-danger-strong: #b91c1c;
+    --color-info-soft: #e0f2fe;
+    --color-info-strong: #075985;
+    --color-accent-soft: #e0f2fe;
+    --color-accent-strong: #075985;
+    --color-neutral-soft: #f4f4f5;
+    --color-neutral-strong: #52525b;
 
     /* Layered shadows (ambient + direct) — additive, do not clobber Tailwind defaults */
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
     --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.1);
+
+    /* Motion — Emil Kowalski craft curves (the built-in CSS easings are too weak).
+       Overriding Tailwind's --ease-out makes every `ease-out` utility use the strong curve.
+       Durations: button 100-160ms, dropdown 150-250ms, modal/drawer 200-320ms; keep UI < 320ms. */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+    --duration-press: 130ms;
+    --duration-quick: 180ms;
+    --duration-base: 220ms;
+    --duration-slow: 300ms;
 }
 
 /* Base: body uses --font-sans automatically (Tailwind default-font-family).
@@ -47,6 +78,17 @@
 @layer base {
     h1, h2, h3, h4, h5, h6 {
         font-family: var(--font-display);
+    }
+
+    /* Accessibility: honor reduced-motion globally (Emil + Vercel + impeccable rule).
+       Collapses transitions/animations to near-instant instead of removing them. */
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
     }
 }
 

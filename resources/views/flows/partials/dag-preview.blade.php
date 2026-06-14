@@ -60,15 +60,15 @@
 {{-- Fullscreen overlay --}}
 <div x-show="dag.open" x-cloak class="fixed inset-0 z-[70] flex flex-col bg-slate-900/70 backdrop-blur-sm p-4 sm:p-6"
      @keydown.escape.window="dag.modal.open ? dag.closeSettings() : (dag.open = false)">
-    <div class="relative bg-white rounded-2xl shadow-2xl flex-1 min-h-0 flex flex-col overflow-hidden" @click.stop>
-        <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
+    <div class="relative bg-surface rounded-2xl shadow-2xl flex-1 min-h-0 flex flex-col overflow-hidden" @click.stop>
+        <div class="px-5 py-3.5 border-b border-line flex items-center justify-between gap-3 shrink-0">
             <div>
-                <h3 class="text-lg font-bold text-gray-900">Преглед на агентите</h3>
-                <p class="text-xs text-gray-400">Подредба като в граф билдъра. Клик върху агент → настройки<span x-show="!dag.opts.readOnly"> (редактируеми — влизат в шаблона при „Запази“)</span>.</p>
+                <h3 class="text-lg font-bold text-ink">Преглед на агентите</h3>
+                <p class="text-xs text-subtle">Подредба като в граф билдъра. Клик върху агент → настройки<span x-show="!dag.opts.readOnly"> (редактируеми — влизат в шаблона при „Запази“)</span>.</p>
             </div>
-            <button type="button" @click="dag.open = false" class="text-gray-400 hover:text-gray-600 text-2xl leading-none px-2">✕</button>
+            <button type="button" @click="dag.open = false" class="text-subtle hover:text-muted text-2xl leading-none px-2">✕</button>
         </div>
-        <div class="flex-1 min-h-0 overflow-auto bg-gray-50/60">
+        <div class="flex-1 min-h-0 overflow-auto bg-surface-subtle/60">
             <div class="relative" :style="`width:${dag.layout.width}px;height:${dag.layout.height}px`">
                 <svg class="absolute inset-0 pointer-events-none" :width="dag.layout.width" :height="dag.layout.height">
                     <template x-for="(edge, ei) in dag.layout.edges" :key="'e' + ei">
@@ -102,23 +102,23 @@
 
     {{-- Agent settings modal --}}
     <div x-show="dag.modal.open" x-cloak class="fixed inset-0 z-[80] flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/40" @click="dag.closeSettings()"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" @click.stop>
-            <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between shrink-0">
-                <h3 class="text-base font-bold text-gray-900" x-text="'Настройки — ' + (dag.modal.agent?.name || '')"></h3>
-                <button type="button" @click="dag.closeSettings()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        <div class="absolute inset-0 bg-ink/50" @click="dag.closeSettings()"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" @click.stop>
+            <div class="px-5 py-3.5 border-b border-line flex items-center justify-between shrink-0">
+                <h3 class="text-base font-bold text-ink" x-text="'Настройки — ' + (dag.modal.agent?.name || '')"></h3>
+                <button type="button" @click="dag.closeSettings()" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
             <div class="p-5 overflow-y-auto space-y-3 text-sm" x-show="dag.modal.agent">
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Име</label>
+                        <label class="block text-xs font-medium text-muted mb-1">Име</label>
                         <input type="text" x-model="dag.modal.agent.name" :disabled="dag.opts.readOnly"
-                               class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                               class="w-full border border-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Тип</label>
+                        <label class="block text-xs font-medium text-muted mb-1">Тип</label>
                         <select x-model="dag.modal.agent.type" :disabled="dag.opts.readOnly"
-                                class="w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                                class="w-full border border-line rounded-lg px-2 py-1.5 bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle">
                             <template x-for="t in dag.opts.agentTypes" :key="t.type">
                                 <option :value="t.type" x-text="t.label + ' (' + t.type + ')'"></option>
                             </template>
@@ -127,54 +127,54 @@
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Модел <span class="text-gray-400">(празно = авто; openai/… или anthropic/… = платен)</span></label>
+                        <label class="block text-xs font-medium text-muted mb-1">Модел <span class="text-subtle">(празно = авто; openai/… или anthropic/… = платен)</span></label>
                         <input type="text" x-model="dag.modal.agent.model" :disabled="dag.opts.readOnly"
-                               class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                               class="w-full border border-line rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Език на изхода</label>
+                        <label class="block text-xs font-medium text-muted mb-1">Език на изхода</label>
                         <input type="text" x-model="dag.modal.agent.output_language" :disabled="dag.opts.readOnly"
-                               class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                               class="w-full border border-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle">
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Роля / описание</label>
+                    <label class="block text-xs font-medium text-muted mb-1">Роля / описание</label>
                     <input type="text" x-model="dag.modal.agent.role" :disabled="dag.opts.readOnly"
-                           class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                           class="w-full border border-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">System prompt</label>
+                    <label class="block text-xs font-medium text-muted mb-1">System prompt</label>
                     <textarea x-model="dag.modal.agent.system_prompt" rows="4" :disabled="dag.opts.readOnly"
-                              class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"></textarea>
+                              class="w-full border border-line rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle"></textarea>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Prompt template</label>
+                    <label class="block text-xs font-medium text-muted mb-1">Prompt template</label>
                     <textarea x-model="dag.modal.agent.prompt_template" rows="6" :disabled="dag.opts.readOnly"
-                              class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"></textarea>
+                              class="w-full border border-line rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle"></textarea>
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Зависи от <span class="text-gray-400">(uid-и)</span></label>
+                        <label class="block text-xs font-medium text-muted mb-1">Зависи от <span class="text-subtle">(uid-и)</span></label>
                         <input type="text" :value="(dag.modal.agent.depends_on || []).join(', ')" disabled
-                               class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono text-xs bg-gray-50 text-gray-500">
+                               class="w-full border border-line rounded-lg px-2.5 py-1.5 font-mono text-xs bg-surface-subtle text-muted">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">uid</label>
+                        <label class="block text-xs font-medium text-muted mb-1">uid</label>
                         <input type="text" :value="dag.modal.agent.uid || ''" disabled
-                               class="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono text-xs bg-gray-50 text-gray-500">
+                               class="w-full border border-line rounded-lg px-2.5 py-1.5 font-mono text-xs bg-surface-subtle text-muted">
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Config (JSON)</label>
+                    <label class="block text-xs font-medium text-muted mb-1">Config (JSON)</label>
                     <textarea x-model="dag.modal.configText" rows="5" :disabled="dag.opts.readOnly"
-                              class="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50"></textarea>
+                              class="w-full border border-line rounded-lg px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle"></textarea>
                     <p x-show="dag.modal.error" class="text-xs text-red-600 mt-1" x-text="dag.modal.error"></p>
                 </div>
             </div>
-            <div class="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 shrink-0">
-                <button type="button" @click="dag.closeSettings()" class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">Затвори</button>
+            <div class="px-5 py-3 border-t border-line flex justify-end gap-2 shrink-0">
+                <button type="button" @click="dag.closeSettings()" class="px-3 py-1.5 rounded-lg border border-line text-muted hover:bg-surface-subtle text-sm">Затвори</button>
                 <button type="button" x-show="!dag.opts.readOnly" @click="dag.saveSettings()"
-                        class="px-4 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium">Запази промените</button>
+                        class="px-4 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-hover text-sm font-medium">Запази промените</button>
             </div>
         </div>
     </div>

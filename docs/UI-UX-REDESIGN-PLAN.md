@@ -2,234 +2,141 @@
 
 > Брийф за пълен редизайн на UI/UX на **всички** страници, popups и навигация.
 > Стек: **Laravel 12 + Blade + Tailwind v4 (Vite) + Alpine.js + Drawflow**. Без SPA, без React.
-> Посока: **Modern SaaS (Linear / Vercel)** · Тема: **само светла** · Език на UI: **български** (не се променя).
+> Характер: **operational / control-room** (анти-„пореден админ панел") · Тема: **само светла** · Език на UI: **български** (не се променя).
+> Заемки по зони: **Linear** (навигация, скорост, keyboard-first) · **Stripe** (таблици, форми, числа) · **Grafana/Datadog** (само monitoring) · **Vercel** (вдъхновение, не основа).
 
-> **СТАТУС (2026-06-14):** ✅ **Фаза 0 е изпълнена и проверена** (CDN→Vite, design tokens, шрифтове, SVG лого; `app.css` компилира чисто). Започни директно от **Фаза 1**.
+> **СТАТУС (2026-06-14):**
+> ✅ **Фаза 0** (CDN→Vite, tokens, шрифтове, SVG лого) — изпълнена.
+> ✅ **Toolchain** (Impeccable + Emil + Taste skills + детектор hook) — инсталиран в `.claude/skills/`.
+> ✅ **Фаза 1** (дизайн система) — `PRODUCT.md` + `DESIGN.md` написани; azure акцент + Emil motion токени в `app.css`; build чист.
+> ✅ **Фаза 2** (общи компоненти) — `resources/views/components/` (icon/button/card/badge/field/input/textarea/select/modal/table/segmented/tabs/breadcrumb/empty-state/alert + `danger-outline` бутон); blade-heroicons + `<x-icon>` (blade-icons `components.default=null` за да печели нашият); layout nav+flash + `status-badge` мигрирани.
+> ✅ **Типография сменена** (impeccable overused) — Geist/Instrument Sans → **IBM Plex Sans (display+body) + JetBrains Mono**.
+> ✅ **Фаза 3, група B (Companies)** — ВСИЧКИ мигрирани (виж по-долу).
+> ✅ **РЕДИЗАЙНЪТ Е ЗАВЪРШЕН** — целият app (всички 39 view-а) е azure + zinc + IBM Plex Sans/JetBrains Mono, „operational/control-room" характер. ВСИЧКИ страници рендерират 200, 0 грешки (потвърдено).
+> Покрито: B Companies (пълно), C Flows ×11, D Builder (4930 реда, Drawflow data моделът непокътнат, 0 console грешки), E runs/show, F models+admin×6+layout, G partials, A welcome (пренаписан лендинг). Типография Geist/Instrument → IBM Plex Sans/JetBrains Mono. Violet втори акцент → унифициран azure. **Всички emoji-като-икони в заглавия премахнати (0)**; chrome emoji (бутони/панели/headers) → heroicons.
+> **Остатъчно (приемливо):** домейн-идентификатори (agent-type node иконки, language флагове, level опции 💎/👑, connector service иконки, phase-picker tier иконки) + монохромни статус-глифове (✓✗↻×★▶) — НЕ четат като slop. **QA одит прескочен по искане на owner-а.** Препоръка: owner да направи ръчен builder generate→save→run smoke тест (изисква Horizon/Ollama).
 
-Как да го изпълниш: чети този файл фаза по фаза. За всяка фаза има готов prompt в края (раздел „Как да задвижиш Claude Code"). Не минавай към следваща фаза, преди текущата да е визуално проверена.
+Как да го изпълниш: чети фаза по фаза; за всяка има готов prompt в раздел 10. Не минавай към следваща фаза преди визуална проверка (`preview_*` + `npx impeccable detect`).
 
 ---
 
-## 0. Препоръчани skills и инсталация
+## 0. Design toolchain (skills) — ✅ ИНСТАЛИРАН
 
-Инсталирай и трите преди да започнеш. Те са framework-agnostic и работят с Blade/HTML/Tailwind.
+Гръбнакът на естетиката са три **anti-slop** skills (framework-agnostic, работят с Blade/Tailwind), инсталирани в `.claude/skills/`. Ползвай **един primary наведнъж**, за да няма конфликт на правила.
 
-| Skill | Роля | Инсталация |
+| Skill | Роля | Как се ползва |
 |---|---|---|
-| **Anthropic `frontend-design`** (официален) | Естетическа посока, anti-„AI slop", типография/цвят/композиция | През Claude plugin marketplace: `/plugin marketplace` → `frontend-design`. Активира се автоматично при frontend задачи. |
-| **Vercel `web-interface-guidelines`** (официален) | Одит/QA: accessibility, форми, анимации, производителност (MUST/SHOULD/NEVER) | `npx skills add https://github.com/vercel-labs/agent-skills --skill "web-design-guidelines"` |
-| **Taste `redesign-existing-projects`** (Leonxlnx, MIT) | Одит на съществуващ код → план за поправка на layout/spacing/йерархия | `npx skills add https://github.com/Leonxlnx/taste-skill --skill "redesign-existing-projects"` |
+| **`impeccable`** (pbakaus, Apache-2.0) | **Гръбнак.** Product register (dashboards/admin/forms), anti-slop „absolute bans", 24 команди, детерминистичен детектор. | Команди: `/impeccable shape|craft|critique|audit|polish|bolder|quieter|...`. Чете `PRODUCT.md`+`DESIGN.md` преди всичко. |
+| **`emil-design-eng`** (Emil Kowalski) | **Motion/craft.** Animation Decision Framework, силни easing криви, durations, springs. | Призовавай за motion работа/ревю (toasts, modals, hover, builder live). Не постоянно. |
+| **`redesign-existing-projects`** (Taste, MIT) | **Одит/посока.** Layout/spacing/йерархия одит на съществуващ UI. | В началото за посока + втори QA минаване. После изключи (overlap с impeccable). |
 
-Регулатори на Taste (сложи ги в началото на skill файла или в prompt-а) за Modern SaaS:
-`DESIGN_VARIANCE = 4` (чисто, леко асиметрично), `MOTION_INTENSITY = 3` (фини hover/преходи), `VISUAL_DENSITY = 6` (информативни dashboards, но без претрупване).
+- **Детектор без API ключ:** `npx impeccable detect <file|dir|URL>`. URL-вариантът (Puppeteer) тича срещу **живия dev сървър** → лови slop в **компилирания** Blade (file-based detect на `.blade.php` е ограничен — ползвай URL).
+- **Hook:** активен (`.claude/settings.local.json` PostToolUse + `.impeccable/config.json`). Сканира `.css/.js/.ts/.html/...` — **НЕ `.blade.php`**; за Blade покритието е през ръчния URL `detect`.
+- ⚠️ Skills се викат през Skill tool само в сесия, **закотвена в основната директория** (рестарт). Дотогава: чети `SKILL.md` директно + ползвай `detect` от CLI.
 
 ---
 
 ## 1. Guardrails — какво да НЕ се чупи
 
-Това са твърди ограничения. Нарушаването им чупи функционалност.
-
-- **Drawflow графът е свещен.** В `flows/builder.blade.php` не променяй data-модела на нодовете, техните `id`/`data-*` атрибути, нито структурата, която Drawflow експортира. `GraphNormalizer` е ЕДИНСТВЕНОТО място, което разбира експорт формата (виж CLAUDE.md) — restyle-вай само „хромето" (toolbar, панели, popups, визия на нод-картите), не самия engine. След промяна тествай ръчно: генериране → запис → презареждане → run.
-- **Без тестове.** Не пиши и не пускай тестове (правило от CLAUDE.md).
-- **Без legacy/back-compat код.** Когато заменяш стар стил/markup — трий стария път, не оставяй fallback (правило от CLAUDE.md). Собственикът ресетва базата, не мигрира.
-- **UI текстовете остават на български.** Не превеждай етикети/съобщения.
-- **Backend логика не се пипа.** Само Blade, CSS, минимален Alpine. Контролери, services, маршрути — без промени (освен ако стилизирането не изисква нов Blade partial/component).
-- **PHP форматиране:** `vendor/bin/pint` след промени по Blade/PHP.
-- **Email шаблонът** `mail/flow-run-report.blade.php` е изключение — имейлите изискват inline стилове и table layout; tokens/utility класове там не важат. Стилизирай го отделно и ръчно.
+- **Работи в основната директория** `/Users/lub/Sites/localhost/ai-agent-claude` (не worktree). Пипай само Blade/CSS/components/composer — **не backend** (контролери/services/routes), освен нов Blade partial/component.
+- **Tailwind v4 purge.** След премахването на Play CDN (Фаза 0) се компилират само класове, **статично присъстващи** във файловете. Не сглобявай Tailwind utility имена в JS/`:class` чрез конкатенация → ще се purge-нат (регресии). Custom `df-*` (hand-written CSS) са safe; за динамични utilities → `@source inline(...)` или пълни имена. Конкретен риск: `flows/builder.blade.php:3718`. Следствие: всяка CSS промяна иска `npm run dev`/`build`.
+- **Drawflow графът е свещен.** В `flows/builder.blade.php` не променяй data-модела/`id`/`data-*`, нито Drawflow експорт формата (`GraphNormalizer` е единственото място, което го разбира). Restyle само „хромето". Тествай: генериране → запис → презареждане → run.
+- **Без тестове.** Без legacy/back-compat (трий стария път). **UI текстовете остават на български.**
+- **PHP форматиране:** `vendor/bin/pint` след Blade/PHP промени.
+- **Email** `mail/flow-run-report.blade.php` — изключение (inline CSS, table layout); стилизирай ръчно.
 
 ---
 
-## 2. Дизайн система (отправни tokens)
+## 2. Дизайн система — ✅ ЗАКОТВЕНА в `PRODUCT.md` + `DESIGN.md`
 
-Това е стартовата точка; `frontend-design` ще я финализира. Целта е **един източник на истината** — без hardcode-нати hex стойности по страниците.
+Източникът на истината за **намерението** е `DESIGN.md`; за **токените** — `resources/css/app.css` (`@theme`). Без hardcoded hex в Blade — само utilities.
 
-### 2.1 Типография — ФИНАЛНО (имплементирано във Фаза 0)
-- **Заглавия (display):** `Geist` → utility `font-display`. (Избягваме Inter/Roboto/Arial/Space Grotesk — забранени от frontend-design.)
-- **Основен текст (body):** `Instrument Sans` (по подразбиране през `--font-sans`).
-- **Моноширинен (код, имена на модели, токени, цени):** `Geist Mono` → utility `font-mono`.
-- **Числа:** ползвай `tabular-nums` за цени, QA скорове и таблици — без „подскачане" на колоните.
-- Шрифтовете се зареждат през Google Fonts `<link>` с `display=swap` (+ `preconnect`) в трите layout-а.
+### 2.1 Характер
+**Operational / control-room.** Пулт за управление: плътно и четимо, но спокойно (анти-enterprise). Принципи (от `PRODUCT.md`): пултът показва истината; плътно но спокойно; числата не подскачат (`tabular-nums`); статусът никога не е само цвят; движението е обратна връзка, не шоу.
 
-### 2.2 Цветове (светла тема, semantic tokens)
-Дефинирай като CSS променливи (не raw hex в компонентите). Неутрална zinc скала + един уверен акцент. **Избягвай клишето „лилав градиент върху бяло"** (frontend-design го маркира) — ползвай плътен акцент, не pink→purple градиенти.
+### 2.2 Токени (виж `app.css`)
+- **Шрифтове:** `font-display` + `font-sans` IBM Plex Sans · `font-mono` JetBrains Mono („control-room" технически избор, отличителен спрямо AI-default шрифтовете). `tabular-nums` за цени/QA/токени.
+- **Неутрали (zinc):** `ink #18181b` / `muted #52525b` / `subtle #a1a1aa`; surfaces `#fff`/`#fafafa`; `line #e4e4e7` / `line-strong #d4d4d8`.
+- **Акцент — instrument azure:** `primary #0369a1` (fills/бутони/текст-на-бяло, безопасен ≥4.5:1 двупосочно), `primary-hover #075985`, `accent #0ea5e9` (САМО декоративни сигнали: focus glow, running/active, graph линии).
+- **Semantic:** `success #16a34a`, `warning #d97706`, `danger #dc2626`, `info #0284c7`. Статус mapping (`<x-badge>`): pending→subtle, running→accent (pulse), success→success, failed→danger, cancelled→muted; **иконка+текст, не само цвят**.
+- **Сенки:** `shadow-card` / `shadow-popover`. **Радиуси:** карти 12–16px, без over-rounding (32px+).
+- **Motion (Emil):** `--ease-out/in-out/drawer` криви + `--duration-press/quick/base/slow`; UI < 320ms; само `transform`/`opacity`; `prefers-reduced-motion` глобален блок.
 
-```
-/* имплементирано в resources/css/app.css → ползвай utilities, НЕ raw hex */
---color-canvas:         #ffffff;  /* bg-canvas          — фон */
---color-surface:        #ffffff;  /* bg-surface         — карти/панели/модали */
---color-surface-subtle: #fafafa;  /* bg-surface-subtle  — секции/zebra */
---color-line:           #e4e4e7;  /* border-line        — линии/рамки */
---color-line-strong:    #d4d4d8;  /* border-line-strong — hover/focus */
---color-ink:            #18181b;  /* text-ink           — основен текст */
---color-muted:          #52525b;  /* text-muted         — вторичен */
---color-subtle:         #a1a1aa;  /* text-subtle        — placeholder/мета */
---color-primary:        #4f46e5;  /* bg-primary/text-primary (refine с frontend-design) */
---color-primary-hover:  #4338ca;  /* bg-primary-hover */
---color-primary-fg:     #ffffff;  /* text-primary-fg    — текст върху primary */
---color-success:        #16a34a;  /* bg/text-success */
---color-warning:        #d97706;  /* bg/text-warning */
---color-danger:         #dc2626;  /* bg/text-danger  */
---color-info:           #2563eb;  /* bg/text-info    */
-```
-Статуси за `runs`/`node_runs` (важно за `partials/status-badge.blade.php`): mapни `pending`→subtle, `running`→info (с pulse), `success`→success, `failed`→danger, `cancelled`→muted. Цветът никога не е единственият сигнал — добавяй иконка/текст (Vercel правило).
-
-### 2.3 Разстояния, радиуси, сенки, движение
-- **Spacing:** 4/8px скала (Tailwind default). Вертикален ритъм: 16 / 24 / 32 / 48.
-- **Радиуси:** ползвай вградените на Tailwind v4 (`rounded-md`=.375rem, `rounded-lg`=.5rem, `rounded-xl`=.75rem, `rounded-2xl`=1rem). НЕ ги override-ваме, за да няма регресии. Вложени радиуси: дете ≤ родител.
-- **Сенки (наслоени — ambient + direct, Vercel правило)** — добавени като отделни tokens, за да не пипат default-ите:
-  - `shadow-card` = `0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.06)` — карти/панели
-  - `shadow-popover` = `0 4px 16px rgba(0,0,0,.08), 0 12px 32px rgba(0,0,0,.10)` — модали/dropdowns
-  - Остри ръбове: полупрозрачна рамка + сянка едновременно.
-- **Движение:** 150–250ms; ease-out за вход, ease-in за изход; анимирай само `transform`/`opacity` (никога `width/height/top/left`, никога `transition: all`); уважавай `prefers-reduced-motion`.
-
-### 2.4 Tailwind v4 `@theme` — ✅ ГОТОВО
-Tokens-ите вече са в `resources/css/app.css` (Фаза 0) и Tailwind v4 ги излага като utilities:
-`bg-canvas`, `bg-surface`, `bg-surface-subtle`, `text-ink`, `text-muted`, `text-subtle`, `border-line`, `border-line-strong`, `bg-primary`, `bg-primary-hover`, `text-primary-fg`, `bg/text-{success,warning,danger,info}`, `font-display`, `font-mono`, `shadow-card`, `shadow-popover`.
-Във Фаза 2+ ползвай ТЕЗИ utilities вместо `indigo-*` / `gray-*` / raw hex.
+### 2.3 Anti-patterns (refuse-and-rewrite)
+Генеричен Bootstrap admin, enterprise претрупване, indigo→лилав градиент, hero-metric шаблон, идентични card-grid-ове, eyebrow/`01·02·03` над всяка секция, gradient text, side-stripe borders, glassmorphism по подразбиране, nested cards, ghost-card (1px border + мека ≥16px сянка), цвят като единствен статус-сигнал.
 
 ---
 
-## 3. Фаза 0 — Foundation ✅ ГОТОВО (2026-06-14)
+## 3. Фаза 0 — Foundation ✅ ГОТОВО
+Tailwind play CDN премахнат от двата layout-а + `admin/login`; `@vite` + Google Fonts; tokens в `app.css`; inline Tom Select/`x-cloak`/`line-clamp` преместени (token-driven); emoji → SVG. `welcome.blade.php` НЕ е пипан (Фаза 3).
 
-Без това редизайнът ще е непоследователен.
-
-> **Изпълнено:** Tailwind play CDN е премахнат от `layouts/app.blade.php`, `admin/layouts/admin.blade.php` и `admin/login.blade.php`; добавен `@vite([...])` + Google Fonts (Geist / Instrument Sans / Geist Mono); design tokens добавени в `resources/css/app.css`; дублираните inline Tom Select + `x-cloak`/`line-clamp` стилове преместени в `app.css` (token-driven); emoji логата (`⚡`, `⚙`, `✓`) заменени със SVG. `app.css` компилира чисто (проверено изолирано). Билдни локално с `npm run dev` / `npm run build`.
-> `welcome.blade.php` НЕ е пипан (вече ползва Vite; пренаписва се във Фаза 3).
-
-1. **Премахни Tailwind CDN.** В `layouts/app.blade.php` ред 7 има `<script src="https://cdn.tailwindcss.com"></script>` — това е v3 play CDN и конфликтва с реалния Tailwind v4 + Vite build на проекта. Махни го и сложи:
-   ```blade
-   @vite(['resources/css/app.css', 'resources/js/app.js'])
-   ```
-   Провери, че `resources/js/app.js` съществува (ако не — създай го). Глобовете `@source` в `app.css` вече покриват `**/*.blade.php`, така че съществуващите utility класове ще продължат да работят.
-2. **Същото за admin layout-а** `admin/layouts/admin.blade.php` — провери дали и той ползва CDN и го уеднакви.
-3. **Alpine.js и Tom Select** могат да останат през CDN (те са JS, не Tailwind) — или ги премести на npm. Минималната безопасна промяна: махни само Tailwind CDN.
-4. **Премахни emoji иконите.** Логото `⚡` (ред 61) и всякакви emoji-та като иконки → SVG (Lucide / Heroicons). Един icon set за целия проект, консистентна дебелина на щриха.
-5. **Зареди шрифтовете** (раздел 2.1) и сложи `@theme` tokens (раздел 2.4).
-6. **Премести inline `<style>` блока** от layout-а в `app.css` (Tom Select override стиловете → пренапиши с новите tokens вместо hardcode-нати hex).
-
-Резултат от Фаза 0: всички страници рендерят с новата дизайн-система, без визуални регресии.
+## 4. Фаза 1 — Дизайн система ✅ ГОТОВО
+`PRODUCT.md` + `DESIGN.md` написани (impeccable init артефакти; register=product). `app.css`: azure акцент (#0369a1 + accent #0ea5e9, замени indigo #4f46e5), Emil motion токени, reduced-motion блок. `impeccable context` ги чете; `npm run build` чист.
 
 ---
 
-## 4. Фаза 1 — Генерирай и закотви дизайн-системата
+## 5. Фаза 2 — Общи Blade компоненти (СЛЕДВАЩА)
 
-1. Стартирай `frontend-design` с контекст: „B2B SaaS за изграждане на multi-agent AI workflows; бизнеси се регистрират и създават flows; посока Modern SaaS (Linear/Vercel), светла тема, отличителна но професионална." Нека предложи финални шрифтове, акцентен цвят и „характер" (1 запомнящо се нещо).
-2. (По избор) Пусни `ui-ux-pro-max --design-system` еднократно за палитра/шрифтови идеи за сравнение.
-3. Запиши финалните решения в `docs/DESIGN-SYSTEM.md` (или секция в `CLAUDE.md`): tokens, типография, компонентни правила, anti-patterns. Това става „source of truth" за следващите фази.
+Преди отделните страници: изгради преизползваеми компоненти в `resources/views/components/` и замени повтарящия се markup (трий стария). Ползвай `impeccable craft`/`shape`; verify с `detect` срещу URL.
 
----
+- **Икони:** `composer require blade-ui-kit/blade-heroicons`; `<x-icon>` обвива Heroicons (outline), един set, консистентен щрих; icon-only бутони с `aria-label`.
+- **Навигация** (`layouts/app.blade.php` + admin): sticky top-bar, modern; активен таб (`aria-current="page"`), hover, `:focus-visible` ринг; мобилно hamburger+drawer (Alpine). Keyboard-first (Linear).
+- **`<x-button>`** primary/secondary/ghost/danger; sm/md; loading (spinner + запазен етикет, disabled докато тръгне заявката).
+- **`<x-card>`**, **`<x-badge>`** (пренапиши `partials/status-badge.blade.php` — semantic + иконка).
+- **Форми:** `<x-input>/<x-textarea>/<x-select>` (обвий Tom Select)/`<x-field>` (видим label, helper, inline грешка под полето, `required`, правилни `type`/`inputmode`/`autocomplete`); при submit с грешки → фокус на първото невалидно.
+- **`<x-modal>`** единен: scrim 40–60%, focus trap, `Esc`, връщане на фокус, `overscroll-behavior:contain`, scale+fade от тригер.
+- **`<x-table>`** sticky header, zebra, `tabular-nums`, `aria-sort`, празно състояние (Stripe).
+- **`<x-segmented>`** (model-cost ниво — `flows/create` + builder toolbar), **`<x-tabs>`** (`companies/show`), **`<x-breadcrumb>`** (eval drill-down).
+- **`<x-empty-state>`** (иконка+съобщение+CTA), skeleton/shimmer (>300ms).
+- **Toast/flash:** запази Alpine auto-dismiss; semantic токени + `aria-live="polite"`; не краде фокус.
 
-## 5. Фаза 2 — Общи Blade компоненти (преди отделните страници)
+## 6. Фаза 3 — Редизайн страница по страница
 
-Изгради преизползваеми Blade компоненти (`resources/views/components/`), за да е редизайнът консистентен и DRY. Замени повтарящия се markup по страниците с тях (трий стария — без дублиране).
+Прилагай Фаза 2 компонентите. По групи; след всяка → `preview_screenshot` + `npx impeccable detect <URL>`.
 
-- **Навигация** (`layouts/app.blade.php`): запази sticky top-bar, но modern SaaS вид — SVG лого, активен таб с ясен indicator (`aria-current="page"`), hover състояния, фокус рингове (`:focus-visible`). Мобилно: hamburger + drawer (Alpine). Уеднакви и admin навигацията.
-- **`<x-button>`** — варианти: `primary / secondary / ghost / danger`; размери `sm/md`; loading състояние (spinner + запазен етикет, бутонът остава disabled докато заявката тръгне — Vercel правило).
-- **`<x-card>`** — surface + наслоена сянка + рамка; слотове за header/body/footer.
-- **`<x-badge>`** — пренапиши `partials/status-badge.blade.php` със semantic статус токени + иконка (не само цвят).
-- **Форми:** `<x-input>`, `<x-textarea>`, `<x-select>` (обвий Tom Select), `<x-field>` (видим `<label>`, helper текст, inline грешка под полето, `required` маркер, правилни `type`/`inputmode`/`autocomplete`). При submit с грешки — фокус на първото невалидно поле.
-- **`<x-modal>`** — единен компонент за всички popups: scrim 40–60% черно, focus trap, `Esc` за затваряне, връщане на фокуса, `overscroll-behavior: contain`, анимация от тригера (scale+fade). Това ще обслужи builder popup-ите и confirm диалозите.
-- **`<x-table>`** — sticky header, zebra редове, `tabular-nums` за числа, sortable индикатори с `aria-sort`, празно състояние.
-- **Състояния:** `<x-empty-state>` (иконка + съобщение + основен CTA) и skeleton/shimmer за зареждане > 300ms.
-- **Toast/flash:** запази Alpine auto-dismiss логиката от layout-а, но стилизирай със semantic токени и `aria-live="polite"`; не краде фокус.
-
----
-
-## 6. Фаза 3 — Редизайн страница по страница (всичко по сайта)
-
-Прилагай Фаза 2 компонентите. Работи по групи; след всяка група прави визуална проверка.
-
-**A. Вход / лендинг / layouts**
-- `welcome.blade.php` — в момента е **default Laravel scaffold** (Laravel лого, „Let's get started", Laracasts). Замени го ИЗЦЯЛО с истински FlowAI лендинг: hero с ясна стойностна реклама, един основен CTA, секции с „характер" (frontend-design). Вече ползва Vite.
-- `admin/login.blade.php` — центрирана карта, чист форм, видими labels, focus states.
-- `layouts/app.blade.php`, `admin/layouts/admin.blade.php` — навигация (Фаза 2), контейнер `max-w-7xl`, консистентни отстъпи.
-
-**B. Companies (фирми)**
-- `companies/index.blade.php` — списък като карти/таблица, празно състояние, „Нова фирма" CTA.
-- `companies/create.blade.php`, `companies/edit.blade.php` — форм компоненти, групиране на полета.
-- `companies/show.blade.php` — табове/секции (flows, knowledge, connectors), ясна йерархия.
-- `companies/connectors.blade.php` — карти на конекторите със статус badge-ове.
-- `companies/knowledge.blade.php` — knowledge base изглед (списък ресурси, ingest състояние, „Тествай знанията" чат), празни/loading състояния.
-- `companies/agent-templates/{index,create,edit,_form}.blade.php` — таблица + форм.
-
-**C. Flows**
-- `flows/create.blade.php`, `flows/edit.blade.php` — описание на flow (free-text), модел-cost ниво селектор като сегментиран контрол.
-- `flows/show.blade.php` — общ преглед на flow + история на run-овете (status badges, цени с `tabular-nums`).
-- `flows/plan-ab.blade.php` — сравнение рамо до рамо (OpenAI vs Anthropic), таблица/карти.
-- `flows/eval/{form,index,results,run-detail}.blade.php` — eval dashboard: таблици с резултати, QA скорове, drill-down с breadcrumb.
-- `flows/partials/{assistant-panel,dag-preview,memory-panel,phase-picker}.blade.php` — панели в единен визуален език (виж Фаза 4).
-
-**D. Builder (Drawflow) — виж Фаза 4 (отделно, внимателно).**
-
-**E. Runs**
-- `runs/show.blade.php` — изпълнение на run: waves/нодове, live статуси, лог панел (моноширинен, четим), цени per node, retry индикатори. Това е „operational" екран — приоритет на четимост и плътност.
-
-**F. Models / Admin**
-- `models/index.blade.php` — таблица с модели, pull/test действия, статуси.
-- `admin/agent-templates/{index,_row,create,edit,_form}.blade.php` — admin CRUD.
-- `admin/costs/index.blade.php` — разходи: карти с ключови числа + таблица/прост чарт (достъпни цветове, легенда, празно състояние).
-
-**G. Споделени partials**
-- `partials/status-badge.blade.php` → `<x-badge>`.
-- `partials/agent-type-select.blade.php`, `partials/token-helper.blade.php` — уеднакви със select/форм компонентите.
-
-**H. Email** — `mail/flow-run-report.blade.php` стилизирай отделно (inline CSS, table layout).
-
----
+- **A. Вход/лендинг/layouts:** `welcome.blade.php` (default scaffold → истински FlowAI лендинг; **махни всички `dark:` + hardcoded hex** `#706f6c`/`#1b1b18`/`#f53003`); `admin/login.blade.php`; layouts (навигация Фаза 2, `max-w-7xl`). *Auth: само `admin/login`, няма потребителски login/register.*
+- **B. Companies:** `index` (карти/таблица, празно състояние, CTA), `create`/`edit` (форм компоненти), `show` (табове: flows/knowledge/connectors), `connectors` (статус badge-ове), `knowledge` (ресурси, ingest, „Тествай знанията" чат), `agent-templates/*`.
+- **C. Flows:** `create`/`edit` (free-text + `<x-segmented>` ниво), `show` (преглед + история run-ове), `plan-ab` (рамо до рамо), `eval/*` (dashboard, QA скорове, drill-down + breadcrumb), `partials/{assistant-panel,dag-preview,memory-panel,phase-picker}` (единен панелен език).
+- **E. Runs:** `runs/show` — operational екран (Grafana зона): waves/нодове, live статуси, лог панел (mono, четим), цени per node, retry индикатори; приоритет четимост+плътност.
+- **F. Models/Admin:** `models/index`, `admin/agent-templates/*`, `admin/costs/index` (карти+таблица/прост чарт, достъпни цветове, легенда, празно).
+- **G. Partials:** `status-badge`→`<x-badge>`; `agent-type-select`/`token-helper` уеднакви.
+- **H. Email** — `mail/flow-run-report.blade.php` отделно (inline CSS).
 
 ## 7. Фаза 4 — Builder (Drawflow), внимателно
+Най-сложният екран (`builder.blade.php` ~4924 реда, Drawflow CSS/JS от jsDelivr CDN). Restyle само визуалния пласт.
+- Toolbar: `<x-segmented>` за нивото + preview на цена; бутони Фаза 2.
+- Нод-карти: нова визия (заглавие, тип иконка, provider/модел чип mono, tools), състояния (selected/running/error) — **без** промяна на `id`/`data-*`.
+- Popups → `<x-modal>`. Странични панели: единен език (header, скрол с `overscroll-behavior:contain`, празни/loading).
+- Live run: прогрес наратив, per-node статуси, лог — `aria-live`.
+- **Drawflow CSS override** в **отделен Vite-managed partial**, зареден **след** CDN link-а (коректен cascade); извън огромния inline `<style>`. Не пипай Drawflow JS.
+- Тествай след всяка промяна: генериране → ревю → запис → презареждане → run; `detect` срещу живия builder URL.
 
-Builder-ът е най-сложният екран и носи най-голям риск. Restyle само визуалния пласт.
-
-- **Toolbar** (модел-cost ниво, relevel, запис): сегментиран контрол за нивото (low/medium/high/ultra/god) с preview на цената; бутони от Фаза 2.
-- **Нод-карти:** нова визия (заглавие, тип иконка, provider/модел чип моноширинно, tools), ясни състояния (selected/running/error) — **без** да променяш `id`/`data-*`, които Drawflow/GraphNormalizer ползват.
-- **Popups** (generation popup, relevel cost preview, per-node настройки): минете през `<x-modal>` или поне уеднаквете визуално (scrim, focus trap, Esc, анимация от тригер).
-- **Странични панели** (assistant, memory, phase-picker, dag-preview): единен панелен език — header, скрол зона с `overscroll-behavior: contain`, празни/loading състояния.
-- **Live run режим:** прогрес наратив, per-node статуси, лог — четимо, с `aria-live` за обновяванията.
-- **Drawflow CSS:** override-вай неговите класове в отделен CSS блок със semantic токени; не пипай неговия JS.
-- **Тествай ръчно след всяка промяна:** генериране на flow → ревю в графа → запис → презареждане → run. Ако някое от тези се счупи — върни последната промяна.
-
----
-
-## 8. Фаза 5 — QA / одит (Vercel + Taste + достъпност)
-
-Пусни одита върху променените файлове и поправи находките.
-
-- **Vercel `web-interface-guidelines`:** „Review my UI against the guidelines" върху `resources/views/**`. Покрива: фокус рингове (`:focus-visible`), hit targets ≥24px (моб. ≥44px), `<input>` ≥16px на мобилно (без iOS zoom), Enter подава фокусирания инпут, грешки до полето + фокус на първата, `aria-live` за toasts, навигация с `<a>` (не `<div onClick>`), `prefers-reduced-motion`, само `transform/opacity` анимации, CLS (размери на изображения), контраст (APCA), `tabular-nums`, icon-only бутони с `aria-label`.
-- **Taste `redesign-existing-projects`:** втори минаване за layout/spacing/йерархия/„характер".
-- **Достъпност:** контраст ≥ 4.5:1 (основен текст), цветът не е единствен сигнал, заглавна йерархия `h1→h6`, „Skip to content" линк, keyboard nav в реда на визуалния.
-- **Responsive:** тествай на 375px (малък телефон), лаптоп, ultra-wide (симулирай на 50% zoom). Без хоризонтален скрол; `min-w-0` на flex деца за truncation.
+## 8. Фаза 5 — QA / одит
+- **`impeccable audit`** (a11y/perf/responsive) + **`impeccable critique`** по сменените страници; `npx impeccable detect <URL>` = 0 находки.
+- **Emil motion review** на анимациите (Before/After таблица).
+- **Taste `redesign-existing-projects`** втори минаване (layout/spacing/йерархия).
+- (По избор) Vercel web-interface-guidelines като a11y cross-check.
+- Достъпност: контраст ≥4.5:1, цвят не е единствен сигнал, `h1→h6`, „Skip to content", keyboard nav. Responsive 375px/laptop/ultra-wide; без хоризонтален скрол; `min-w-0` на flex деца.
 
 ---
 
 ## 9. Финален verification checklist
-
-- [ ] Tailwind CDN е премахнат; всичко рендерира през Vite build (`npm run build` минава чисто) в **двата** layout-а.
-- [ ] Няма emoji като иконки; един SVG icon set, консистентен щрих.
-- [ ] Всички цветове/шрифтове идват от tokens — няма hardcode-нат hex в Blade.
-- [ ] Само светла тема, консистентна навсякъде; контраст проверен.
-- [ ] Всяка страница от раздел 6 е редизайнирана (companies, flows, builder, runs, models, admin, eval, knowledge, auth, welcome).
-- [ ] Всички popups минават през `<x-modal>` (scrim, focus trap, Esc, анимация).
-- [ ] Формите: видими labels, inline грешки, focus на първата грешка, loading бутони.
-- [ ] Drawflow: генериране → запис → презареждане → run работят без регресия.
-- [ ] Празни и loading състояния навсякъде, където има динамични данни.
-- [ ] Vercel guidelines одитът минава; `prefers-reduced-motion` се уважава.
-- [ ] `vendor/bin/pint` минат; UI текстовете са на български; без нови тестове; без legacy fallback код.
-
----
+- [ ] Всичко през Vite build (`npm run build` чист) в двата layout-а; без Tailwind CDN.
+- [ ] Един SVG icon set (Heroicons), консистентен щрих; без emoji-иконки.
+- [ ] Всички цветове/шрифтове от tokens — без hardcoded hex в Blade.
+- [ ] Само светла тема; контраст ≥4.5:1; статус = иконка+текст, не само цвят.
+- [ ] Всяка страница от раздел 6 редизайнирана.
+- [ ] Всички popups през `<x-modal>` (scrim/focus trap/Esc/анимация).
+- [ ] Форми: видими labels, inline грешки, фокус на първата грешка, loading бутони.
+- [ ] Drawflow: генериране → запис → презареждане → run без регресия.
+- [ ] Празни/loading състояния навсякъде с динамични данни.
+- [ ] `npx impeccable detect` = 0 находки по сменените URL-и; `prefers-reduced-motion` уважен.
+- [ ] `vendor/bin/pint` минат; UI на български; без тестове; без legacy fallback.
 
 ## 10. Как да задвижиш Claude Code (готови prompt-ове)
-
-Пускай по един на фаза, в реда отдолу. Между фазите преглеждай визуално.
-
-1. **Foundation:** ✅ вече изпълнено (2026-06-14). Само за локална проверка: `npm run dev` (или `npm run build`) на твоята машина.
-2. **Дизайн-система:**
-   `Активирай frontend-design skill. Изпълни Фаза 1 от плана за посока Modern SaaS, светла тема. Запиши финалните tokens в docs/DESIGN-SYSTEM.md.`
-3. **Общи компоненти:**
-   `Изпълни Фаза 2 — изгради Blade компонентите от плана в resources/views/components и замени повтарящия се markup (трий стария, без дублиране).`
-4. **Страници (по групи):**
-   `Изпълни Фаза 3, група B (Companies) от плана, използвайки компонентите от Фаза 2.` (после група C, E, F, G... една по една)
-5. **Builder:**
-   `Изпълни Фаза 4 (Drawflow builder). Спазвай guardrails — не променяй data модела на нодовете. След промяна опиши как ръчно да тествам генериране→запис→run.`
-6. **QA:**
-   `Изпълни Фаза 5 — пусни Vercel web-interface-guidelines и Taste redesign одит върху resources/views и поправи находките. Накрая мини през checklist-а в раздел 9.`
+Пускай по един на фаза; между фазите визуална проверка + `detect`.
+1. **Foundation / Дизайн система:** ✅ готови.
+2. **Компоненти:** `Изпълни Фаза 2 — изгради Blade компонентите от плана (impeccable craft) в resources/views/components, добави blade-heroicons + <x-icon>, и замени повтарящия се markup (трий стария).`
+3. **Страници:** `Изпълни Фаза 3, група B (Companies), използвайки компонентите от Фаза 2. След това preview screenshot + npx impeccable detect срещу URL-ите.` (после C, E, F, G, A — една по една)
+4. **Builder:** `Изпълни Фаза 4 (Drawflow). Спазвай guardrails — не променяй data модела/id/data-*. Drawflow override в отделен Vite partial след CDN link-а. После опиши как ръчно да тествам генериране→запис→run.`
+5. **QA:** `Изпълни Фаза 5 — impeccable audit + critique + Emil motion review + Taste одит върху resources/views; detect срещу всички сменени URL-и; мини checklist раздел 9.`

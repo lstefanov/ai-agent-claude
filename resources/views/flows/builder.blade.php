@@ -26,9 +26,17 @@
     #drawflow.df-space { cursor: grab; }
     #drawflow.df-panning { cursor: grabbing; }
 
+    /* MCP действие панел — полетата остават бели на тонирания (azure) фон,
+       за да са четими (вместо да прозира bg-info-soft през тях). */
+    .mcp-action-panel input,
+    .mcp-action-panel select,
+    .mcp-action-panel textarea {
+        background-color: var(--color-surface, #fff);
+    }
+
     /* Builder Copilot: възли с приложени (но незапазени) предложения */
     .drawflow .drawflow-node.assistant-proposed {
-        outline: 2px dashed #8b5cf6;
+        outline: 2px dashed #0284c7;
         outline-offset: 5px;
         border-radius: 16px;
     }
@@ -67,10 +75,10 @@
         border-color: #cbd5e1;
     }
 
-    .df-role-body { border-left-color: #6366f1 !important; }
+    .df-role-body { border-left-color: #0284c7 !important; }
     .df-role-hidden { border-left-color: #0ea5e9 !important; }
     .df-role-processing { border-left-color: #0ea5e9 !important; }
-    .df-role-appendix { border-left-color: #a855f7 !important; }
+    .df-role-appendix { border-left-color: #0369a1 !important; }
     .df-role-quality { border-left-color: #f59e0b !important; }
 
     .df-node-header {
@@ -87,8 +95,8 @@
         width: 34px;
         height: 34px;
         border-radius: 12px;
-        background: #eef2ff;
-        color: #4338ca;
+        background: #f0f9ff;
+        color: #075985;
         font-size: 18px;
         flex: 0 0 auto;
     }
@@ -131,9 +139,9 @@
     }
 
     .df-node-edit:hover {
-        border-color: #6366f1;
-        color: #4f46e5;
-        background: #eef2ff;
+        border-color: #0284c7;
+        color: #0369a1;
+        background: #f0f9ff;
     }
 
     .df-node-footer {
@@ -189,7 +197,7 @@
     .drawflow .drawflow-node .input:hover,
     .drawflow .drawflow-node .output:hover {
         transform: scale(1.08);
-        background: #4f46e5;
+        background: #0369a1;
     }
 
     /* Pulsing amber glow for running nodes — much more prominent than static. */
@@ -203,8 +211,8 @@
     .df-status-skipped .df-node-card { opacity: 0.5; }
     /* Human-in-the-loop: a node paused awaiting approval glows violet. */
     @keyframes df-paused-pulse {
-        0%, 100% { box-shadow: 0 0 0 2px #8b5cf6, 0 14px 32px rgba(139, 92, 246, .20); }
-        50%       { box-shadow: 0 0 0 4px #8b5cf6, 0 14px 32px rgba(139, 92, 246, .40); }
+        0%, 100% { box-shadow: 0 0 0 2px #0284c7, 0 14px 32px rgba(139, 92, 246, .20); }
+        50%       { box-shadow: 0 0 0 4px #0284c7, 0 14px 32px rgba(139, 92, 246, .40); }
     }
     .df-status-paused .df-node-card { animation: df-paused-pulse 1.6s ease-in-out infinite; }
 
@@ -271,7 +279,7 @@
     .df-status-running .df-run-progress > span { background: #f59e0b; }
     .df-status-completed .df-run-progress > span { background: #22c55e; width: 100% !important; }
     .df-status-failed .df-run-progress > span { background: #ef4444; width: 100% !important; }
-    .df-status-paused .df-run-progress > span { background: #8b5cf6; width: 100% !important; }
+    .df-status-paused .df-run-progress > span { background: #0284c7; width: 100% !important; }
     /* Pending nodes look dimmer so the running one stands out. */
     .df-status-pending .df-node-card { opacity: 0.70; }
 
@@ -299,9 +307,9 @@
         background: #fff;
         color: #475569;
     }
-    .df-run-result { flex: 1; background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .df-run-result { flex: 1; background: #f0f9ff; border-color: #bae6fd; color: #075985; }
     .df-run-result:disabled { opacity: 0.45; cursor: not-allowed; }
-    .df-run-result:not(:disabled):hover { background: #e0e7ff; }
+    .df-run-result:not(:disabled):hover { background: #e0f2fe; }
     .df-run-log:hover { background: #f8fafc; }
     .df-run-test:disabled { opacity: 0.45; cursor: not-allowed; }
     .df-run-test:not(:disabled):hover { background: #f8fafc; }
@@ -355,7 +363,7 @@
     .df-final-btn:hover { background: #bbf7d0; }
 
     .drawflow .drawflow-node.selected .df-node-card {
-        box-shadow: 0 0 0 2px #6366f1, 0 16px 32px rgba(15, 23, 42, 0.14) !important;
+        box-shadow: 0 0 0 2px #0284c7, 0 16px 32px rgba(15, 23, 42, 0.14) !important;
     }
 
     .drawflow .drawflow-node .df-boundary-card {
@@ -395,7 +403,7 @@
     .md-output ul,.md-output ol{padding-left:1.4em;margin-bottom:.5em}
     .md-output ul{list-style-type:disc}.md-output ol{list-style-type:decimal}
     .md-output li{margin-bottom:.15em}
-    .md-output a{color:#4f46e5;text-decoration:underline}
+    .md-output a{color:#0369a1;text-decoration:underline}
     .md-output blockquote{border-left:3px solid #e5e7eb;padding-left:.75em;color:#6b7280;margin:.5em 0}
     .md-output hr{border:none;border-top:1px solid #e5e7eb;margin:.75em 0}
     .md-output code{font-family:monospace;background:#f3f4f6;padding:.1em .3em;border-radius:3px;font-size:.9em}
@@ -415,9 +423,9 @@
     {{-- Хедър, ред 1: навигация + име вляво; Run действието / статус банерите вдясно --}}
     <div class="flex items-center justify-between gap-4 mb-2.5 shrink-0 min-w-0">
         <div class="min-w-0">
-            <a href="{{ route('flows.show', $flow) }}" class="text-indigo-600 hover:underline text-sm">← Обратно към flow</a>
-            <h1 class="text-xl font-bold text-gray-900 truncate" title="{{ $flow->name }}">
-                {{ $flow->name }} <span class="text-gray-300 font-normal">· граф</span>
+            <a href="{{ route('flows.show', $flow) }}" class="inline-flex items-center gap-1 text-muted hover:text-ink text-sm transition"><x-icon name="arrow-left" size="4" /> Обратно към flow</a>
+            <h1 class="text-xl font-bold text-ink truncate" title="{{ $flow->name }}">
+                {{ $flow->name }} <span class="text-subtle font-normal">· граф</span>
             </h1>
         </div>
 
@@ -429,47 +437,47 @@
                         @csrf
                         <div class="flex items-center gap-1.5">
                             <button type="button" @click="showRunInputs = !showRunInputs"
-                                    class="px-2.5 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                                    class="px-2.5 py-2 text-sm rounded-lg border border-line bg-surface text-muted hover:bg-surface-subtle"
                                     title="Вход за този run (шаблон, тема, параметри)">⚙</button>
-                            <button type="submit" class="px-4 py-2 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 font-semibold shadow-sm">▶ Стартирай</button>
+                            <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-success text-white hover:opacity-90 font-medium transition"><x-icon name="play" size="4" /> Стартирай</button>
                         </div>
                         <div x-show="showRunInputs" x-cloak
-                             class="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-30 space-y-2 text-left">
+                             class="absolute right-0 mt-2 w-72 bg-surface border border-line rounded-xl shadow-lg p-3 z-30 space-y-2 text-left">
                             <div x-show="versions.length > 1">
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Шаблон за този run</label>
+                                <label class="block text-xs font-medium text-muted mb-1">Шаблон за този run</label>
                                 <select name="version_id" x-model="runVersionId"
-                                        class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                                        class="w-full border border-line rounded-lg px-2 py-1.5 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-green-500">
                                     <template x-for="v in versions" :key="'run-v' + v.id">
                                         <option :value="String(v.id)" :selected="String(runVersionId) === String(v.id)"
                                                 x-text="(v.is_active ? '● ' : '') + v.name"></option>
                                     </template>
                                 </select>
-                                <p x-show="String(runVersionId) !== String(activeVersionId)" class="text-[11px] text-gray-400 mt-1">
+                                <p x-show="String(runVersionId) !== String(activeVersionId)" class="text-[11px] text-subtle mt-1">
                                     Run-ът изпълнява този шаблон, без да сменя активния.
                                 </p>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Тема на този run</label>
+                                <label class="block text-xs font-medium text-muted mb-1">Тема на този run</label>
                                 <input type="text" name="inputs[topic]" x-model="runTopic"
                                        placeholder="напр. лазерна епилация"
-                                       class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                                       class="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                             </div>
                             {{-- Site flows only: per-run target site, overrides the seed {{url}} --}}
                             <div x-show="flowTargetUrl" x-cloak>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Сайт (URL)</label>
+                                <label class="block text-xs font-medium text-muted mb-1">Сайт (URL)</label>
                                 <input type="text" name="inputs[url]" x-model="runSiteUrl"
                                        :placeholder="flowTargetUrl"
-                                       class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                                       class="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                             </div>
                             <template x-for="f in runInputs" :key="f.key">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1" x-text="f.label || f.key"></label>
+                                    <label class="block text-xs font-medium text-muted mb-1" x-text="f.label || f.key"></label>
                                     <input type="text" :name="'inputs[' + f.key + ']'" :value="f.default || ''"
                                            :placeholder="f.placeholder || ''"
-                                           class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                                           class="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                                 </div>
                             </template>
-                            <p class="text-[11px] text-gray-400">Стойностите заместват placeholder-ите в промптите.</p>
+                            <p class="text-[11px] text-subtle">Стойностите заместват placeholder-ите в промптите.</p>
                         </div>
                     </form>
                 </div>
@@ -488,15 +496,15 @@
             {{-- Human-in-the-loop: a paused human_approval node awaits a decision --}}
             <template x-if="mode === 'run' && runStatus === 'waiting_approval'">
                 <div class="flex items-center gap-2 text-sm flex-wrap">
-                    <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-50 border border-violet-200 text-violet-800 font-semibold">
+                    <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-info-soft border border-info text-primary-hover font-semibold">
                         ✋ Чака одобрение<span x-show="pausedApprovalName()" x-text="': ' + pausedApprovalName()"></span>
                     </span>
                     <button type="button" @click="openApprovalInput()"
-                            class="px-2.5 py-1.5 rounded-lg border border-violet-200 bg-white text-violet-700 hover:bg-violet-50 text-xs font-semibold">
+                            class="px-2.5 py-1.5 rounded-lg border border-info bg-surface text-primary hover:bg-info-soft text-xs font-semibold">
                         📄 Прегледай материала
                     </button>
                     <input type="text" x-model="approval.comment" placeholder="Коментар (по избор)…"
-                           class="w-56 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500">
+                           class="w-56 border border-line rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/40">
                     <button type="button" @click="sendApproval('approve')" :disabled="approval.sending"
                             class="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white text-xs font-bold">
                         ✅ Одобри
@@ -513,7 +521,7 @@
                         <span class="text-green-600">✓</span> Завършен
                     </span>
                     <template x-if="runCompletedAt">
-                        <span class="text-xs text-gray-500"
+                        <span class="text-xs text-muted"
                               x-text="new Date(runCompletedAt).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' })"></span>
                     </template>
                     <template x-if="runCostUsd">
@@ -543,7 +551,7 @@
             {{-- Historical view banner (ред 1): само статусът — вдясно, за да остане
                  пълна ширина за заглавието вляво. Дата/разход/действия са на ред 2. --}}
             <template x-if="mode === 'view'">
-                <span class="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 font-semibold text-sm whitespace-nowrap">🕓 Преглед на изпълнение (read-only)</span>
+                <span class="px-2.5 py-1 rounded-lg bg-neutral-soft text-muted font-semibold text-sm whitespace-nowrap">🕓 Преглед на изпълнение (read-only)</span>
             </template>
 
             {{-- Споделени помощни бутони (само run; view ги показва на ред 2): дедупликация + пълен лог --}}
@@ -553,7 +561,7 @@
                             class="px-2.5 py-2 text-sm rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
                             title="Памет · дедупликация — изходи, твърде подобни на предишно създадено съдържание">🧠 Памет</button>
                     <button type="button" x-show="logUrl" @click="openRunLog()"
-                            class="px-2.5 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                            class="px-2.5 py-2 text-sm rounded-lg border border-line bg-surface text-muted hover:bg-surface-subtle"
                             title="Пълен лог на изпълнението">📋 Пълен лог</button>
                 </div>
             </template>
@@ -564,7 +572,7 @@
     <template x-if="mode === 'view'">
         <div class="flex flex-wrap items-center justify-end gap-2 mb-2.5 shrink-0 text-sm">
             <template x-if="runCompletedAt">
-                <span class="text-xs text-gray-500"
+                <span class="text-xs text-muted"
                       x-text="new Date(runCompletedAt).toLocaleString('bg-BG', { dateStyle: 'short', timeStyle: 'short' })"></span>
             </template>
             <template x-if="runCostUsd">
@@ -572,12 +580,12 @@
                       title="Общ разход за платени API заявки в този run"
                       x-text="'$' + Number(runCostUsd).toFixed(4)"></span>
             </template>
-            <button type="button" @click="openFinal()" class="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Финален резултат</button>
+            <button type="button" @click="openFinal()" class="px-3 py-2 rounded-lg border border-line bg-surface text-ink hover:bg-surface-subtle">Финален резултат</button>
             <button type="button" x-show="Object.keys(memoryDedup).length" x-cloak @click="memoryModal.open = true"
                     class="px-2.5 py-2 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
                     title="Памет · дедупликация — изходи, твърде подобни на предишно създадено съдържание">🧠 Памет</button>
             <button type="button" x-show="logUrl" @click="openRunLog()"
-                    class="px-2.5 py-2 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                    class="px-2.5 py-2 rounded-lg border border-line bg-surface text-muted hover:bg-surface-subtle"
                     title="Пълен лог на изпълнението">📋 Пълен лог</button>
             <template x-if="resumeUrl">
                 <button type="button" @click="resumeRun()"
@@ -587,18 +595,18 @@
                     <span x-text="resuming ? 'Подновява...' : '▶ Продължи от грешката'"></span>
                 </button>
             </template>
-            <a href="{{ route('flows.builder', $flow) }}" class="px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-gray-800">✎ Редактирай</a>
+            <a href="{{ route('flows.builder', $flow) }}" class="px-3 py-2 rounded-lg bg-ink text-white hover:bg-ink">✎ Редактирай</a>
         </div>
     </template>
 
     {{-- Хедър, ред 2 (само edit): toolbar — Шаблон | Изграждане | Лог ‖ Статус + Запис --}}
     <template x-if="mode === 'edit'">
-        <div class="flex flex-wrap items-center gap-2 mb-3 shrink-0 bg-white border border-gray-200 rounded-xl px-2.5 py-2 shadow-sm">
+        <div class="flex flex-wrap items-center gap-2 mb-3 shrink-0 bg-surface border border-line rounded-xl px-2.5 py-2 shadow-sm">
             {{-- Кой шаблон се редактира --}}
             <div x-show="versions.length" class="flex items-center gap-1.5" title="Шаблон, който се редактира. „Стартирай“ изпълнява него; активният (●) е по подразбиране за webhook и планирани изпълнения.">
-                <span class="text-xs text-gray-400 font-medium pl-1">Шаблон:</span>
+                <span class="text-xs text-subtle font-medium pl-1">Шаблон:</span>
                 <select x-model="selectedVersionId" @change="switchVersion()"
-                        class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[220px]">
+                        class="border border-line rounded-lg px-2 py-1.5 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40 max-w-[220px]">
                     <template x-for="v in versions" :key="v.id">
                         <option :value="String(v.id)" :selected="String(selectedVersionId) === String(v.id)"
                                 x-text="(v.is_active ? '● ' : '') + v.name"></option>
@@ -608,17 +616,17 @@
             {{-- Ниво на runtime моделите на агентите в този шаблон --}}
             <div class="flex items-center gap-1.5">
                 <span class="relative flex items-center gap-1 group">
-                    <span class="text-xs text-gray-500 font-medium select-none">Ниво</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-gray-400 cursor-help" viewBox="0 0 20 20" fill="currentColor">
+                    <span class="text-xs text-muted font-medium select-none">Ниво</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-subtle cursor-help" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
                     </svg>
-                    <span class="pointer-events-none absolute top-full left-0 mt-2 w-64 rounded-lg bg-gray-800 text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg leading-relaxed">
+                    <span class="pointer-events-none absolute top-full left-0 mt-2 w-64 rounded-lg bg-ink text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg leading-relaxed">
                         Ниво на runtime моделите на агентите в шаблона.<br>
                         Смяната преизчислява кой провайдър/модел се ползва за всеки агент и показва приблизителен разход преди запис.
                     </span>
                 </span>
                 <select x-model="levelSelect" @change="onLevelSelect()"
-                        class="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        class="border border-line rounded-lg px-2 py-1.5 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40">
                     <option value="" disabled x-show="!isStandardLevel(modelLevel)">— смени ниво —</option>
                     <option value="low">🪙 Ниско</option>
                     <option value="medium">⚖️ Средно</option>
@@ -627,52 +635,52 @@
                     <option value="god">👑 GOD</option>
                 </select>
             </div>
-            <div x-show="versions.length" class="h-6 w-px bg-gray-200"></div>
+            <div x-show="versions.length" class="h-6 w-px bg-neutral-soft"></div>
 
             {{-- Изграждане на графа --}}
-            <button @click="openGenConfig()" type="button" class="px-3 py-1.5 text-sm rounded-lg bg-violet-600 text-white hover:bg-violet-700 font-semibold">
-                ✨ Генериране на агенти
+            <button @click="openGenConfig()" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary text-primary-fg hover:bg-primary-hover font-medium transition">
+                <x-icon name="sparkles" size="4" /> Генериране на агенти
             </button>
-            <button @click="openAgentPicker()" type="button" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-semibold">
-                ＋ Добави агент
+            <button @click="openAgentPicker()" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-surface border border-line-strong text-ink hover:bg-surface-subtle font-medium transition">
+                <x-icon name="plus" size="4" /> Добави агент
             </button>
-            <div class="h-6 w-px bg-gray-200"></div>
+            <div class="h-6 w-px bg-neutral-soft"></div>
 
-            <button @click="openMemoryPanel()" type="button" class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50" title="Памет на flow-а — какво е създадено в предишни изпълнения + поуки per агент">
-                🧠 Памет
+            <button @click="openMemoryPanel()" type="button" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md text-muted hover:text-ink hover:bg-surface-subtle transition" title="Памет на flow-а — какво е създадено в предишни изпълнения + поуки per агент">
+                <x-icon name="circle-stack" size="4" /> Памет
             </button>
 
             <div class="flex items-center rounded-lg" :class="knowledgeEnabled ? '' : 'opacity-50'">
                 <a :href="knowledgeUrl" target="_blank"
-                   class="pl-2.5 pr-1 py-1.5 text-sm rounded-l-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                   class="pl-2.5 pr-1 py-1.5 text-sm rounded-l-lg text-muted hover:text-ink hover:bg-surface-subtle"
                    title="База знания на фирмата — ресурси, факти, история (отваря се в нов таб)">
-                    📚 Знание <span class="text-xs opacity-60" x-text="'(' + knowledgeCount + ')'"></span>
+                    <span class="inline-flex items-center gap-1.5"><x-icon name="book-open" size="4" /> Знание <span class="text-xs opacity-60" x-text="'(' + knowledgeCount + ')'"></span></span>
                 </a>
                 <button @click="toggleKnowledge()" type="button"
-                        class="pr-2 pl-1 py-1.5 rounded-r-lg hover:bg-gray-50"
+                        class="pr-2 pl-1 py-1.5 rounded-r-lg hover:bg-surface-subtle"
                         :title="knowledgeEnabled ? 'Знанието е ВКЛЮЧЕНО за този flow — клик за изключване' : 'Знанието е ИЗКЛЮЧЕНО за този flow — клик за включване'">
-                    <span class="inline-block w-2 h-2 rounded-full" :class="knowledgeEnabled ? 'bg-green-500' : 'bg-gray-300'"></span>
+                    <span class="inline-block w-2 h-2 rounded-full" :class="knowledgeEnabled ? 'bg-green-500' : 'bg-line-strong'"></span>
                 </button>
             </div>
 
             <a href="{{ route('flows.eval.index', $flow) }}" target="_blank"
-               class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+               class="px-2.5 py-1.5 text-sm rounded-lg text-muted hover:text-ink hover:bg-surface-subtle"
                title="Eval — тестове за качество + крива цена↔качество (отваря се в нов таб)">
-                🧪 Eval
+                <span class="inline-flex items-center gap-1.5"><x-icon name="beaker" size="4" /> Eval</span>
             </a>
 
-            <button @click="openGenLog()" type="button" class="px-2.5 py-1.5 text-sm rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-50" title="Пълен лог на генерирането на агенти">
-                📋 Лог
+            <button @click="openGenLog()" type="button" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md text-muted hover:text-ink hover:bg-surface-subtle transition" title="Пълен лог на генерирането на агенти">
+                <x-icon name="document-text" size="4" /> Лог
             </button>
 
             <div class="flex-1"></div>
 
             {{-- Статус на записа + проверка/запис --}}
-            <span x-show="saving" class="text-xs text-gray-500" x-cloak>Запазване…</span>
+            <span x-show="saving" class="text-xs text-muted" x-cloak>Запазване…</span>
             <span x-show="saveError" class="text-xs text-red-600 max-w-[260px] truncate" x-cloak x-text="saveError" :title="saveError"></span>
             <span x-show="savedAt && !saving && !saveError" class="text-xs text-green-600" x-cloak x-text="'✓ Запазено ' + savedAt"></span>
-            <button @click="validate()" type="button" class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Валидирай</button>
-            <button @click="save()" type="button" class="px-4 py-1.5 text-sm rounded-lg bg-gray-900 text-white hover:bg-gray-800 font-semibold">💾 Запис</button>
+            <button @click="validate()" type="button" class="px-3 py-1.5 text-sm rounded-lg border border-line bg-surface text-ink hover:bg-surface-subtle">Валидирай</button>
+            <button @click="save()" type="button" class="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-md bg-ink text-white hover:opacity-90 font-medium transition"><x-icon name="arrow-down-tray" size="4" /> Запис</button>
         </div>
     </template>
 
@@ -702,16 +710,16 @@
         </template>
     </div>
 
-    <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden relative shadow-sm flex-1 min-h-0">
+    <div class="bg-surface rounded-2xl border border-line overflow-hidden relative shadow-sm flex-1 min-h-0">
         {{-- Прогрес на изпълнението: тънка лента най-горе на платното (0→100% по завършени агенти) --}}
         <div x-show="mode === 'run' && (!runStatus || ['pending','running','waiting_approval'].includes(runStatus))"
-             x-cloak class="absolute top-0 left-0 right-0 h-1 bg-gray-100 z-20 overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-500 ease-out"
+             x-cloak class="absolute top-0 left-0 right-0 h-1 bg-neutral-soft z-20 overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-primary to-primary transition-all duration-500 ease-out"
                  :style="`width: ${runProgressPct}%`"></div>
         </div>
         <div id="drawflow" class="w-full h-full"></div>
         @include('flows.partials.assistant-panel')
-        <div class="hidden absolute left-4 bottom-4 rounded-xl bg-white/90 backdrop-blur border border-gray-200 px-3 py-2 text-xs text-gray-500 shadow-sm">
+        <div class="hidden absolute left-4 bottom-4 rounded-xl bg-surface/90 backdrop-blur border border-line px-3 py-2 text-xs text-muted shadow-sm">
             Свържи син изход към зелен вход. “Контекст” означава междинен резултат, който се подава към следващи агенти, но не влиза директно във финалния output.
         </div>
     </div>
@@ -720,19 +728,19 @@
     <div x-show="genCfg.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
          @keydown.escape.window="genCfg.open = false">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="genCfg.open = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col" @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100 shrink-0">
-                <h3 class="text-lg font-bold text-gray-900">✨ Генериране на агенти</h3>
-                <p class="text-xs text-gray-400 mt-0.5">Избери кой LLM да проектира pipeline-а — един провайдър за всичко или хибрид по фази.</p>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-line shrink-0">
+                <h3 class="text-base font-display font-semibold text-ink inline-flex items-center gap-2"><x-icon name="sparkles" size="5" class="text-primary" /> Генериране на агенти</h3>
+                <p class="text-xs text-subtle mt-0.5">Избери кой LLM да проектира pipeline-а — един провайдър за всичко или хибрид по фази.</p>
             </div>
             <div class="p-6 overflow-y-auto space-y-4">
                 <div class="grid grid-cols-1 gap-3">
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Провайдър</label>
+                        <label class="block text-xs font-medium text-muted mb-1">Провайдър</label>
                         {{-- :selected — опциите от x-for се щамповат след x-model
                              bind-а; без него селектът визуално пада на първата опция. --}}
                         <select x-model="genCfg.provider" @change="genCfgProviderChanged()"
-                                class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                                class="w-full border border-line rounded-lg px-2 py-2 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40">
                             <template x-for="p in plannerProviders" :key="p">
                                 <option :value="p" :selected="genCfg.provider === p" :disabled="!plannerAvailability[p]"
                                         x-text="picker.providerLabel(p) + (plannerAvailability[p] ? '' : ' — недостъпен')"></option>
@@ -741,15 +749,15 @@
                         </select>
                     </div>
                     <div x-show="genCfg.provider !== 'hybrid'">
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
+                        <label class="block text-xs font-medium text-muted mb-1">Модел</label>
                         <select x-model="genCfg.model" @change="syncPickerFromSingle()"
-                                class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                                class="w-full border border-line rounded-lg px-2 py-2 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40">
                             <template x-for="m in genCfgModels()" :key="m.value">
                                 <option :value="m.value" :selected="genCfg.model === m.value"
                                         :title="m.title || ''" x-text="m.label"></option>
                             </template>
                         </select>
-                        <p class="text-[11px] text-gray-400 mt-1"
+                        <p class="text-[11px] text-subtle mt-1"
                            x-show="picker.singleModelHint(genCfg.provider, genCfg.model)"
                            x-text="picker.singleModelHint(genCfg.provider, genCfg.model)"></p>
                     </div>
@@ -758,23 +766,23 @@
                 {{-- Ниво на разходите за runtime моделите на САМИТЕ агенти
                      (отделно от планер фазите по-долу). --}}
                 <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Ниво на моделите за агентите</label>
+                    <label class="block text-xs font-medium text-muted mb-1">Ниво на моделите за агентите</label>
                     <div class="grid grid-cols-4 gap-2">
                         <template x-for="lv in modelLevels" :key="lv.value">
                             <button type="button" @click="genCfg.level = lv.value"
                                     class="rounded-lg border px-2 py-1.5 text-xs font-semibold transition"
-                                    :class="genCfg.level === lv.value ? 'border-violet-400 bg-violet-50 text-violet-800' : 'border-gray-200 text-gray-600 hover:bg-gray-50'">
+                                    :class="genCfg.level === lv.value ? 'border-primary bg-info-soft text-primary-hover' : 'border-line text-muted hover:bg-surface-subtle'">
                                 <span x-text="lv.icon + ' ' + lv.label"></span>
                             </button>
                         </template>
                     </div>
-                    <p class="text-[11px] text-gray-400 mt-1" x-text="modelLevelHint()"></p>
+                    <p class="text-[11px] text-subtle mt-1" x-text="modelLevelHint()"></p>
                 </div>
 
                 {{-- Един провайдър: компактна цена. Хибрид: пълният per-phase picker. --}}
                 <template x-if="genCfg.provider !== 'hybrid'">
-                    <div class="flex items-center justify-between rounded-xl bg-violet-50 border border-violet-200 px-4 py-3">
-                        <div class="text-sm font-semibold text-violet-900">Приблизителна цена на генерацията</div>
+                    <div class="flex items-center justify-between rounded-xl bg-info-soft border border-info px-4 py-3">
+                        <div class="text-sm font-semibold text-primary-hover">Приблизителна цена на генерацията</div>
                         <div class="text-sm font-bold tabular-nums"
                              :class="picker.totalCost() > 0 ? 'text-amber-700' : 'text-green-700'"
                              x-text="picker.totalCostLabel()"></div>
@@ -784,9 +792,9 @@
                     @include('flows.partials.phase-picker')
                 </div>
             </div>
-            <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 shrink-0">
-                <button type="button" @click="genCfg.open = false" class="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">Отказ</button>
-                <button type="button" @click="confirmGenConfig()" class="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-sm font-bold">
+            <div class="px-6 py-4 border-t border-line flex justify-end gap-2 shrink-0">
+                <button type="button" @click="genCfg.open = false" class="px-3 py-2 rounded-lg border border-line text-muted hover:bg-surface-subtle text-sm">Отказ</button>
+                <button type="button" @click="confirmGenConfig()" class="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-hover text-sm font-bold">
                     ✨ Генерирай
                 </button>
             </div>
@@ -797,20 +805,20 @@
     <div x-show="relevel.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4"
          @keydown.escape.window="closeRelevel()">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="closeRelevel()"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col" @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100 shrink-0">
-                <h3 class="text-lg font-bold text-gray-900">
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-line shrink-0">
+                <h3 class="text-lg font-bold text-ink">
                     Смяна на нивото на моделите →
                     <span class="text-sm font-bold px-2 py-1 rounded-full border align-middle"
                           :class="levelMeta(relevel.level).cls"
                           x-text="levelMeta(relevel.level).icon + ' ' + levelMeta(relevel.level).label"></span>
                 </h3>
-                <p class="text-xs text-gray-400 mt-0.5">Всеки агент получава нов модел според типа и задачите си. Прегледай разхода преди запис.</p>
+                <p class="text-xs text-subtle mt-0.5">Всеки агент получава нов модел според типа и задачите си. Прегледай разхода преди запис.</p>
             </div>
             <div class="p-6 overflow-y-auto">
                 <template x-if="relevel.loading">
-                    <div class="flex items-center gap-2 text-sm text-gray-500 py-6 justify-center">
-                        <span class="inline-block w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></span>
+                    <div class="flex items-center gap-2 text-sm text-muted py-6 justify-center">
+                        <span class="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></span>
                         Изчислявам новите модели и разхода…
                     </div>
                 </template>
@@ -821,7 +829,7 @@
                     <div>
                         <table class="w-full text-sm">
                             <thead>
-                                <tr class="text-[11px] uppercase tracking-wider text-gray-400 border-b border-gray-100">
+                                <tr class="text-[11px] uppercase tracking-wider text-subtle border-b border-line">
                                     <th class="text-left py-1.5 pr-2 font-semibold">Агент</th>
                                     <th class="text-left py-1.5 pr-2 font-semibold">Нов модел</th>
                                     <th class="text-right py-1.5 font-semibold">~Разход / run</th>
@@ -829,13 +837,13 @@
                             </thead>
                             <tbody>
                                 <template x-for="n in relevel.nodes" :key="n.key">
-                                    <tr class="border-b border-gray-50">
-                                        <td class="py-1.5 pr-2 text-gray-800 truncate max-w-[220px]" x-text="n.name"></td>
+                                    <tr class="border-b border-line">
+                                        <td class="py-1.5 pr-2 text-ink truncate max-w-[220px]" x-text="n.name"></td>
                                         <td class="py-1.5 pr-2">
                                             <div class="font-mono text-xs"
-                                                 :class="n.new_model ? 'text-violet-700' : 'text-gray-500'"
+                                                 :class="n.new_model ? 'text-primary' : 'text-muted'"
                                                  x-text="n.display_model + (n.new_model ? '' : ' (локален)')"></div>
-                                            <div class="text-[10px] text-gray-400 leading-snug" x-show="n.reason" x-text="n.reason"></div>
+                                            <div class="text-[10px] text-subtle leading-snug" x-show="n.reason" x-text="n.reason"></div>
                                         </td>
                                         <td class="py-1.5 text-right tabular-nums align-top"
                                             :class="n.est_cost > 0 ? 'text-amber-700' : 'text-green-700'"
@@ -844,10 +852,10 @@
                                 </template>
                             </tbody>
                         </table>
-                        <div class="flex items-center justify-between rounded-xl bg-violet-50 border border-violet-200 px-4 py-3 mt-4">
-                            <div class="text-sm font-semibold text-violet-900">
+                        <div class="flex items-center justify-between rounded-xl bg-info-soft border border-info px-4 py-3 mt-4">
+                            <div class="text-sm font-semibold text-primary-hover">
                                 Приблизителен разход на едно изпълнение
-                                <span class="block text-[11px] font-normal text-violet-700/70"
+                                <span class="block text-[11px] font-normal text-primary/70"
                                       x-text="relevel.basis === 'last_run' ? 'на база реалните токени от последния успешен run' : 'на база допускания (~6K input токена на агент) — груба оценка'"></span>
                             </div>
                             <div class="text-base font-bold tabular-nums"
@@ -857,10 +865,10 @@
                     </div>
                 </template>
             </div>
-            <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 shrink-0">
-                <button type="button" @click="closeRelevel()" class="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">Отказ</button>
+            <div class="px-6 py-4 border-t border-line flex justify-end gap-2 shrink-0">
+                <button type="button" @click="closeRelevel()" class="px-3 py-2 rounded-lg border border-line text-muted hover:bg-surface-subtle text-sm">Отказ</button>
                 <button type="button" @click="applyRelevel()" :disabled="relevel.loading || relevel.applying || !!relevel.error"
-                        class="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:bg-violet-300 text-sm font-bold">
+                        class="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-hover disabled:bg-accent text-sm font-bold">
                     <span x-text="relevel.applying ? 'Запазва…' : '✓ Приложи и запиши'"></span>
                 </button>
             </div>
@@ -870,37 +878,37 @@
     {{-- Save-as-template dialog (след успешна генерация) --}}
     <div x-show="saveDlg.open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md" @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100">
-                <h3 class="text-lg font-bold text-gray-900">💾 Запазване на генерирания план</h3>
-                <p class="text-xs text-gray-400 mt-0.5">Агентите са изградени в графа. Как да ги запазим?</p>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-md" @click.stop>
+            <div class="px-6 py-4 border-b border-line">
+                <h3 class="text-lg font-bold text-ink">Запазване на генерирания план</h3>
+                <p class="text-xs text-subtle mt-0.5">Агентите са изградени в графа. Как да ги запазим?</p>
             </div>
             <div class="p-6 space-y-3 text-sm">
                 <label class="flex items-start gap-2.5 border rounded-xl p-3 cursor-pointer"
-                       :class="saveDlg.mode === 'new' ? 'border-violet-400 bg-violet-50/60' : 'border-gray-200'">
+                       :class="saveDlg.mode === 'new' ? 'border-primary bg-info-soft/60' : 'border-line'">
                     <input type="radio" value="new" x-model="saveDlg.mode" class="mt-0.5">
                     <span>
-                        <span class="font-semibold text-gray-900 block">Запази като нов шаблон</span>
-                        <span class="text-xs text-gray-500">Текущият шаблон остава непокътнат.</span>
+                        <span class="font-semibold text-ink block">Запази като нов шаблон</span>
+                        <span class="text-xs text-muted">Текущият шаблон остава непокътнат.</span>
                     </span>
                 </label>
                 <label class="flex items-start gap-2.5 border rounded-xl p-3 cursor-pointer"
-                       :class="saveDlg.mode === 'overwrite' ? 'border-violet-400 bg-violet-50/60' : 'border-gray-200'"
+                       :class="saveDlg.mode === 'overwrite' ? 'border-primary bg-info-soft/60' : 'border-line'"
                        x-show="selectedVersionId">
                     <input type="radio" value="overwrite" x-model="saveDlg.mode" class="mt-0.5">
                     <span>
-                        <span class="font-semibold text-gray-900 block">Презапиши текущия шаблон</span>
-                        <span class="text-xs text-gray-500" x-text="'„' + (selectedVersionName() || '—') + '“ ще получи новия план.'"></span>
+                        <span class="font-semibold text-ink block">Презапиши текущия шаблон</span>
+                        <span class="text-xs text-muted" x-text="'„' + (selectedVersionName() || '—') + '“ ще получи новия план.'"></span>
                     </span>
                 </label>
 
                 <div x-show="saveDlg.mode === 'new'" class="space-y-2.5 pt-1">
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Име на шаблона</label>
+                        <label class="block text-xs font-medium text-muted mb-1">Име на шаблона</label>
                         <input type="text" x-model="saveDlg.name"
-                               class="w-full border border-gray-300 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500">
+                               class="w-full border border-line rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40">
                     </div>
-                    <label class="flex items-center gap-2 text-sm text-gray-700">
+                    <label class="flex items-center gap-2 text-sm text-ink">
                         <input type="checkbox" x-model="saveDlg.isActive" class="rounded">
                         Направи го активен (по подразбиране за webhook и планирани изпълнения)
                     </label>
@@ -908,10 +916,10 @@
 
                 <p x-show="saveDlg.error" class="text-xs text-red-600" x-text="saveDlg.error"></p>
             </div>
-            <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-                <button type="button" @click="saveDlg.open = false" class="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm">По-късно</button>
+            <div class="px-6 py-4 border-t border-line flex justify-end gap-2">
+                <button type="button" @click="saveDlg.open = false" class="px-3 py-2 rounded-lg border border-line text-muted hover:bg-surface-subtle text-sm">По-късно</button>
                 <button type="button" @click="confirmSaveDialog()" :disabled="saveDlg.saving"
-                        class="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 text-sm font-bold">
+                        class="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-hover disabled:opacity-50 text-sm font-bold">
                     <span x-show="!saveDlg.saving">💾 Запази</span>
                     <span x-show="saveDlg.saving" class="animate-pulse">Запазване…</span>
                 </button>
@@ -922,23 +930,23 @@
     {{-- Generation Modal (non-dismissable) --}}
     <div x-show="gen.active" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 text-center">
-            <div class="mx-auto mb-5 w-14 h-14 rounded-2xl bg-violet-100 flex items-center justify-center text-3xl">✨</div>
-            <h3 class="text-xl font-bold text-gray-900 mb-1">Генерирам агентите</h3>
-            <p class="text-sm text-gray-500 mb-5">AI проектира pipeline-а за този flow. Това отнема около минута — не затваряй страницата.</p>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-md p-8 text-center">
+            <div class="mx-auto mb-5 w-14 h-14 rounded-2xl bg-info-soft flex items-center justify-center text-3xl">✨</div>
+            <h3 class="text-xl font-bold text-ink mb-1">Генерирам агентите</h3>
+            <p class="text-sm text-muted mb-5">AI проектира pipeline-а за този flow. Това отнема около минута — не затваряй страницата.</p>
 
-            <div class="w-full h-2.5 rounded-full bg-gray-100 overflow-hidden mb-4">
-                <div class="h-full bg-violet-600 transition-all duration-700 ease-out"
+            <div class="w-full h-2.5 rounded-full bg-neutral-soft overflow-hidden mb-4">
+                <div class="h-full bg-primary transition-all duration-700 ease-out"
                      :style="`width: ${gen.progress}%`"></div>
             </div>
 
-            <p class="text-sm font-semibold text-violet-700 min-h-[1.25rem]" x-text="gen.message"></p>
+            <p class="text-sm font-semibold text-primary min-h-[1.25rem]" x-text="gen.message"></p>
 
             <div x-show="gen.error" x-cloak class="mt-5 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg text-left">
                 <p x-text="gen.error"></p>
                 <div class="mt-3 flex gap-2 justify-end">
-                    <button type="button" @click="gen.active = false" class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs">Затвори</button>
-                    <button type="button" @click="startGeneration(gen.autoSave, gen.phases, gen.level)" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 text-xs">Опитай пак</button>
+                    <button type="button" @click="gen.active = false" class="px-3 py-1.5 rounded-lg border border-line text-muted hover:bg-surface-subtle text-xs">Затвори</button>
+                    <button type="button" @click="startGeneration(gen.autoSave, gen.phases, gen.level)" class="px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-hover text-xs">Опитай пак</button>
                 </div>
             </div>
         </div>
@@ -947,14 +955,14 @@
     {{-- Node Result Modal --}}
     <div x-show="resultModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="resultModal.open = false">
-        <div class="absolute inset-0 bg-black/40" @click="resultModal.open = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900" x-text="'Резултат — ' + resultModal.title"></h3>
-                <button @click="resultModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        <div class="absolute inset-0 bg-ink/50" @click="resultModal.open = false"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-line flex items-center justify-between">
+                <h3 class="text-lg font-bold text-ink" x-text="'Резултат — ' + resultModal.title"></h3>
+                <button @click="resultModal.open = false" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
             <div class="p-6 overflow-y-auto">
-                <div class="md-output text-sm text-gray-800 leading-relaxed" x-html="renderMd(resultModal.body)"></div>
+                <div class="md-output text-sm text-ink leading-relaxed" x-html="renderMd(resultModal.body)"></div>
             </div>
         </div>
     </div>
@@ -962,21 +970,21 @@
     {{-- Node Log Modal --}}
     <div x-show="logModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="logModal.open = false">
-        <div class="absolute inset-0 bg-black/40" @click="logModal.open = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900" x-text="'Лог — ' + logModal.title"></h3>
-                <button @click="logModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        <div class="absolute inset-0 bg-ink/50" @click="logModal.open = false"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-line flex items-center justify-between">
+                <h3 class="text-lg font-bold text-ink" x-text="'Лог — ' + logModal.title"></h3>
+                <button @click="logModal.open = false" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
             <div class="p-6 overflow-y-auto space-y-3">
                 <div class="grid grid-cols-2 gap-3 text-xs">
-                    <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Статус:</span> <span class="font-semibold" x-text="logModal.meta.status"></span></div>
-                    <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Модел:</span> <span class="font-semibold" x-text="logModal.meta.model || '—'"></span></div>
-                    <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Времетраене:</span> <span class="font-semibold" x-text="logModal.meta.duration"></span></div>
-                    <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Токени:</span> <span class="font-semibold" x-text="logModal.meta.tokens || '—'"></span></div>
+                    <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Статус:</span> <span class="font-semibold" x-text="logModal.meta.status"></span></div>
+                    <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Модел:</span> <span class="font-semibold" x-text="logModal.meta.model || '—'"></span></div>
+                    <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Времетраене:</span> <span class="font-semibold" x-text="logModal.meta.duration"></span></div>
+                    <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Токени:</span> <span class="font-semibold" x-text="logModal.meta.tokens || '—'"></span></div>
                     <template x-if="logModal.meta.cost">
-                        <div class="bg-gray-50 rounded-lg px-3 py-2">
-                            <span class="text-gray-400">Цена:</span>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2">
+                            <span class="text-subtle">Цена:</span>
                             <span class="font-semibold text-emerald-700"
                                   x-text="'$' + Number(logModal.meta.cost).toFixed(4)"></span>
                         </div>
@@ -987,35 +995,35 @@
                     <pre class="whitespace-pre-wrap break-words text-xs text-red-700 bg-red-50 rounded-lg p-3" x-text="logModal.error"></pre>
                 </div>
                 <div x-show="logModal.params" x-cloak>
-                    <p class="text-xs font-semibold text-gray-500 mb-1">Параметри на модела</p>
+                    <p class="text-xs font-semibold text-muted mb-1">Параметри на модела</p>
                     <div class="grid grid-cols-3 gap-2 text-xs">
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Temperature:</span> <span class="font-semibold" x-text="logModal.params?.temperature"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Top-p:</span> <span class="font-semibold" x-text="logModal.params?.top_p"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Top-k:</span> <span class="font-semibold" x-text="logModal.params?.top_k"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Repeat penalty:</span> <span class="font-semibold" x-text="logModal.params?.repeat_penalty"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Num predict:</span> <span class="font-semibold" x-text="logModal.params?.num_predict"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Seed:</span> <span class="font-semibold" x-text="logModal.params?.seed"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Език:</span> <span class="font-semibold" x-text="logModal.params?.language"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Тон:</span> <span class="font-semibold" x-text="logModal.params?.tone"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Стил:</span> <span class="font-semibold" x-text="logModal.params?.style"></span></div>
-                        <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Format:</span> <span class="font-semibold" x-text="logModal.params?.format"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Temperature:</span> <span class="font-semibold" x-text="logModal.params?.temperature"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Top-p:</span> <span class="font-semibold" x-text="logModal.params?.top_p"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Top-k:</span> <span class="font-semibold" x-text="logModal.params?.top_k"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Repeat penalty:</span> <span class="font-semibold" x-text="logModal.params?.repeat_penalty"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Num predict:</span> <span class="font-semibold" x-text="logModal.params?.num_predict"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Seed:</span> <span class="font-semibold" x-text="logModal.params?.seed"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Език:</span> <span class="font-semibold" x-text="logModal.params?.language"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Тон:</span> <span class="font-semibold" x-text="logModal.params?.tone"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Стил:</span> <span class="font-semibold" x-text="logModal.params?.style"></span></div>
+                        <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Format:</span> <span class="font-semibold" x-text="logModal.params?.format"></span></div>
                     </div>
                 </div>
                 <div x-show="logModal.steps" x-cloak>
-                    <p class="text-xs font-semibold text-gray-500 mb-1">Активност</p>
-                    <pre class="whitespace-pre-wrap break-words text-xs text-gray-700 bg-gray-900/5 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="logModal.steps"></pre>
+                    <p class="text-xs font-semibold text-muted mb-1">Активност</p>
+                    <pre class="whitespace-pre-wrap break-words text-xs text-ink bg-ink/5 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="logModal.steps"></pre>
                 </div>
                 <div x-show="logModal.systemPrompt" x-cloak>
-                    <p class="text-xs font-semibold text-gray-500 mb-1">Системен промпт</p>
-                    <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-48 overflow-y-auto" x-text="logModal.systemPrompt"></pre>
+                    <p class="text-xs font-semibold text-muted mb-1">Системен промпт</p>
+                    <pre class="whitespace-pre-wrap break-words text-xs text-muted bg-surface-subtle rounded-lg p-3 max-h-48 overflow-y-auto" x-text="logModal.systemPrompt"></pre>
                 </div>
                 <div>
-                    <p class="text-xs font-semibold text-gray-500 mb-1">Потребителски промпт (вход)</p>
-                    <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-48 overflow-y-auto" x-text="logModal.input || '—'"></pre>
+                    <p class="text-xs font-semibold text-muted mb-1">Потребителски промпт (вход)</p>
+                    <pre class="whitespace-pre-wrap break-words text-xs text-muted bg-surface-subtle rounded-lg p-3 max-h-48 overflow-y-auto" x-text="logModal.input || '—'"></pre>
                 </div>
                 <div x-show="logModal.output" x-cloak>
-                    <p class="text-xs font-semibold text-gray-500 mb-1">Изход (резултат)</p>
-                    <pre class="whitespace-pre-wrap break-words text-xs text-gray-800 bg-gray-900/5 rounded-lg p-3 max-h-80 overflow-y-auto" x-text="logModal.output"></pre>
+                    <p class="text-xs font-semibold text-muted mb-1">Изход (резултат)</p>
+                    <pre class="whitespace-pre-wrap break-words text-xs text-ink bg-ink/5 rounded-lg p-3 max-h-80 overflow-y-auto" x-text="logModal.output"></pre>
                 </div>
             </div>
         </div>
@@ -1024,18 +1032,18 @@
     {{-- Final Output Modal --}}
     <div x-show="finalModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="finalModal.open = false">
-        <div class="absolute inset-0 bg-black/50" @click="finalModal.open = false"></div>
+        <div class="absolute inset-0 bg-ink/50" @click="finalModal.open = false"></div>
         <div x-ref="finalPanel"
-             class="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+             class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
              :style="finalModalWidth ? { maxWidth: finalModalWidth + 'px', width: finalModalWidth + 'px' } : {}"
              @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">🏁 Финален резултат</h3>
-                <button @click="finalModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            <div class="px-6 py-4 border-b border-line flex items-center justify-between">
+                <h3 class="text-lg font-bold text-ink">Финален резултат</h3>
+                <button @click="finalModal.open = false" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
             <div x-ref="finalBody" class="p-6 overflow-auto">
-                <p x-show="!finalModal.body" x-cloak class="text-sm text-gray-400">Все още няма финален резултат.</p>
-                <div x-show="finalModal.body" class="md-output text-sm text-gray-800 leading-relaxed" x-html="renderMd(finalModal.body)"></div>
+                <p x-show="!finalModal.body" x-cloak class="text-sm text-subtle">Все още няма финален резултат.</p>
+                <div x-show="finalModal.body" class="md-output text-sm text-ink leading-relaxed" x-html="renderMd(finalModal.body)"></div>
             </div>
         </div>
     </div>
@@ -1043,14 +1051,14 @@
     {{-- Памет · дедупликация Modal (run/view): изходи, твърде подобни на предишно създадено съдържание --}}
     <div x-show="memoryModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="memoryModal.open = false">
-        <div class="absolute inset-0 bg-black/40" @click="memoryModal.open = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">🧠 Памет · дедупликация</h3>
-                <button @click="memoryModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        <div class="absolute inset-0 bg-ink/50" @click="memoryModal.open = false"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-line flex items-center justify-between">
+                <h3 class="text-base font-display font-semibold text-ink inline-flex items-center gap-2"><x-icon name="circle-stack" size="5" class="text-primary" /> Памет · дедупликация</h3>
+                <button @click="memoryModal.open = false" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
             <div class="p-6 overflow-y-auto">
-                <p class="text-xs text-gray-400 mb-3">Изходи, разпознати като твърде подобни на вече създадено съдържание от предишни изпълнения. „Пренаписан“ = агентът е пробвал наново; „приет с предупреждение“ = опитите са изчерпани, изходът е запазен и маркиран.</p>
+                <p class="text-xs text-subtle mb-3">Изходи, разпознати като твърде подобни на вече създадено съдържание от предишни изпълнения. „Пренаписан“ = агентът е пробвал наново; „приет с предупреждение“ = опитите са изчерпани, изходът е запазен и маркиран.</p>
                 <template x-for="[nodeKey, entries] in Object.entries(memoryDedup)" :key="nodeKey">
                     <div class="py-1.5 border-t border-sky-100 first:border-t-0">
                         <template x-for="(entry, idx) in entries" :key="idx">
@@ -1064,7 +1072,7 @@
                         </template>
                     </div>
                 </template>
-                <p x-show="!Object.keys(memoryDedup).length" x-cloak class="text-sm text-gray-400">Няма засечени дублирания.</p>
+                <p x-show="!Object.keys(memoryDedup).length" x-cloak class="text-sm text-subtle">Няма засечени дублирания.</p>
             </div>
         </div>
     </div>
@@ -1072,22 +1080,22 @@
     {{-- Пълен лог на изпълнението Modal (run/view): чете flow-runs.log като plain text --}}
     <div x-show="runLogModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="runLogModal.open = false">
-        <div class="absolute inset-0 bg-black/50" @click="runLogModal.open = false"></div>
-        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" @click.stop>
-            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-                <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">📄 Пълен лог на изпълнението</h3>
+        <div class="absolute inset-0 bg-ink/50" @click="runLogModal.open = false"></div>
+        <div class="relative bg-surface rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" @click.stop>
+            <div class="flex items-center justify-between px-5 py-3 border-b border-line">
+                <h3 class="text-sm font-semibold text-ink flex items-center gap-2">Пълен лог на изпълнението</h3>
                 <div class="flex items-center gap-3">
-                    <button @click="openRunLog()" class="text-xs text-gray-400 hover:text-indigo-600 transition"
+                    <button @click="openRunLog()" class="text-xs text-subtle hover:text-primary transition"
                             :disabled="runLogModal.loading"
                             x-text="runLogModal.loading ? '⏳ Зареждане…' : '↻ Опресни'"></button>
                     <button @click="navigator.clipboard.writeText(runLogModal.text); runLogModal.copied = true; setTimeout(() => runLogModal.copied = false, 2000)"
-                            class="text-xs text-gray-400 hover:text-gray-600 transition"
+                            class="text-xs text-subtle hover:text-muted transition"
                             x-text="runLogModal.copied ? '✓ Копирано' : '📋 Копирай'"></button>
-                    <button @click="runLogModal.open = false" type="button" class="text-gray-400 hover:text-gray-700 transition text-lg leading-none">✕</button>
+                    <button @click="runLogModal.open = false" type="button" class="text-subtle hover:text-ink transition text-lg leading-none">✕</button>
                 </div>
             </div>
             <pre x-ref="runLogPre"
-                 class="text-[11px] leading-relaxed text-gray-200 bg-gray-900 p-4 overflow-auto flex-1 whitespace-pre-wrap font-mono rounded-b-xl"
+                 class="text-[11px] leading-relaxed text-line bg-ink p-4 overflow-auto flex-1 whitespace-pre-wrap font-mono rounded-b-xl"
                  x-text="runLogModal.text || (runLogModal.loading ? 'Зареждане…' : 'Няма лог записи още.')"></pre>
         </div>
     </div>
@@ -1095,18 +1103,18 @@
     {{-- Тест на агент Modal: ad-hoc experiments on a finished node (nothing persisted) --}}
     <div x-show="testModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="testModal.open = false">
-        <div class="absolute inset-0 bg-black/50" @click="testModal.open = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[92vh] flex flex-col" @click.stop>
+        <div class="absolute inset-0 bg-ink/50" @click="testModal.open = false"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-7xl h-[92vh] flex flex-col" @click.stop>
             {{-- Header: agent + original run meta --}}
-            <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
+            <div class="px-6 py-4 border-b border-line flex items-start justify-between gap-4 shrink-0">
                 <div class="min-w-0">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">🧪 Тест на агент — експерименти без запис</p>
-                    <h3 class="text-lg font-bold text-gray-900 truncate" x-text="testModal.nodeName"></h3>
-                    <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-gray-500">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-primary">🧪 Тест на агент — експерименти без запис</p>
+                    <h3 class="text-lg font-bold text-ink truncate" x-text="testModal.nodeName"></h3>
+                    <div class="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted">
                         <span x-text="typeLabel(testModal.nodeType)"></span>
                         <template x-if="testModal.original">
                             <span class="flex flex-wrap items-center gap-2">
-                                <span class="px-2 py-0.5 rounded-full bg-gray-100 font-mono" x-text="testModal.original.model || 'авто'"></span>
+                                <span class="px-2 py-0.5 rounded-full bg-neutral-soft font-mono" x-text="testModal.original.model || 'авто'"></span>
                                 <span x-show="testModal.original.duration_ms" x-text="(Math.round(testModal.original.duration_ms / 100) / 10) + ' сек'"></span>
                                 <span x-show="testModal.original.tokens_used" x-text="testModal.original.tokens_used + ' токена'"></span>
                                 <span x-show="testModal.original.cost_usd" x-text="'$' + Number(testModal.original.cost_usd).toFixed(4)"></span>
@@ -1114,52 +1122,52 @@
                         </template>
                     </div>
                 </div>
-                <button @click="testModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                <button @click="testModal.open = false" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
 
             {{-- Original input (collapsible) --}}
-            <div class="px-6 py-2 border-b border-gray-100 bg-gray-50/60 shrink-0">
+            <div class="px-6 py-2 border-b border-line bg-surface-subtle/60 shrink-0">
                 <button type="button" @click="testModal.inputOpen = !testModal.inputOpen"
-                        class="text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center gap-1">
+                        class="text-xs font-semibold text-muted hover:text-ink flex items-center gap-1">
                     <span x-text="testModal.inputOpen ? '▾' : '▸'"></span>
                     <span>Оригинален вход (какво получи агентът)</span>
-                    <span class="text-gray-400 font-normal"
+                    <span class="text-subtle font-normal"
                           x-text="testModal.original ? '· ' + (testModal.original.user_message || '').length + ' знака' : ''"></span>
                 </button>
                 <pre x-show="testModal.inputOpen" x-cloak
-                     class="mt-2 mb-1 text-xs text-gray-700 whitespace-pre-wrap bg-white border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto"
+                     class="mt-2 mb-1 text-xs text-ink whitespace-pre-wrap bg-surface border border-line rounded-lg p-3 max-h-48 overflow-y-auto"
                      x-text="testModal.original?.user_message || '—'"></pre>
             </div>
 
             {{-- Body: left = experiment, right = original output --}}
-            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
+            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-line">
                 {{-- LEFT: experiment panel --}}
                 <div class="min-h-0 overflow-y-auto p-5 space-y-4">
-                    <p x-show="testModal.loading" class="text-sm text-gray-400">Зареждане на данните от run-а…</p>
+                    <p x-show="testModal.loading" class="text-sm text-subtle">Зареждане на данните от run-а…</p>
 
                     <div class="space-y-3" x-show="!testModal.loading">
                         <div class="flex items-center justify-between">
-                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Промптове (само за теста)</p>
+                            <p class="text-xs font-semibold uppercase tracking-wide text-subtle">Промптове (само за теста)</p>
                             <button type="button" @click="resetTestForm()"
-                                    class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">↺ Възстанови оригинала</button>
+                                    class="text-xs text-primary hover:text-primary-hover font-medium">↺ Възстанови оригинала</button>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">System промпт</label>
+                            <label class="block text-xs font-medium text-muted mb-1">System промпт</label>
                             <textarea x-model="testModal.form.system_prompt" rows="5"
-                                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                                      class="w-full border border-line rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/40"></textarea>
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">Потребителско съобщение (вход)</label>
+                            <label class="block text-xs font-medium text-muted mb-1">Потребителско съобщение (вход)</label>
                             <textarea x-model="testModal.form.user_message" rows="7"
-                                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
-                            <p class="text-[11px] text-gray-400 mt-1">Промените тук важат само за теста — шаблонът на промпта в агента не се променя при „Приложи“.</p>
+                                      class="w-full border border-line rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/40"></textarea>
+                            <p class="text-[11px] text-subtle mt-1">Промените тук важат само за теста — шаблонът на промпта в агента не се променя при „Приложи“.</p>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Провайдър</label>
+                                <label class="block text-xs font-medium text-muted mb-1">Провайдър</label>
                                 <select x-model="testModal.form.provider" @change="testProviderChanged()"
-                                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                     <template x-for="p in testProviders()" :key="p.key">
                                         <option :value="p.key" :disabled="!p.available"
                                                 x-text="p.label + (p.available ? '' : ' — недостъпен')"></option>
@@ -1167,39 +1175,39 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Модел</label>
+                                <label class="block text-xs font-medium text-muted mb-1">Модел</label>
                                 <select x-model="testModal.form.model"
-                                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                        class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                     <template x-for="m in testModelOptions()" :key="m.value">
                                         <option :value="m.value" :title="m.title" x-text="m.label"></option>
                                     </template>
                                 </select>
                             </div>
                         </div>
-                        <p class="text-xs text-gray-500 -mt-1 min-h-[16px]" x-text="testModelHint()"></p>
+                        <p class="text-xs text-muted -mt-1 min-h-[16px]" x-text="testModelHint()"></p>
 
                         <details class="text-sm">
-                            <summary class="text-xs font-semibold text-gray-500 cursor-pointer select-none">Разширени настройки</summary>
+                            <summary class="text-xs font-semibold text-muted cursor-pointer select-none">Разширени настройки</summary>
                             <div class="grid grid-cols-2 gap-3 mt-2">
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Temperature</label>
+                                    <label class="block text-xs font-medium text-muted mb-1">Temperature</label>
                                     <input type="number" step="0.1" min="0" max="2" x-model="testModal.form.temperature" placeholder="—"
-                                           class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                           class="w-full border border-line rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Max токени (num_predict)</label>
+                                    <label class="block text-xs font-medium text-muted mb-1">Max токени (num_predict)</label>
                                     <input type="number" step="1" min="-1" x-model="testModal.form.num_predict" placeholder="—"
-                                           class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                           class="w-full border border-line rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                 </div>
                             </div>
                         </details>
 
                         <div class="flex items-center gap-3">
                             <button type="button" @click="runTest()" :disabled="testModal.running || !testModal.form.model"
-                                    class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2 rounded-lg transition">
+                                    class="bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2 rounded-lg transition">
                                 ⚡ Генерирай
                             </button>
-                            <span class="text-xs text-gray-500" x-text="'Очаквана цена: ' + (testCostEstimate() || '—')"></span>
+                            <span class="text-xs text-muted" x-text="'Очаквана цена: ' + (testCostEstimate() || '—')"></span>
                         </div>
 
                         <div x-show="testModal.running" x-cloak
@@ -1215,16 +1223,16 @@
 
                         {{-- Attempt history (session-only) --}}
                         <div x-show="(testAttempts[testModal.nodeKey] || []).length" class="space-y-1.5">
-                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Опити в тази сесия</p>
+                            <p class="text-xs font-semibold uppercase tracking-wide text-subtle">Опити в тази сесия</p>
                             <template x-for="(a, i) in (testAttempts[testModal.nodeKey] || [])" :key="i">
                                 <button type="button" @click="testModal.activeAttempt = i"
                                         class="w-full flex items-center gap-2 text-left text-xs px-2.5 py-1.5 rounded-lg border transition"
-                                        :class="testModal.activeAttempt === i ? 'border-indigo-300 bg-indigo-50' : 'border-gray-200 bg-white hover:bg-gray-50'">
+                                        :class="testModal.activeAttempt === i ? 'border-primary bg-info-soft' : 'border-line bg-surface hover:bg-surface-subtle'">
                                     <span class="font-bold" :class="a.status === 'completed' ? 'text-green-600' : 'text-red-500'"
                                           x-text="a.status === 'completed' ? '✓' : '✗'"></span>
                                     <span class="df-model-provider" :class="'df-prov-' + (a.provider || 'ollama')" x-text="a.provider"></span>
                                     <span class="font-mono truncate" x-text="a.model.includes('/') ? a.model.split('/').slice(1).join('/') : a.model"></span>
-                                    <span class="ml-auto text-gray-400 shrink-0"
+                                    <span class="ml-auto text-subtle shrink-0"
                                           x-text="[a.at, a.duration_ms ? (Math.round(a.duration_ms / 100) / 10) + 'с' : null, a.tokens_used ? a.tokens_used + ' ток.' : null, a.cost_usd ? '$' + Number(a.cost_usd).toFixed(4) : null].filter(Boolean).join(' · ')"></span>
                                 </button>
                             </template>
@@ -1232,9 +1240,9 @@
 
                         {{-- Active attempt output --}}
                         <template x-if="activeTestAttempt()">
-                            <div class="border border-indigo-200 rounded-xl overflow-hidden">
-                                <div class="px-4 py-2 bg-indigo-50/60 flex flex-wrap items-center justify-between gap-2">
-                                    <p class="text-xs font-bold text-indigo-700">Нов резултат — <span class="font-mono" x-text="activeTestAttempt().model"></span></p>
+                            <div class="border border-info rounded-xl overflow-hidden">
+                                <div class="px-4 py-2 bg-info-soft/60 flex flex-wrap items-center justify-between gap-2">
+                                    <p class="text-xs font-bold text-primary">Нов резултат — <span class="font-mono" x-text="activeTestAttempt().model"></span></p>
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs text-emerald-700 font-semibold" x-show="testModal.appliedNotice" x-text="testModal.appliedNotice"></span>
                                         <button type="button" @click="applyAttempt(testModal.activeAttempt)"
@@ -1250,14 +1258,14 @@
                                          class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 whitespace-pre-wrap"
                                          x-text="activeTestAttempt().error"></div>
                                     <div x-show="activeTestAttempt().output"
-                                         class="md-output text-sm text-gray-800 leading-relaxed"
+                                         class="md-output text-sm text-ink leading-relaxed"
                                          x-html="renderMd(activeTestAttempt().output)"></div>
                                     {{-- Thinking model burned the whole budget inside <think> --}}
                                     <div x-show="!activeTestAttempt().output && !activeTestAttempt().error && activeTestAttempt().raw_output" x-cloak>
                                         <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">
                                             Моделът върна само вътрешен reasoning (&lt;think&gt;) — увеличи „Max токени“ и опитай пак. Суров отговор:
                                         </p>
-                                        <pre class="text-xs text-gray-500 whitespace-pre-wrap bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-60 overflow-y-auto"
+                                        <pre class="text-xs text-muted whitespace-pre-wrap bg-surface-subtle border border-line rounded-lg p-3 max-h-60 overflow-y-auto"
                                              x-text="activeTestAttempt().raw_output"></pre>
                                     </div>
                                     <p x-show="!activeTestAttempt().output && !activeTestAttempt().error && !activeTestAttempt().raw_output"
@@ -1271,20 +1279,20 @@
                 </div>
 
                 {{-- RIGHT: original output (the comparison reference) --}}
-                <div class="min-h-0 overflow-y-auto p-5 bg-gray-50/50">
+                <div class="min-h-0 overflow-y-auto p-5 bg-surface-subtle/50">
                     <div class="flex items-center justify-between mb-3">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Оригинален резултат от run-а</p>
-                        <span class="text-xs text-gray-400 font-mono" x-text="testModal.original?.model || ''"></span>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-subtle">Оригинален резултат от run-а</p>
+                        <span class="text-xs text-subtle font-mono" x-text="testModal.original?.model || ''"></span>
                     </div>
                     <template x-if="testModal.original && testModal.original.error && !testModal.original.output">
                         <div class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 whitespace-pre-wrap"
                              x-text="testModal.original.error"></div>
                     </template>
                     <div x-show="testModal.original?.output"
-                         class="md-output text-sm text-gray-800 leading-relaxed"
+                         class="md-output text-sm text-ink leading-relaxed"
                          x-html="renderMd(testModal.original?.output)"></div>
                     <p x-show="testModal.original && !testModal.original.output && !testModal.original.error"
-                       class="text-sm text-gray-400">Няма запазен изход.</p>
+                       class="text-sm text-subtle">Няма запазен изход.</p>
                 </div>
             </div>
         </div>
@@ -1293,75 +1301,75 @@
     {{-- Agent Generation Log Modal --}}
     <div x-show="genLogModal.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="genLogModal.open = false">
-        <div class="absolute inset-0 bg-black/40" @click="genLogModal.open = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col" @click.stop>
-            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">📋 Лог на генерирането на агенти</h3>
-                <button @click="genLogModal.open = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        <div class="absolute inset-0 bg-ink/50" @click="genLogModal.open = false"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col" @click.stop>
+            <div class="px-6 py-4 border-b border-line flex items-center justify-between">
+                <h3 class="text-base font-display font-semibold text-ink inline-flex items-center gap-2"><x-icon name="document-text" size="5" class="text-primary" /> Лог на генерирането на агенти</h3>
+                <button @click="genLogModal.open = false" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
             <div class="p-6 overflow-y-auto space-y-4">
-                <p x-show="genLogModal.loading" x-cloak class="text-sm text-gray-400">Зареждане…</p>
+                <p x-show="genLogModal.loading" x-cloak class="text-sm text-subtle">Зареждане…</p>
                 <p x-show="genLogModal.error" x-cloak class="text-sm text-red-600" x-text="genLogModal.error"></p>
-                <p x-show="!genLogModal.loading && !genLogModal.error && genLogModal.logs.length === 0" x-cloak class="text-sm text-gray-400">Все още няма записи за генериране.</p>
+                <p x-show="!genLogModal.loading && !genLogModal.error && genLogModal.logs.length === 0" x-cloak class="text-sm text-subtle">Все още няма записи за генериране.</p>
 
                 <template x-for="group in genLogModal.logs" :key="group.id">
-                    <div class="border border-gray-200 rounded-xl overflow-hidden">
-                        <div class="px-4 py-3 bg-gray-50 flex items-center justify-between cursor-pointer" @click="group._expanded = !group._expanded">
+                    <div class="border border-line rounded-xl overflow-hidden">
+                        <div class="px-4 py-3 bg-surface-subtle flex items-center justify-between cursor-pointer" @click="group._expanded = !group._expanded">
                             <div class="flex items-center gap-3 text-sm">
-                                <span class="font-semibold text-gray-900" x-text="group.created_at"></span>
+                                <span class="font-semibold text-ink" x-text="group.created_at"></span>
                                 <span class="text-xs px-2 py-0.5 rounded-full"
                                       :class="group.status === 'completed' ? 'bg-green-100 text-green-700' : (group.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')"
                                       x-text="group.status"></span>
-                                <span class="text-xs text-gray-500" x-text="(group.provider || '—') + ' · ' + (group.model || '—')"></span>
-                                <span class="text-xs text-gray-400" x-text="(group.parsed_count ?? '—') + ' агента'"></span>
+                                <span class="text-xs text-muted" x-text="(group.provider || '—') + ' · ' + (group.model || '—')"></span>
+                                <span class="text-xs text-subtle" x-text="(group.parsed_count ?? '—') + ' агента'"></span>
                                 <span class="text-xs font-semibold text-emerald-700" x-text="group.cost_usd != null ? '$' + Number(group.cost_usd).toFixed(4) : '—'"></span>
-                                <span class="text-xs text-gray-400" x-text="group.duration_ms ? (Math.round(group.duration_ms/100)/10 + ' сек') : ''"></span>
+                                <span class="text-xs text-subtle" x-text="group.duration_ms ? (Math.round(group.duration_ms/100)/10 + ' сек') : ''"></span>
                             </div>
-                            <span class="text-gray-400 text-xs" x-text="group._expanded ? '▲' : '▼'"></span>
+                            <span class="text-subtle text-xs" x-text="group._expanded ? '▲' : '▼'"></span>
                         </div>
                         <div x-show="group._expanded" x-cloak class="p-3 space-y-2">
                             <template x-for="phase in group.phases" :key="phase.id">
-                                <div class="border border-gray-100 rounded-lg overflow-hidden">
-                                    <div class="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-50" @click="phase._expanded = !phase._expanded">
+                                <div class="border border-line rounded-lg overflow-hidden">
+                                    <div class="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-subtle" @click="phase._expanded = !phase._expanded">
                                         <div class="flex items-center gap-3 text-xs">
                                             <span class="px-2 py-0.5 rounded-full"
                                                   :class="phase.status === 'completed' ? 'bg-green-100 text-green-700' : (phase.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')"
                                                   x-text="phase.status"></span>
-                                            <span class="text-gray-600 font-medium" x-text="(phase.provider || '—') + ' · ' + (phase.model || '—')"></span>
-                                            <span class="text-gray-400" x-text="(phase.parsed_count ?? '—') + ' агента'"></span>
+                                            <span class="text-muted font-medium" x-text="(phase.provider || '—') + ' · ' + (phase.model || '—')"></span>
+                                            <span class="text-subtle" x-text="(phase.parsed_count ?? '—') + ' агента'"></span>
                                             <span class="font-semibold text-emerald-700" x-text="phase.cost_usd != null ? '$' + Number(phase.cost_usd).toFixed(4) : '—'"></span>
-                                            <span class="text-gray-400" x-text="phase.duration_ms ? (Math.round(phase.duration_ms/100)/10 + ' сек') : ''"></span>
+                                            <span class="text-subtle" x-text="phase.duration_ms ? (Math.round(phase.duration_ms/100)/10 + ' сек') : ''"></span>
                                         </div>
-                                        <span class="text-gray-400 text-xs" x-text="phase._expanded ? '▲' : '▼'"></span>
+                                        <span class="text-subtle text-xs" x-text="phase._expanded ? '▲' : '▼'"></span>
                                     </div>
-                                    <div x-show="phase._expanded" x-cloak class="p-4 space-y-3 border-t border-gray-100">
+                                    <div x-show="phase._expanded" x-cloak class="p-4 space-y-3 border-t border-line">
                                         <div class="grid grid-cols-3 gap-2 text-xs">
-                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Провайдър:</span> <span class="font-semibold" x-text="phase.provider || '—'"></span></div>
-                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Модел:</span> <span class="font-semibold" x-text="phase.model || '—'"></span></div>
-                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Времетраене:</span> <span class="font-semibold" x-text="phase.duration_ms ? (Math.round(phase.duration_ms/100)/10 + ' сек') : '—'"></span></div>
-                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Цена:</span> <span class="font-semibold" x-text="phase.cost_usd != null ? '$' + Number(phase.cost_usd).toFixed(4) : '—'"></span></div>
-                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Токени (вход / изход):</span> <span class="font-semibold" x-text="(phase.prompt_tokens ?? '—') + ' / ' + (phase.completion_tokens ?? '—')"></span></div>
-                                            <div class="bg-gray-50 rounded-lg px-3 py-2"><span class="text-gray-400">Час:</span> <span class="font-semibold" x-text="phase.created_at || '—'"></span></div>
+                                            <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Провайдър:</span> <span class="font-semibold" x-text="phase.provider || '—'"></span></div>
+                                            <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Модел:</span> <span class="font-semibold" x-text="phase.model || '—'"></span></div>
+                                            <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Времетраене:</span> <span class="font-semibold" x-text="phase.duration_ms ? (Math.round(phase.duration_ms/100)/10 + ' сек') : '—'"></span></div>
+                                            <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Цена:</span> <span class="font-semibold" x-text="phase.cost_usd != null ? '$' + Number(phase.cost_usd).toFixed(4) : '—'"></span></div>
+                                            <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Токени (вход / изход):</span> <span class="font-semibold" x-text="(phase.prompt_tokens ?? '—') + ' / ' + (phase.completion_tokens ?? '—')"></span></div>
+                                            <div class="bg-surface-subtle rounded-lg px-3 py-2"><span class="text-subtle">Час:</span> <span class="font-semibold" x-text="phase.created_at || '—'"></span></div>
                                         </div>
                                         <div x-show="phase.error" x-cloak>
                                             <p class="text-xs font-semibold text-red-600 mb-1">Грешка</p>
                                             <pre class="whitespace-pre-wrap break-words text-xs text-red-700 bg-red-50 rounded-lg p-3" x-text="phase.error"></pre>
                                         </div>
                                         <div>
-                                            <p class="text-xs font-semibold text-gray-500 mb-1">Опции (параметри към модела)</p>
-                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3" x-text="JSON.stringify(phase.options, null, 2)"></pre>
+                                            <p class="text-xs font-semibold text-muted mb-1">Опции (параметри към модела)</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-muted bg-surface-subtle rounded-lg p-3" x-text="JSON.stringify(phase.options, null, 2)"></pre>
                                         </div>
                                         <div>
-                                            <p class="text-xs font-semibold text-gray-500 mb-1">Системен промпт</p>
-                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="phase.system_prompt || '—'"></pre>
+                                            <p class="text-xs font-semibold text-muted mb-1">Системен промпт</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-muted bg-surface-subtle rounded-lg p-3 max-h-64 overflow-y-auto" x-text="phase.system_prompt || '—'"></pre>
                                         </div>
                                         <div>
-                                            <p class="text-xs font-semibold text-gray-500 mb-1">Потребителски промпт</p>
-                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto" x-text="phase.user_message || '—'"></pre>
+                                            <p class="text-xs font-semibold text-muted mb-1">Потребителски промпт</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-muted bg-surface-subtle rounded-lg p-3 max-h-64 overflow-y-auto" x-text="phase.user_message || '—'"></pre>
                                         </div>
                                         <div>
-                                            <p class="text-xs font-semibold text-gray-500 mb-1">Пълен суров отговор</p>
-                                            <pre class="whitespace-pre-wrap break-words text-xs text-gray-600 bg-gray-900/5 rounded-lg p-3 max-h-80 overflow-y-auto" x-text="phase.raw_response || '—'"></pre>
+                                            <p class="text-xs font-semibold text-muted mb-1">Пълен суров отговор</p>
+                                            <pre class="whitespace-pre-wrap break-words text-xs text-muted bg-ink/5 rounded-lg p-3 max-h-80 overflow-y-auto" x-text="phase.raw_response || '—'"></pre>
                                         </div>
                                     </div>
                                 </div>
@@ -1380,20 +1388,20 @@
     <div x-show="showPicker" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="showPicker = false">
-        <div class="absolute inset-0 bg-black/40" @click="showPicker = false"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-[900px] overflow-hidden" @click.stop>
+        <div class="absolute inset-0 bg-ink/50" @click="showPicker = false"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-[900px] overflow-hidden" @click.stop>
             <div class="px-6 pt-5 pb-0 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">Добави агент</h3>
-                <button @click="showPicker = false" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                <h3 class="text-lg font-bold text-ink">Добави агент</h3>
+                <button @click="showPicker = false" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
 
-            <div class="flex px-6 pt-3 pb-0 border-b border-gray-200 gap-1">
+            <div class="flex px-6 pt-3 pb-0 border-b border-line gap-1">
                 <template x-for="tab in pickerTabs" :key="tab.id">
                     <button type="button"
                             @click="activePickerTab = tab.id"
                             :class="activePickerTab === tab.id
-                                ? 'border-indigo-600 text-indigo-700 font-semibold bg-indigo-50'
-                                : 'border-transparent text-gray-500 hover:text-gray-700'"
+                                ? 'border-primary text-primary font-semibold bg-info-soft'
+                                : 'border-transparent text-muted hover:text-ink'"
                             class="px-4 py-2 text-sm border-b-2 -mb-px rounded-t-lg transition whitespace-nowrap"
                             x-text="tab.label">
                     </button>
@@ -1404,38 +1412,55 @@
                 <div class="mb-4">
                     <input type="text" x-model="pickerSearch"
                            placeholder="Търси по име или тип..."
-                           class="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                           class="w-full border border-line rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                 </div>
 
-                <div x-show="pickerLoading" class="text-center py-8 text-gray-400 text-sm">
-                    <span class="inline-block w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mr-2"></span>
+                <div x-show="pickerLoading" class="text-center py-8 text-subtle text-sm">
+                    <span class="inline-block w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2"></span>
                     Зарежда шаблони...
                 </div>
 
                 <div x-show="!pickerLoading && activePickerTab === 'all'">
                     <div class="mb-4">
                         <div @click="selectTemplate(null)"
-                             class="flex items-center gap-4 p-4 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                             class="flex items-center gap-4 p-4 border-2 border-dashed border-line rounded-xl cursor-pointer hover:border-primary hover:bg-info-soft transition">
                             <span class="text-3xl">＋</span>
                             <div class="flex-1">
-                                <div class="font-semibold text-sm text-gray-900">Нов празен агент</div>
-                                <div class="text-xs text-gray-500">Започни от нулата — всички полета са готови за попълване</div>
+                                <div class="font-semibold text-sm text-ink">Нов празен агент</div>
+                                <div class="text-xs text-muted">Започни от нулата — всички полета са готови за попълване</div>
                             </div>
-                            <span class="text-indigo-600 text-sm font-semibold">Избери →</span>
+                            <span class="text-primary text-sm font-semibold">Избери →</span>
                         </div>
                     </div>
 
                     <template x-if="filteredCompanyTemplates.length > 0">
                         <div class="mb-5">
-                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">🏢 Моите агенти</p>
+                            <p class="text-xs font-semibold uppercase tracking-wide text-subtle mb-2">🏢 Моите агенти</p>
                             <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                                 <template x-for="tpl in filteredCompanyTemplates" :key="tpl.id">
                                     <div @click="selectTemplate(tpl)"
-                                         class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                         class="border border-line rounded-xl p-3 cursor-pointer hover:border-primary hover:bg-info-soft transition">
                                         <span class="block text-2xl mb-1" x-text="tpl.icon || '🤖'"></span>
-                                        <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                        <div class="text-[12px] text-gray-500 leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
+                                        <div class="text-xs font-semibold text-ink mb-1 leading-tight" x-text="tpl.name"></div>
+                                        <div class="text-[12px] text-muted leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
                                         <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-100 text-green-700" x-text="tpl.type"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="filteredIntegrationTemplates.length > 0">
+                        <div class="mb-5">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-subtle mb-2">🔌 Интеграции</p>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                <template x-for="tpl in filteredIntegrationTemplates" :key="tpl.id">
+                                    <div @click="selectTemplate(tpl)"
+                                         class="border border-line rounded-xl p-3 cursor-pointer hover:border-primary hover:bg-info-soft transition">
+                                        <span class="block text-2xl mb-1" x-text="tpl.icon || '🔌'"></span>
+                                        <div class="text-xs font-semibold text-ink mb-1 leading-tight" x-text="tpl.name"></div>
+                                        <div class="text-[12px] text-muted leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
+                                        <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-soft text-primary" x-text="tpl.type"></span>
                                     </div>
                                 </template>
                             </div>
@@ -1444,39 +1469,39 @@
 
                     <template x-if="filteredSystemTemplates.length > 0">
                         <div>
-                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">⚙ Системни агенти</p>
+                            <p class="text-xs font-semibold uppercase tracking-wide text-subtle mb-2">⚙ Системни агенти</p>
                             <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                                 <template x-for="tpl in filteredSystemTemplates" :key="tpl.id">
                                     <div @click="selectTemplate(tpl)"
-                                         class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                         class="border border-line rounded-xl p-3 cursor-pointer hover:border-primary hover:bg-info-soft transition">
                                         <span class="block text-2xl mb-1" x-text="tpl.icon || '🤖'"></span>
-                                        <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                        <div class="text-[12px] text-gray-500 leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
-                                        <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-100 text-violet-700" x-text="tpl.type"></span>
+                                        <div class="text-xs font-semibold text-ink mb-1 leading-tight" x-text="tpl.name"></div>
+                                        <div class="text-[12px] text-muted leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
+                                        <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-soft text-primary" x-text="tpl.type"></span>
                                     </div>
                                 </template>
                             </div>
                         </div>
                     </template>
 
-                    <div x-show="filteredCompanyTemplates.length === 0 && filteredSystemTemplates.length === 0 && pickerSearch"
-                         class="text-center py-8 text-gray-400 text-sm">
+                    <div x-show="filteredCompanyTemplates.length === 0 && filteredSystemTemplates.length === 0 && filteredIntegrationTemplates.length === 0 && pickerSearch"
+                         class="text-center py-8 text-subtle text-sm">
                         Няма резултати за "<span x-text="pickerSearch"></span>"
                     </div>
                 </div>
 
                 <div x-show="!pickerLoading && activePickerTab === 'mine'">
-                    <div x-show="filteredCompanyTemplates.length === 0" class="text-center py-8 text-gray-400 text-sm">
+                    <div x-show="filteredCompanyTemplates.length === 0" class="text-center py-8 text-subtle text-sm">
                         <p class="text-3xl mb-2">🏢</p>
                         Нямате запазени агент шаблони.
                     </div>
                     <div x-show="filteredCompanyTemplates.length > 0" class="grid grid-cols-2 md:grid-cols-4 gap-2">
                         <template x-for="tpl in filteredCompanyTemplates" :key="tpl.id">
                             <div @click="selectTemplate(tpl)"
-                                 class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                 class="border border-line rounded-xl p-3 cursor-pointer hover:border-primary hover:bg-info-soft transition">
                                 <span class="block text-2xl mb-1" x-text="tpl.icon || '🤖'"></span>
-                                <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                <div class="text-[12px] text-gray-500 leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
+                                <div class="text-xs font-semibold text-ink mb-1 leading-tight" x-text="tpl.name"></div>
+                                <div class="text-[12px] text-muted leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
                                 <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-100 text-green-700" x-text="tpl.type"></span>
                             </div>
                         </template>
@@ -1484,17 +1509,40 @@
                 </div>
 
                 <div x-show="!pickerLoading && activePickerTab === 'system'">
-                    <div x-show="filteredSystemTemplates.length === 0" class="text-center py-8 text-gray-400 text-sm">
+                    <div x-show="filteredSystemTemplates.length === 0" class="text-center py-8 text-subtle text-sm">
                         Няма системни агент шаблони.
                     </div>
                     <div x-show="filteredSystemTemplates.length > 0" class="grid grid-cols-2 md:grid-cols-4 gap-2">
                         <template x-for="tpl in filteredSystemTemplates" :key="tpl.id">
                             <div @click="selectTemplate(tpl)"
-                                 class="border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition">
+                                 class="border border-line rounded-xl p-3 cursor-pointer hover:border-primary hover:bg-info-soft transition">
                                 <span class="block text-2xl mb-1" x-text="tpl.icon || '🤖'"></span>
-                                <div class="text-xs font-semibold text-gray-900 mb-1 leading-tight" x-text="tpl.name"></div>
-                                <div class="text-[12px] text-gray-500 leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
-                                <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-100 text-violet-700" x-text="tpl.type"></span>
+                                <div class="text-xs font-semibold text-ink mb-1 leading-tight" x-text="tpl.name"></div>
+                                <div class="text-[12px] text-muted leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
+                                <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-soft text-primary" x-text="tpl.type"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div x-show="!pickerLoading && activePickerTab === 'mcp'">
+                    <p class="text-xs text-muted mb-3">
+                        Готови действия в свързани системи (Gmail, Google Sheets, Google Drive).
+                        Write действията добавят и възел „Одобрение от човек" преди себе си.
+                        Избери конкретния акаунт в свойствата след добавяне.
+                    </p>
+                    <div x-show="filteredIntegrationTemplates.length === 0" class="text-center py-8 text-subtle text-sm">
+                        <p class="text-3xl mb-2">🔌</p>
+                        Няма интеграционни агенти.
+                    </div>
+                    <div x-show="filteredIntegrationTemplates.length > 0" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <template x-for="tpl in filteredIntegrationTemplates" :key="tpl.id">
+                            <div @click="selectTemplate(tpl)"
+                                 class="border border-line rounded-xl p-3 cursor-pointer hover:border-primary hover:bg-info-soft transition">
+                                <span class="block text-2xl mb-1" x-text="tpl.icon || '🔌'"></span>
+                                <div class="text-xs font-semibold text-ink mb-1 leading-tight" x-text="tpl.name"></div>
+                                <div class="text-[12px] text-muted leading-tight mb-1.5 line-clamp-2" x-text="tpl.description || tpl.role || ''"></div>
+                                <span class="inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-soft text-primary" x-text="tpl.type"></span>
                             </div>
                         </template>
                     </div>
@@ -1507,29 +1555,29 @@
     <div x-show="propertiesOpen" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @keydown.escape.window="closeNodeModal()">
-        <div class="absolute inset-0 bg-black/40" @click="closeNodeModal()"></div>
-        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col" @click.stop>
-            <div class="px-6 py-5 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
+        <div class="absolute inset-0 bg-ink/50" @click="closeNodeModal()"></div>
+        <div class="relative bg-surface rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col" @click.stop>
+            <div class="px-6 py-5 border-b border-line flex items-start justify-between gap-4 shrink-0">
                 <div class="min-w-0">
                     <div class="flex items-center gap-2 mb-0.5">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Свойства на агент-бокс</p>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-primary">Свойства на агент-бокс</p>
                         <span x-show="modalReadOnly" class="text-xs px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-semibold">👁 Само за четене</span>
                     </div>
-                    <h3 class="text-xl font-bold text-gray-900 truncate" x-text="selected?.name || 'Агент'"></h3>
-                    <p class="text-xs text-gray-400 mt-1" x-text="selected ? typeLabel(selected.type) : ''"></p>
+                    <h3 class="text-xl font-bold text-ink truncate" x-text="selected?.name || 'Агент'"></h3>
+                    <p class="text-xs text-subtle mt-1" x-text="selected ? typeLabel(selected.type) : ''"></p>
                 </div>
-                <button @click="closeNodeModal()" type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                <button @click="closeNodeModal()" type="button" class="text-subtle hover:text-muted text-xl leading-none">✕</button>
             </div>
 
             <template x-if="selected">
                 <div class="flex-1 min-h-0 flex flex-col">
-                    <div class="flex px-6 border-b border-gray-200 gap-1 shrink-0">
+                    <div class="flex px-6 border-b border-line gap-1 shrink-0">
                         <template x-for="tab in propsTabs" :key="tab.id">
                             <button type="button"
                                     @click="propsTab = tab.id"
                                     :class="propsTab === tab.id
-                                        ? 'border-indigo-600 text-indigo-700 font-semibold bg-indigo-50'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700'"
+                                        ? 'border-primary text-primary font-semibold bg-info-soft'
+                                        : 'border-transparent text-muted hover:text-ink'"
                                     class="px-4 py-2 text-sm border-b-2 -mb-px rounded-t-lg transition whitespace-nowrap"
                                     x-text="tab.label">
                             </button>
@@ -1540,14 +1588,14 @@
                         <div x-show="propsTab === 'basic'" class="space-y-5">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Име</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Име</label>
                                     <input type="text" x-model="selected.name" :disabled="modalReadOnly || resumeEditing"
-                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                           class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle disabled:text-muted">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Тип</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Тип</label>
                                     <select x-model="selected.type" @change="!modalReadOnly && !resumeEditing && onSelectedTypeChanged()" :disabled="modalReadOnly || resumeEditing"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle disabled:text-muted">
                                         <template x-for="type in agentTypes" :key="type.type">
                                             <option :value="type.type" x-text="type.label"></option>
                                         </template>
@@ -1556,10 +1604,10 @@
                             </div>
 
                             {{-- MCP Действие: конфигурация на действие в свързана система --}}
-                            <div x-show="selected.type === 'mcp_action'" x-effect="mcpFormEffect()" class="border border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-4">
+                            <div x-show="selected.type === 'mcp_action'" x-effect="mcpFormEffect()" class="mcp-action-panel border border-info bg-info-soft/40 rounded-xl p-4 space-y-4">
                                 <div class="flex items-center gap-2">
                                     <span class="text-lg">🔌</span>
-                                    <h4 class="font-semibold text-gray-800 text-sm">MCP Действие</h4>
+                                    <h4 class="font-semibold text-ink text-sm">MCP Действие</h4>
                                 </div>
 
                                 <template x-if="mcpConnectors.length === 0">
@@ -1570,9 +1618,9 @@
                                 </template>
 
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-500 mb-1">Изпрати ОТ / акаунт</label>
-                                    <select :value="selected.config.connector_id ?? ''" @change="selected.config.connector_id = $event.target.value ? Number($event.target.value) : ''; onMcpConnectorChange()" :disabled="modalReadOnly"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <label class="block text-xs font-medium text-muted mb-1">Изпрати ОТ / акаунт</label>
+                                    <select x-model.number="selected.config.connector_id" @change="onMcpConnectorChange()" :disabled="modalReadOnly"
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <option value="">— избери акаунт —</option>
                                         <template x-for="c in mcpAccounts()" :key="c.id">
                                             <option :value="c.id" x-text="c.name + ' (' + c.type + ')'"></option>
@@ -1581,63 +1629,63 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-500 mb-1">Действие</label>
+                                    <label class="block text-xs font-medium text-muted mb-1">Действие</label>
                                     <select :value="selected.config.tool ?? ''" @change="selected.config.tool = $event.target.value; onMcpToolChange()" :disabled="modalReadOnly || !selected.config.connector_id"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle">
                                         <option value="">— избери —</option>
                                         <template x-for="t in mcpToolsFor(selected.config.connector_id)" :key="t.name">
                                             <option :value="t.name" x-text="t.name + (t.writes ? '  ✍️' : '')"></option>
                                         </template>
                                     </select>
-                                    <p x-show="mcpSelectedTool()" class="text-xs text-gray-400 mt-1" x-text="mcpSelectedTool()?.description"></p>
+                                    <p x-show="mcpSelectedTool()" class="text-xs text-subtle mt-1" x-text="mcpSelectedTool()?.description"></p>
                                 </div>
 
                                 <div>
                                     <div class="flex items-center justify-between mb-1">
-                                        <label class="block text-xs font-medium text-gray-500">Параметри</label>
-                                        <button type="button" @click="mcpAdvanced = !mcpAdvanced" class="text-xs text-indigo-600 hover:underline"
+                                        <label class="block text-xs font-medium text-muted">Параметри</label>
+                                        <button type="button" @click="mcpAdvanced = !mcpAdvanced" class="text-xs text-primary hover:underline"
                                                 x-text="mcpAdvanced ? 'Опростено' : 'Разширено'"></button>
                                     </div>
-                                    <p class="text-xs text-gray-400 mb-2">Може да ползваш <code>@{{flow.input.X}}</code>, <code>@{{agent.Възел.output}}</code>, <code>@{{date:Y-m-d}}</code>.</p>
+                                    <p class="text-xs text-subtle mb-2">Може да ползваш <code>@{{flow.input.X}}</code>, <code>@{{agent.Възел.output}}</code>, <code>@{{date:Y-m-d}}</code>.</p>
 
                                     {{-- Водена форма по схемата на действието --}}
                                     <template x-if="!mcpAdvanced && mcpToolParams().length">
                                         <div class="space-y-3">
                                             <template x-for="p in mcpToolParams()" :key="p.key">
                                                 <div>
-                                                    <label class="block text-xs text-gray-600 mb-1" x-text="p.label"></label>
+                                                    <label class="block text-xs text-muted mb-1" x-text="p.label"></label>
                                                     <template x-if="p.widget === 'textarea'">
                                                         <textarea :value="selected.config.tool_params[p.key] || ''" @input="setMcpParam(p.key, $event.target.value)" :disabled="modalReadOnly" rows="3"
-                                                                  class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                                                                  class="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"></textarea>
                                                     </template>
                                                     <template x-if="p.widget === 'select'">
                                                         <div>
                                                             <div class="flex items-center gap-2" x-show="!mcpManual[p.key]">
                                                                 <select :value="selected.config.tool_params[p.key] || ''" @change="setMcpParam(p.key, $event.target.value); refreshDependents(p.key)" :disabled="modalReadOnly"
-                                                                        class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                                        class="flex-1 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                                                     <option value="">— избери —</option>
                                                                     <template x-for="o in (mcpOptions[p.key] || [])" :key="o.value">
                                                                         <option :value="o.value" x-text="o.label"></option>
                                                                     </template>
                                                                 </select>
-                                                                <button type="button" @click="mcpManual[p.key] = true" class="text-xs text-gray-400 hover:text-indigo-600 shrink-0" title="Ръчно / placeholder">✎</button>
+                                                                <button type="button" @click="mcpManual[p.key] = true" class="text-xs text-subtle hover:text-primary shrink-0" title="Ръчно / placeholder">✎</button>
                                                             </div>
                                                             <div class="flex items-center gap-2" x-show="mcpManual[p.key]">
                                                                 <input type="text" :value="selected.config.tool_params[p.key] || ''" @input="setMcpParam(p.key, $event.target.value)" :disabled="modalReadOnly"
-                                                                       placeholder="ID или @{{...}}" class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                                                <button type="button" @click="mcpManual[p.key] = false; loadMcpOptions(p)" class="text-xs text-gray-400 hover:text-indigo-600 shrink-0" title="Избор от списък">☰</button>
+                                                                       placeholder="ID или @{{...}}" class="flex-1 border border-line rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40">
+                                                                <button type="button" @click="mcpManual[p.key] = false; loadMcpOptions(p)" class="text-xs text-subtle hover:text-primary shrink-0" title="Избор от списък">☰</button>
                                                             </div>
                                                         </div>
                                                     </template>
                                                     <template x-if="p.widget !== 'textarea' && p.widget !== 'select'">
                                                         <input type="text" :value="selected.config.tool_params[p.key] || ''" @input="setMcpParam(p.key, $event.target.value)" :disabled="modalReadOnly"
                                                                :placeholder="p.widget === 'emails' ? 'имейл1@..., имейл2@...' : ''"
-                                                               class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                               class="w-full border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                                     </template>
                                                     {{-- Tag picker: вмъква {{agent.X.output}} / {{flow.input.X}} / {{date}} --}}
                                                     <template x-if="p.widget !== 'select'">
                                                         <select @change="if($event.target.value){ insertMcpTag(p.key, $event.target.value); $event.target.value=''; }" :disabled="modalReadOnly"
-                                                                class="mt-1 text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-500 bg-white">
+                                                                class="mt-1 text-xs border border-line rounded px-1.5 py-1 text-muted bg-surface">
                                                             <option value="">+ вмъкни таг…</option>
                                                             <template x-for="tag in mcpTagSuggestions()" :key="tag.value">
                                                                 <option :value="tag.value" x-text="tag.label"></option>
@@ -1654,108 +1702,109 @@
                                         <div>
                                             <template x-for="(val, key) in (selected.config.tool_params || {})" :key="key">
                                                 <div class="flex items-center gap-2 mb-2">
-                                                    <span class="text-xs font-mono text-gray-600 w-32 shrink-0 truncate" x-text="key"></span>
+                                                    <span class="text-xs font-mono text-muted w-32 shrink-0 truncate" x-text="key"></span>
                                                     <input type="text" :value="val" @input="setMcpParam(key, $event.target.value)" :disabled="modalReadOnly"
-                                                           class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                                    <button type="button" @click="removeMcpParam(key)" class="text-gray-400 hover:text-red-600 text-sm">✕</button>
+                                                           class="flex-1 border border-line rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40">
+                                                    <button type="button" @click="removeMcpParam(key)" class="text-subtle hover:text-red-600 text-sm">✕</button>
                                                 </div>
                                             </template>
                                             <div class="flex items-center gap-2 mt-2">
                                                 <input type="text" x-model="mcpNewParamKey" placeholder="нов параметър" @keydown.enter.prevent="addMcpParam()"
-                                                       class="w-40 border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
-                                                <button type="button" @click="addMcpParam()" class="text-indigo-600 hover:underline text-sm">+ добави</button>
+                                                       class="w-40 border border-line rounded-lg px-2 py-1.5 text-sm">
+                                                <button type="button" @click="addMcpParam()" class="text-primary hover:underline text-sm">+ добави</button>
                                             </div>
                                         </div>
                                     </template>
                                 </div>
 
                                 <label class="flex items-center gap-2">
-                                    <input type="checkbox" x-model="selected.config.requires_approval" :disabled="modalReadOnly" class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
-                                    <span class="text-sm text-gray-700">Изисква потвърждение преди изпълнение</span>
+                                    <input type="checkbox" x-model="selected.config.requires_approval" :disabled="modalReadOnly" class="w-4 h-4 text-primary border-line rounded">
+                                    <span class="text-sm text-ink">Изисква потвърждение преди изпълнение</span>
                                 </label>
-                                <p class="text-xs text-gray-500">
-                                    Това е само предпазен флаг. Реалната спирка е отделният възел
-                                    „Одобрение от човек". Ако такъв възел вече предхожда това действие в
-                                    графа, изпращането минава през него <strong>независимо</strong> от чекбокса.
-                                    За да изпращаш без одобрение, премахни самия възел „Одобрение от човек" от графа.
+                                <p class="text-xs text-muted">
+                                    Когато е <strong>включено</strong>, изпълнението спира на възела
+                                    „Одобрение от човек" преди действието и чака твоето потвърждение.
+                                    Когато е <strong>изключено</strong>, действието се изпълнява веднага —
+                                    ако пред него има възел „Одобрение от човек", той се прескача автоматично.
                                 </p>
-                                <p x-show="mcpSelectedTool()?.writes" class="text-xs text-amber-700">
-                                    ⚠ Write действие — постави „Одобрение от човек" възел ПРЕДИ него в графа.
+                                <p x-show="mcpSelectedTool()?.writes && selected.config.requires_approval" class="text-xs text-amber-700">
+                                    ⚠ Write действие с включено изискване — трябва да има възел
+                                    „Одобрение от човек" ПРЕДИ него в графа, иначе се блокира.
                                 </p>
                             </div>
 
                             <div x-show="selected.type !== 'mcp_action'">
                                 <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">Роля / Описание</label>
+                                    <label class="block text-sm font-medium text-ink">Роля / Описание</label>
                                     <button x-show="!modalReadOnly && !resumeEditing" type="button" @click="generateField('role')"
                                             :disabled="generating.role || !selected.name"
-                                            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                                            class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                                         <span x-text="generating.role ? '⏳' : '✨'"></span>
                                         <span x-text="generating.role ? 'Генерира...' : 'Генерирай с AI'"></span>
                                     </button>
                                 </div>
                                 <textarea x-model="selected.role" rows="3" :disabled="modalReadOnly || resumeEditing"
-                                          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500"></textarea>
+                                          class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle disabled:text-muted"></textarea>
                             </div>
 
                             <div x-show="selected.type !== 'mcp_action'">
                                 <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">System промпт</label>
+                                    <label class="block text-sm font-medium text-ink">System промпт</label>
                                     <button x-show="!modalReadOnly" type="button" @click="generateField('system_prompt')"
                                             :disabled="generating.system_prompt || !selected.name"
-                                            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                                            class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                                         <span x-text="generating.system_prompt ? '⏳' : '✨'"></span>
                                         <span x-text="generating.system_prompt ? 'Генерира...' : 'Генерирай с AI'"></span>
                                     </button>
                                 </div>
-                                <p class="text-xs text-gray-400 mb-1">Описва ролята и поведението на агента. Инжектира се автоматично при всяко изпълнение.</p>
+                                <p class="text-xs text-subtle mb-1">Описва ролята и поведението на агента. Инжектира се автоматично при всяко изпълнение.</p>
                                 <textarea x-model="selected.system_prompt" rows="4" :disabled="modalReadOnly"
-                                          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500"
+                                          class="w-full border border-line rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle disabled:text-muted"
                                           placeholder="Ти си специализиран агент за..."></textarea>
                             </div>
 
                             <div x-show="selected.type !== 'mcp_action'">
                                 <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">Промпт шаблон</label>
+                                    <label class="block text-sm font-medium text-ink">Промпт шаблон</label>
                                     <button x-show="!modalReadOnly" type="button" @click="generateField('prompt_template')"
                                             :disabled="generating.prompt_template || !selected.name"
-                                            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                                            class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                                         <span x-text="generating.prompt_template ? '⏳' : '✨'"></span>
                                         <span x-text="generating.prompt_template ? 'Генерира...' : 'Генерирай с AI'"></span>
                                     </button>
                                 </div>
                                 <textarea x-model="selected.prompt_template" rows="7" :disabled="modalReadOnly"
-                                          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-500"
+                                          class="w-full border border-line rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle disabled:text-muted"
                                           placeholder="Инструкции за агента с @{{placeholder}}-и..."></textarea>
-                                <p class="text-xs text-gray-400 mt-1">Плейсхолдъри: @{{url}}, @{{topic}}, @{{node:Име на възел}}</p>
+                                <p class="text-xs text-subtle mt-1">Плейсхолдъри: @{{url}}, @{{topic}}, @{{node:Име на възел}}</p>
                             </div>
 
                             <div x-show="selected.type !== 'mcp_action'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Модел</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Модел</label>
                                     <div class="relative" @click.outside="modelPickerOpen = false" @keydown.escape.window="modelPickerOpen = false">
                                         <button type="button" @click="modelPickerOpen = !modelPickerOpen" :disabled="modalReadOnly"
-                                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 bg-white hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:cursor-not-allowed transition">
+                                                class="w-full border border-line rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 bg-surface hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:bg-surface-subtle disabled:cursor-not-allowed transition">
                                             <span class="min-w-0">
-                                                <span class="block text-sm font-medium text-gray-900 truncate" x-text="currentModelMeta().name"></span>
-                                                <span class="block text-xs text-gray-400 truncate" x-text="currentModelMeta().desc"></span>
+                                                <span class="block text-sm font-medium text-ink truncate" x-text="currentModelMeta().name"></span>
+                                                <span class="block text-xs text-subtle truncate" x-text="currentModelMeta().desc"></span>
                                             </span>
-                                            <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class="modelPickerOpen ? 'rotate-180' : ''"
+                                            <svg class="w-4 h-4 text-subtle shrink-0 transition-transform" :class="modelPickerOpen ? 'rotate-180' : ''"
                                                  fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                                         </button>
 
                                         <div x-show="modelPickerOpen" x-cloak x-transition.opacity.duration.100ms
-                                             class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-80 overflow-y-auto">
+                                             class="absolute z-30 mt-1 w-full bg-surface border border-line rounded-xl shadow-xl max-h-80 overflow-y-auto">
 
                                             {{-- По подразбиране --}}
                                             <button type="button" @click="pickModel('')"
-                                                    class="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition border-b border-gray-100"
-                                                    :class="selected.model === '' ? 'bg-indigo-50' : ''">
+                                                    class="w-full text-left px-3 py-2.5 hover:bg-info-soft transition border-b border-line"
+                                                    :class="selected.model === '' ? 'bg-info-soft' : ''">
                                                 <div class="flex items-center justify-between gap-2">
-                                                    <span class="text-sm font-medium text-gray-900">⚙ По подразбиране</span>
-                                                    <span x-show="selected.model === ''" class="text-indigo-600 text-sm">✓</span>
+                                                    <span class="text-sm font-medium text-ink">⚙ По подразбиране</span>
+                                                    <span x-show="selected.model === ''" class="text-primary text-sm">✓</span>
                                                 </div>
-                                                <div class="text-xs text-gray-500 mt-0.5">Кодът избира най-подходящия инсталиран локален модел според типа на агента.</div>
+                                                <div class="text-xs text-muted mt-0.5">Кодът избира най-подходящия инсталиран локален модел според типа на агента.</div>
                                             </button>
 
                                             {{-- Препоръчани за типа --}}
@@ -1764,13 +1813,13 @@
                                                     <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 bg-amber-50/60">★ Препоръчани за този тип</div>
                                                     <template x-for="m in recommendedModels(selected.type)" :key="'rec-' + m.ollama_tag">
                                                         <button type="button" @click="pickModel(m.ollama_tag)"
-                                                                class="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition"
-                                                                :class="selected.model === m.ollama_tag ? 'bg-indigo-50' : ''">
+                                                                class="w-full text-left px-3 py-2.5 hover:bg-info-soft transition"
+                                                                :class="selected.model === m.ollama_tag ? 'bg-info-soft' : ''">
                                                             <div class="flex items-center justify-between gap-2">
-                                                                <span class="text-sm font-medium text-gray-900 truncate" x-text="'★ ' + (m.display_name || m.ollama_tag)"></span>
-                                                                <span x-show="selected.model === m.ollama_tag" class="text-indigo-600 text-sm shrink-0">✓</span>
+                                                                <span class="text-sm font-medium text-ink truncate" x-text="'★ ' + (m.display_name || m.ollama_tag)"></span>
+                                                                <span x-show="selected.model === m.ollama_tag" class="text-primary text-sm shrink-0">✓</span>
                                                             </div>
-                                                            <div class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="m.description || m.category"></div>
+                                                            <div class="text-xs text-muted mt-0.5 line-clamp-2" x-text="m.description || m.category"></div>
                                                         </button>
                                                     </template>
                                                 </div>
@@ -1779,16 +1828,16 @@
                                             {{-- Локални Ollama модели --}}
                                             <template x-if="otherModels(selected.type).length">
                                                 <div>
-                                                    <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50/80">Локални (Ollama)</div>
+                                                    <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-subtle bg-surface-subtle/80">Локални (Ollama)</div>
                                                     <template x-for="m in otherModels(selected.type)" :key="'other-' + m.ollama_tag">
                                                         <button type="button" @click="pickModel(m.ollama_tag)"
-                                                                class="w-full text-left px-3 py-2.5 hover:bg-indigo-50 transition"
-                                                                :class="selected.model === m.ollama_tag ? 'bg-indigo-50' : ''">
+                                                                class="w-full text-left px-3 py-2.5 hover:bg-info-soft transition"
+                                                                :class="selected.model === m.ollama_tag ? 'bg-info-soft' : ''">
                                                             <div class="flex items-center justify-between gap-2">
-                                                                <span class="text-sm font-medium text-gray-900 truncate" x-text="m.display_name || m.ollama_tag"></span>
-                                                                <span x-show="selected.model === m.ollama_tag" class="text-indigo-600 text-sm shrink-0">✓</span>
+                                                                <span class="text-sm font-medium text-ink truncate" x-text="m.display_name || m.ollama_tag"></span>
+                                                                <span x-show="selected.model === m.ollama_tag" class="text-primary text-sm shrink-0">✓</span>
                                                             </div>
-                                                            <div class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="m.description || m.category"></div>
+                                                            <div class="text-xs text-muted mt-0.5 line-clamp-2" x-text="m.description || m.category"></div>
                                                         </button>
                                                     </template>
                                                 </div>
@@ -1797,29 +1846,29 @@
                                             {{-- Платени cloud модели --}}
                                             <template x-if="paidModels.length">
                                                 <div>
-                                                    <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-violet-500 bg-violet-50/60">☁ Cloud (платени)</div>
+                                                    <div class="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-primary bg-info-soft/60">☁ Cloud (платени)</div>
                                                     <template x-for="m in paidModels" :key="'paid-' + m.value">
                                                         <button type="button" @click="pickModel(m.value)"
-                                                                class="w-full text-left px-3 py-2.5 hover:bg-violet-50 transition"
-                                                                :class="selected.model === m.value ? 'bg-violet-50' : ''">
+                                                                class="w-full text-left px-3 py-2.5 hover:bg-info-soft transition"
+                                                                :class="selected.model === m.value ? 'bg-info-soft' : ''">
                                                             <div class="flex items-center justify-between gap-2">
-                                                                <span class="text-sm font-medium text-gray-900 truncate" x-text="'☁ ' + m.label"></span>
-                                                                <span x-show="selected.model === m.value" class="text-violet-600 text-sm shrink-0">✓</span>
+                                                                <span class="text-sm font-medium text-ink truncate" x-text="'☁ ' + m.label"></span>
+                                                                <span x-show="selected.model === m.value" class="text-primary text-sm shrink-0">✓</span>
                                                             </div>
-                                                            <div class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="m.description"></div>
+                                                            <div class="text-xs text-muted mt-0.5 line-clamp-2" x-text="m.description"></div>
                                                         </button>
                                                     </template>
                                                 </div>
                                             </template>
                                         </div>
                                     </div>
-                                    <p class="text-xs text-gray-400 mt-1">Изпълнението на ☁ модели се таксува per token и се вижда като цена в run-а.</p>
+                                    <p class="text-xs text-subtle mt-1">Изпълнението на ☁ модели се таксува per token и се вижда като цена в run-а.</p>
                                 </div>
 
                                 <div x-show="selected.type === 'qa_verifier'">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">QA праг (%)</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">QA праг (%)</label>
                                     <select x-model.number="selected.config.qa.threshold"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <template x-for="threshold in qaThresholdOptions" :key="threshold">
                                             <option :value="threshold" x-text="threshold + '%'"></option>
                                         </template>
@@ -1829,83 +1878,83 @@
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div x-show="selected.type !== 'qa_verifier'">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Роля в изхода</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Роля в изхода</label>
                                     <select x-model="selected.output_role" :disabled="modalReadOnly || resumeEditing"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <option value="">(авто от тип)</option>
                                         <option value="body">Основно съдържание</option>
                                         <option value="appendix">Добавка (хаштагове, SEO)</option>
                                         <option value="hidden">Контекст (междинен, не във финалния output)</option>
                                     </select>
-                                    <p class="text-xs text-gray-400 mt-1">Определя къде ще се появи резултатът във финалния output.</p>
+                                    <p class="text-xs text-subtle mt-1">Определя къде ще се появи резултатът във финалния output.</p>
                                 </div>
 
                                 <div class="flex items-center gap-3 pt-7">
                                     <input type="checkbox" x-model="selected.is_active" :disabled="modalReadOnly || resumeEditing" id="node-is-active"
-                                           class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
-                                    <label for="node-is-active" class="text-sm font-medium text-gray-700">Активен</label>
+                                           class="w-4 h-4 text-primary border-line rounded">
+                                    <label for="node-is-active" class="text-sm font-medium text-ink">Активен</label>
                                 </div>
                             </div>
 
                             {{-- Step-QA gate (non-verifier nodes): re-runs the node on low score; --}}
                             {{-- from the 2nd retry the planner revises the agent (Фаза 3). --}}
-                            <div x-show="selected.type !== 'qa_verifier' && selected.type !== 'mcp_action'" class="border-t border-gray-100 pt-4">
+                            <div x-show="selected.type !== 'qa_verifier' && selected.type !== 'mcp_action'" class="border-t border-line pt-4">
                                 <div class="flex items-center gap-3">
                                     <input type="checkbox" x-model="selected.config.qa.enabled" :disabled="modalReadOnly" id="node-qa-enabled"
-                                           class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
-                                    <label for="node-qa-enabled" class="text-sm font-medium text-gray-700">QA проверка на този възел (gate с retry)</label>
+                                           class="w-4 h-4 text-primary border-line rounded">
+                                    <label for="node-qa-enabled" class="text-sm font-medium text-ink">QA проверка на този възел (gate с retry)</label>
                                 </div>
-                                <p class="text-xs text-gray-400 mt-1">При резултат под прага възелът се преизпълнява; от 2-рия опит planner-ът поправя агента (Фаза 3). Верификаторът се създава автоматично от критериите по-долу.</p>
+                                <p class="text-xs text-subtle mt-1">При резултат под прага възелът се преизпълнява; от 2-рия опит planner-ът поправя агента (Фаза 3). Верификаторът се създава автоматично от критериите по-долу.</p>
                                 <div x-show="selected.config.qa.enabled" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">QA праг (%)</label>
+                                        <label class="block text-sm font-medium text-ink mb-1">QA праг (%)</label>
                                         <select x-model.number="selected.config.qa.threshold" :disabled="modalReadOnly"
-                                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                             <template x-for="threshold in qaThresholdOptions" :key="threshold">
                                                 <option :value="threshold" x-text="threshold + '%'"></option>
                                             </template>
                                         </select>
                                     </div>
                                     <div class="md:col-span-2">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">QA критерии</label>
+                                        <label class="block text-sm font-medium text-ink mb-1">QA критерии</label>
                                         <textarea x-model="selected.config.qa.custom_prompt" :disabled="modalReadOnly" rows="2"
                                                   placeholder="Какво трябва да провери верификаторът за изхода на този възел?"
-                                                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                                                  class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"></textarea>
                                     </div>
                                 </div>
                             </div>
 
                             {{-- Decision routing branches (each branch = one output port) --}}
-                            <div x-show="selected.type === 'decision'" class="border-t border-gray-100 pt-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Клонове на решението</label>
-                                <p class="text-xs text-gray-400 mb-3">Всеки клон е отделен изходен порт. Свържи всеки порт със следващия възел за този клон. Агентът избира ЕДИН клон според входа; останалите клонове се пропускат.</p>
+                            <div x-show="selected.type === 'decision'" class="border-t border-line pt-4">
+                                <label class="block text-sm font-medium text-ink mb-1">Клонове на решението</label>
+                                <p class="text-xs text-subtle mb-3">Всеки клон е отделен изходен порт. Свържи всеки порт със следващия възел за този клон. Агентът избира ЕДИН клон според входа; останалите клонове се пропускат.</p>
                                 <template x-for="(br, i) in (selected.config.branches || [])" :key="i">
                                     <div class="flex items-center gap-2 mb-2">
-                                        <span class="text-[11px] font-mono text-gray-400 w-16 shrink-0" x-text="'output_' + (i+1)"></span>
+                                        <span class="text-[11px] font-mono text-subtle w-16 shrink-0" x-text="'output_' + (i+1)"></span>
                                         <input type="text" x-model="br.label" :disabled="modalReadOnly || resumeEditing" placeholder="Етикет"
-                                               class="w-32 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                               class="w-32 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <input type="text" x-model="br.when" :disabled="modalReadOnly || resumeEditing" placeholder="Кога се избира този клон"
-                                               class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                               class="flex-1 border border-line rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <button type="button" x-show="!modalReadOnly && !resumeEditing" @click="removeBranch(i)"
                                                 class="text-red-500 hover:text-red-700 text-sm px-1 shrink-0" title="Премахни клон">✕</button>
                                     </div>
                                 </template>
                                 <button type="button" x-show="!modalReadOnly && !resumeEditing" @click="addBranch()"
-                                        class="text-xs text-indigo-600 hover:text-indigo-800 font-medium mt-1">+ Добави клон</button>
-                                <p class="text-[11px] text-gray-400 mt-2">Изходните портове се синхронизират с клоновете при запазване на възела.</p>
+                                        class="text-xs text-primary hover:text-primary-hover font-medium mt-1">+ Добави клон</button>
+                                <p class="text-[11px] text-subtle mt-2">Изходните портове се синхронизират с клоновете при запазване на възела.</p>
                             </div>
                         </div>
 
                         <div x-show="propsTab === 'output'" class="space-y-5">
-                            <p class="text-xs text-gray-500 bg-indigo-50 rounded-lg px-3 py-2">
+                            <p class="text-xs text-muted bg-info-soft rounded-lg px-3 py-2">
                                 Тези настройки се <strong>инжектират автоматично</strong> в system prompt-а на агента при изпълнение.
                             </p>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Език на изхода</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Език на изхода</label>
                                     <select x-model="selected.output_language" :disabled="modalReadOnly"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <template x-for="(label, code) in outputPrefs.langs" :key="code">
                                             <option :value="code" x-text="label"></option>
                                         </template>
@@ -1913,9 +1962,9 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Тон</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Тон</label>
                                     <select x-model="selected.output_tone" :disabled="modalReadOnly"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <option value="">— без предпочитание —</option>
                                         <template x-for="(label, tone) in outputPrefs.tones" :key="tone">
                                             <option :value="tone" x-text="label"></option>
@@ -1924,9 +1973,9 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Стил</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Стил</label>
                                     <select x-model="selected.output_style" :disabled="modalReadOnly"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <option value="">— без предпочитание —</option>
                                         <template x-for="(label, style) in outputPrefs.styles" :key="style">
                                             <option :value="style" x-text="label"></option>
@@ -1935,9 +1984,9 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Формат</label>
+                                    <label class="block text-sm font-medium text-ink mb-1">Формат</label>
                                     <select x-model="selected.output_format" :disabled="modalReadOnly"
-                                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                            class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                                         <option value="">— без предпочитание —</option>
                                         <template x-for="(label, format) in outputPrefs.formats" :key="format">
                                             <option :value="format" x-text="label"></option>
@@ -1948,73 +1997,73 @@
                         </div>
 
                         <div x-show="propsTab === 'params'" class="space-y-5">
-                            <div class="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 space-y-2">
-                                <h2 class="font-semibold text-indigo-900">Как да мислим за тези параметри</h2>
+                            <div class="rounded-xl border border-info bg-info-soft px-4 py-3 text-sm text-primary-hover space-y-2">
+                                <h2 class="font-semibold text-primary-hover">Как да мислим за тези параметри</h2>
                                 <p>
                                     Оставените празни полета използват стойностите по подразбиране на модела. Променяй по една настройка наведнъж.
                                 </p>
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                <div class="rounded-xl border border-line bg-surface-subtle p-4 space-y-3">
+                                    <label class="block text-sm font-medium text-ink mb-1">
                                         Temperature
-                                        <span class="text-xs font-normal text-gray-400">(0 – 2, default: 0.7)</span>
+                                        <span class="text-xs font-normal text-subtle">(0 – 2, default: 0.7)</span>
                                     </label>
                                     <input type="number" x-model.number="selected.config.temperature" :disabled="modalReadOnly" step="0.05" min="0" max="2"
                                            placeholder="0.7"
-                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                    <p class="text-xs text-gray-500">Контролира колко смело моделът избира следващата дума.</p>
+                                           class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
+                                    <p class="text-xs text-muted">Контролира колко смело моделът избира следващата дума.</p>
                                 </div>
 
-                                <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                <div class="rounded-xl border border-line bg-surface-subtle p-4 space-y-3">
+                                    <label class="block text-sm font-medium text-ink mb-1">
                                         Top P
-                                        <span class="text-xs font-normal text-gray-400">(0 – 1, default: 0.9)</span>
+                                        <span class="text-xs font-normal text-subtle">(0 – 1, default: 0.9)</span>
                                     </label>
                                     <input type="number" x-model.number="selected.config.top_p" :disabled="modalReadOnly" step="0.05" min="0" max="1"
                                            placeholder="0.9"
-                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                    <p class="text-xs text-gray-500">Ограничава избора до най-вероятните токени.</p>
+                                           class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
+                                    <p class="text-xs text-muted">Ограничава избора до най-вероятните токени.</p>
                                 </div>
 
-                                <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                <div class="rounded-xl border border-line bg-surface-subtle p-4 space-y-3">
+                                    <label class="block text-sm font-medium text-ink mb-1">
                                         Top K
-                                        <span class="text-xs font-normal text-gray-400">(1 – 200, default: 40)</span>
+                                        <span class="text-xs font-normal text-subtle">(1 – 200, default: 40)</span>
                                     </label>
                                     <input type="number" x-model.number="selected.config.top_k" step="1" min="1" max="200"
                                            placeholder="40"
-                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                    <p class="text-xs text-gray-500">Поставя твърд лимит колко възможни токена се разглеждат.</p>
+                                           class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
+                                    <p class="text-xs text-muted">Поставя твърд лимит колко възможни токена се разглеждат.</p>
                                 </div>
 
-                                <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                <div class="rounded-xl border border-line bg-surface-subtle p-4 space-y-3">
+                                    <label class="block text-sm font-medium text-ink mb-1">
                                         Repeat Penalty
-                                        <span class="text-xs font-normal text-gray-400">(0 – 2, default: 1.1)</span>
+                                        <span class="text-xs font-normal text-subtle">(0 – 2, default: 1.1)</span>
                                     </label>
                                     <input type="number" x-model.number="selected.config.repeat_penalty" step="0.05" min="0" max="2"
                                            placeholder="1.1"
-                                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                    <p class="text-xs text-gray-500">Намалява повтарянето на вече използвани думи и фрази.</p>
+                                           class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
+                                    <p class="text-xs text-muted">Намалява повтарянето на вече използвани думи и фрази.</p>
                                 </div>
 
-                                <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3 md:col-span-2">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                <div class="rounded-xl border border-line bg-surface-subtle p-4 space-y-3 md:col-span-2">
+                                    <label class="block text-sm font-medium text-ink mb-1">
                                         Max Tokens (num_predict)
-                                        <span class="text-xs font-normal text-gray-400">(-1 = без лимит, default: -1)</span>
+                                        <span class="text-xs font-normal text-subtle">(-1 = без лимит, default: -1)</span>
                                     </label>
                                     <input type="number" x-model.number="selected.config.num_predict" :disabled="modalReadOnly" step="1" min="-1"
                                            placeholder="-1"
-                                           class="w-full md:w-64 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                    <p class="text-xs text-gray-500">Задава горна граница за дължината на отговора в токени.</p>
+                                           class="w-full md:w-64 border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
+                                    <p class="text-xs text-muted">Задава горна граница за дължината на отговора в токени.</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                    <div class="px-6 py-4 border-t border-line bg-surface-subtle flex flex-wrap items-center justify-between gap-3 shrink-0">
                         {{-- Read-only: only Close; Edit: Delete + Cancel + Save --}}
                         <template x-if="!modalReadOnly && !resumeEditing">
                             <button type="button" @click="removeSelectedFromModal()"
@@ -2023,14 +2072,14 @@
                             </button>
                         </template>
                         <template x-if="modalReadOnly && !resumeEditing">
-                            <span class="text-xs text-gray-400 italic">Настройките не могат да се редактират в режим на преглед.</span>
+                            <span class="text-xs text-subtle italic">Настройките не могат да се редактират в режим на преглед.</span>
                         </template>
                         <template x-if="resumeEditing">
                             <span class="text-xs text-orange-600 font-medium">Редактирай настройките на неуспешния агент, после натисни "Запази и продължи".</span>
                         </template>
                         <div class="flex items-center gap-2">
                             <button type="button" @click="closeNodeModal()"
-                                    class="bg-white border border-gray-300 text-gray-600 text-sm px-4 py-2 rounded-lg hover:bg-gray-50 transition"
+                                    class="bg-surface border border-line text-muted text-sm px-4 py-2 rounded-lg hover:bg-surface-subtle transition"
                                     x-text="modalReadOnly ? 'Затвори' : 'Отказ'">
                             </button>
                             <button x-show="!modalReadOnly && !resumeEditing" type="button" @click="saveNodeModal()"
@@ -2249,6 +2298,7 @@ function flowBuilder(config) {
             { id: 'all', label: 'Всички' },
             { id: 'mine', label: '🏢 Моите агенти' },
             { id: 'system', label: '⚙ Системни агенти' },
+            { id: 'mcp', label: '🔌 Интеграции' },
         ],
         boundaryDefinitions: {
             start: { type: 'flow_start', name: 'Старт', icon: '▶', inputs: 0, outputs: 1, x: 60, y: 120 },
@@ -2267,12 +2317,15 @@ function flowBuilder(config) {
             const c = this.mcpConnectors.find(x => x.id == connectorId);
             return c ? c.tools : [];
         },
-        // Само акаунти от типа на избраното действие (gmail.send_email → gmail).
+        // Само акаунти, които РЕАЛНО излагат tool от namespace-а на избраното
+        // действие (sheets.* → google_sheets конектор и т.н.) — не разчита на
+        // съвпадение между namespace-а на tool-а и connector_type.
         mcpAccounts() {
             const tool = this.selected?.config?.tool;
             if (!tool) return this.mcpConnectors;
-            const type = tool.split('.')[0];
-            return this.mcpConnectors.filter(c => c.type === type);
+            const ns = tool.split('.')[0];
+            const m = this.mcpConnectors.filter(c => (c.tools || []).some(t => (t.name || '').split('.')[0] === ns));
+            return m.length ? m : this.mcpConnectors;
         },
         // Имена на ВСИЧКИ съдържателни възли в графа (не само преки предшественици)
         // — за да може имейл/действие да реферира доклада, дори когато прекият му
@@ -2321,8 +2374,15 @@ function flowBuilder(config) {
         },
         onMcpConnectorChange() {
             if (!this.selected.config) this.selected.config = {};
-            this.selected.config.tool = '';
-            this.selected.config.tool_params = {};
+            // Запази избраното действие/параметри, ако новият акаунт също поддържа
+            // текущия tool (смяна между два акаунта от същия тип не трие
+            // конфигурацията; нито трие pre-set tool на seeded MCP агент).
+            const tool = this.selected.config.tool;
+            const ok = tool && this.mcpToolsFor(this.selected.config.connector_id).some(t => t.name === tool);
+            if (!ok) {
+                this.selected.config.tool = '';
+                this.selected.config.tool_params = {};
+            }
             this.mcpOptions = {}; this.mcpManual = {}; this._mcpFormSig = '';
         },
         onMcpToolChange() {
@@ -3036,7 +3096,17 @@ function flowBuilder(config) {
         get filteredSystemTemplates() {
             const q = this.pickerSearch.toLowerCase();
             return (this.pickerTemplates.system || []).filter(t =>
-                !q || (t.name || '').toLowerCase().includes(q) || (t.type || '').toLowerCase().includes(q)
+                t.type !== 'mcp_action'
+                && (!q || (t.name || '').toLowerCase().includes(q) || (t.type || '').toLowerCase().includes(q))
+            );
+        },
+
+        // MCP/интеграционни агенти — отделна група „🔌 Интеграции" в picker-а.
+        get filteredIntegrationTemplates() {
+            const q = this.pickerSearch.toLowerCase();
+            return (this.pickerTemplates.system || []).filter(t =>
+                t.type === 'mcp_action'
+                && (!q || (t.name || '').toLowerCase().includes(q) || (t.type || '').toLowerCase().includes(q))
             );
         },
 
@@ -3074,6 +3144,24 @@ function flowBuilder(config) {
 
         selectTemplate(tpl) {
             this.showPicker = false;
+
+            // Write MCP действие → добавя ДВА свързани възела: „Одобрение от човек"
+            // + самото действие (както планерът прави в gateWriteMcpActions). Read
+            // действия (requires_approval=false) → един възел.
+            if (tpl && tpl.type === 'mcp_action' && tpl.config && tpl.config.requires_approval) {
+                const apId = this.addNodeData(this.normalizeNodeData({
+                    name: 'Одобрение: ' + (tpl.name || 'действие'),
+                    type: 'human_approval',
+                    icon: '✋',
+                    role: 'Контролна точка преди изходящото действие.',
+                    config: { qa: { enabled: false } },
+                }));
+                const actId = this.addNodeData(this.templateToNodeData(tpl));
+                try { this.editor.addConnection(apId, actId, 'output_1', 'input_1'); } catch (e) {}
+                this.$nextTick(() => this.openNodeModal(actId));
+                return;
+            }
+
             const id = this.addNodeData(this.templateToNodeData(tpl));
             this.$nextTick(() => this.openNodeModal(id));
         },
@@ -3261,10 +3349,10 @@ function flowBuilder(config) {
                 low:    { label: 'Ниско',  icon: '🪙', cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
                 medium: { label: 'Средно', icon: '⚖️', cls: 'bg-blue-100 text-blue-700 border-blue-300' },
                 high:   { label: 'Високо', icon: '🚀', cls: 'bg-orange-100 text-orange-700 border-orange-300' },
-                ultra:  { label: 'Ултра',  icon: '💎', cls: 'bg-violet-100 text-violet-700 border-violet-300' },
+                ultra:  { label: 'Ултра',  icon: '💎', cls: 'bg-info-soft text-primary border-primary' },
                 god:    { label: 'GOD',    icon: '👑', cls: 'bg-amber-100 text-amber-800 border-amber-400' },
-                custom: { label: 'Custom', icon: '✎',  cls: 'bg-gray-100 text-gray-600 border-gray-300' },
-            }[lv] || { label: '—', icon: '·', cls: 'bg-gray-100 text-gray-400 border-gray-200' };
+                custom: { label: 'Custom', icon: '✎',  cls: 'bg-neutral-soft text-muted border-line' },
+            }[lv] || { label: '—', icon: '·', cls: 'bg-neutral-soft text-subtle border-line' };
         },
 
         isStandardLevel(lv) {
@@ -4447,7 +4535,7 @@ function flowBuilder(config) {
         chatMd(s) {
             let h = this.escapeChat(s);
             h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-            h = h.replace(/`([^`]+)`/g, '<code class="bg-gray-200/80 px-1 rounded text-[12px]">$1</code>');
+            h = h.replace(/`([^`]+)`/g, '<code class="bg-neutral-soft/80 px-1 rounded text-[12px]">$1</code>');
             h = h.replace(/(^|<br>)\s*[-•]\s+/g, '$1• ');
             return h;
         },

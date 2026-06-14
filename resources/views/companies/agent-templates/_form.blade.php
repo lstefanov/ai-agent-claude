@@ -1,88 +1,61 @@
-<div class="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+<div class="bg-surface border border-line rounded-xl p-6 space-y-4">
     <div class="grid grid-cols-2 gap-4">
-        <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Иконка (emoji)</label>
-            <input type="text" name="icon" value="{{ old('icon', $agentTemplate->icon ?? '🤖') }}" required
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        </div>
-        <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Ime на шаблона</label>
-            <input type="text" name="name" value="{{ old('name', $agentTemplate->name ?? '') }}" required
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        </div>
-        <div class="col-span-2">
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Кратко описание</label>
-            <input type="text" name="description" value="{{ old('description', $agentTemplate->description ?? '') }}" required maxlength="500"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        </div>
-        <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Тип</label>
+        <x-field label="Иконка (emoji)" name="icon">
+            <x-input name="icon" :value="old('icon', $agentTemplate->icon ?? '🤖')" required />
+        </x-field>
+        <x-field label="Име на шаблона" name="name">
+            <x-input name="name" :value="old('name', $agentTemplate->name ?? '')" required />
+        </x-field>
+        <x-field label="Кратко описание" name="description" class="col-span-2">
+            <x-input name="description" :value="old('description', $agentTemplate->description ?? '')" required maxlength="500" />
+        </x-field>
+        <x-field label="Тип" name="type">
             @include('partials.agent-type-select', [
                 'name'         => 'type',
                 'selectedType' => old('type', $agentTemplate->type ?? ''),
                 'selectId'     => 'company-agent-type-select',
             ])
-        </div>
-        <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Подредба</label>
-            <input type="number" name="sort_order" value="{{ old('sort_order', $agentTemplate->sort_order ?? 0) }}" min="0"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        </div>
-        <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Модел по подразбиране</label>
-            <select name="model" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </x-field>
+        <x-field label="Подредба" name="sort_order">
+            <x-input type="number" name="sort_order" :value="old('sort_order', $agentTemplate->sort_order ?? 0)" min="0" />
+        </x-field>
+        <x-field label="Модел по подразбиране" name="model">
+            <x-select name="model">
                 <option value="">— авто —</option>
                 @foreach($models as $m)
-                    <option value="{{ $m->ollama_tag }}" {{ old('model', $agentTemplate->model ?? '') === $m->ollama_tag ? 'selected' : '' }}>
-                        {{ $m->display_name }}
-                    </option>
+                    <option value="{{ $m->ollama_tag }}" @selected(old('model', $agentTemplate->model ?? '') === $m->ollama_tag)>{{ $m->display_name }}</option>
                 @endforeach
-            </select>
-        </div>
-        <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Temperature</label>
-            <input type="number" name="config[temperature]" step="0.1" min="0" max="2"
-                   value="{{ old('config.temperature', $agentTemplate->config['temperature'] ?? 0.7) }}"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        </div>
-        <div class="col-span-2">
-            <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs font-semibold text-gray-600">Роля / Описание</label>
-                <button type="button" onclick="generateAgentField('role', this)"
-                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
-                    ✨ Генерирай с AI
+            </x-select>
+        </x-field>
+        <x-field label="Temperature" name="config.temperature">
+            <x-input type="number" name="config[temperature]" step="0.1" min="0" max="2"
+                     :value="old('config.temperature', $agentTemplate->config['temperature'] ?? 0.7)" />
+        </x-field>
+
+        @foreach([
+            ['role', 'Роля / Описание', 2, false],
+            ['system_prompt', 'System Промпт', 3, 'co-tpl-sp-field'],
+            ['prompt_template', 'Промпт Шаблон', 4, 'co-tpl-pt-field'],
+        ] as [$field, $labelText, $rows, $id])
+        <div class="col-span-2 space-y-1.5">
+            <div class="flex items-center justify-between">
+                <label @if($id) for="{{ $id }}" @endif class="block text-sm font-medium text-ink">{{ $labelText }}</label>
+                <button type="button" onclick="generateAgentField('{{ $field }}', this)"
+                        class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-primary-fg text-xs font-medium px-3 py-1 rounded-md transition">
+                    <x-icon name="sparkles" size="3.5" /> Генерирай с AI
                 </button>
             </div>
-            <textarea name="role" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('role', $agentTemplate->role ?? '') }}</textarea>
+            <x-textarea name="{{ $field }}" :id="$id ?: null" rows="{{ $rows }}" :class="$id ? 'font-mono' : ''">{{ old($field, $agentTemplate->$field ?? '') }}</x-textarea>
+            @if($id)
+                @include('partials.token-helper', ['textareaId' => $id, 'agents' => null, 'xAgents' => null])
+            @endif
         </div>
-        <div class="col-span-2">
-            <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs font-semibold text-gray-600">System Промпт</label>
-                <button type="button" onclick="generateAgentField('system_prompt', this)"
-                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
-                    ✨ Генерирай с AI
-                </button>
-            </div>
-            <textarea name="system_prompt" id="co-tpl-sp-field" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('system_prompt', $agentTemplate->system_prompt ?? '') }}</textarea>
-            @include('partials.token-helper', ['textareaId' => 'co-tpl-sp-field', 'agents' => null, 'xAgents' => null])
-        </div>
-        <div class="col-span-2">
-            <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs font-semibold text-gray-600">Промпт Шаблон</label>
-                <button type="button" onclick="generateAgentField('prompt_template', this)"
-                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
-                    ✨ Генерирай с AI
-                </button>
-            </div>
-            <textarea name="prompt_template" id="co-tpl-pt-field" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('prompt_template', $agentTemplate->prompt_template ?? '') }}</textarea>
-            @include('partials.token-helper', ['textareaId' => 'co-tpl-pt-field', 'agents' => null, 'xAgents' => null])
-        </div>
+        @endforeach
     </div>
+
     <div class="flex justify-end gap-3 pt-2">
-        <a href="{{ $cancelUrl }}" class="border border-gray-300 bg-white text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-50 transition">Откажи</a>
-        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
-            💾 Запази шаблона
-        </button>
+        <x-button variant="secondary" :href="$cancelUrl">Откажи</x-button>
+        <x-button type="submit" icon="check">Запази шаблона</x-button>
     </div>
 </div>
 
@@ -100,7 +73,7 @@ async function generateAgentField(fieldName, btn) {
     if (!textarea) return;
     const originalHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '⏳ Генерира...';
+    btn.innerHTML = 'Генерира…';
     try {
         const resp = await fetch('/ai/generate-agent-field', {
             method: 'POST',

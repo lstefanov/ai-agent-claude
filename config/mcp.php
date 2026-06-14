@@ -32,6 +32,20 @@ return [
         'slack' => SlackConnector::class,
     ],
 
+    // tool namespace (префиксът на tool името) → connector_type. Sheets/Drive
+    // ползват различен namespace от типа на конектора (sheets.* → google_sheets,
+    // drive.* → google_drive), затова всяко място, което резолвира конектор по
+    // tool име, минава ОТ ТУК — не от суровия explode('.', $tool)[0].
+    'tool_namespaces' => [
+        'gmail' => 'gmail',
+        'sheets' => 'google_sheets',
+        'drive' => 'google_drive',
+        'slack' => 'slack',
+        'notion' => 'notion',
+        'airtable' => 'airtable',
+        'http_api' => 'http_api',
+    ],
+
     // Tools, които ПИШАТ/изпращат → изискват human_approval gate. Ползва се
     // като default за requires_approval в builder-а и от планерния gate.
     // read/list/get tools НЕ са тук (read-only, без approval).

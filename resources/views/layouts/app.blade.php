@@ -4,42 +4,79 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'FlowAI') — FlowAI</title>
-    {{-- Fonts: Geist (display) · Instrument Sans (body) · Geist Mono --}}
+    {{-- Fonts: IBM Plex Sans (display + body) · JetBrains Mono --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
     {{-- Tailwind v4 + app assets via Vite (replaces the old Tailwind play CDN) --}}
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 
     <link href="https://cdn.jsdelivr.net/npm/tom-select@2/dist/css/tom-select.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/focus@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @stack('head')
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-surface-subtle text-ink min-h-screen antialiased">
+
+    {{-- Skip link --}}
+    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:bg-surface focus:text-ink focus:px-3 focus:py-2 focus:rounded-md focus:shadow-popover">
+        Към съдържанието
+    </a>
 
     {{-- Navigation --}}
-    <nav class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
-        <div class="max-w-7xl mx-auto px-6 py-0 flex items-stretch justify-between">
-            <a href="{{ route('companies.index') }}" class="flex items-center gap-2 py-4 text-indigo-700 font-bold text-lg tracking-tight hover:text-indigo-900 transition">
-                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg> FlowAI
+    @php
+        $navItems = [
+            'Фирми'      => ['route' => 'companies.index', 'match' => 'companies.*'],
+            'LLM Модели' => ['route' => 'models.index',    'match' => 'models.*'],
+            'Admin'      => ['route' => 'admin.login',     'match' => 'admin.*'],
+        ];
+    @endphp
+    <nav class="bg-surface border-b border-line sticky top-0 z-40" x-data="{ open: false }">
+        <div class="max-w-7xl mx-auto px-6 flex items-stretch justify-between h-16">
+            <a href="{{ route('companies.index') }}"
+               class="flex items-center gap-2 text-primary font-display font-bold text-lg tracking-tight hover:text-primary-hover transition rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
+                FlowAI
             </a>
-            <div class="flex items-stretch gap-1 text-sm font-medium">
-                @php
-                    $navItems = [
-                        'Фирми'      => ['route' => 'companies.index', 'match' => 'companies.*'],
-                        'LLM Модели' => ['route' => 'models.index',    'match' => 'models.*'],
-                        'Admin'      => ['route' => 'admin.login',      'match' => 'admin.*'],
-                    ];
-                @endphp
+
+            {{-- Desktop nav --}}
+            <div class="hidden md:flex items-stretch gap-1 text-sm font-medium">
                 @foreach($navItems as $label => $item)
                     <a href="{{ route($item['route']) }}"
-                       class="flex items-center px-4 border-b-2 transition
+                       @if(request()->routeIs($item['match'])) aria-current="page" @endif
+                       class="flex items-center px-4 border-b-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40
                               {{ request()->routeIs($item['match'])
-                                 ? 'border-indigo-600 text-indigo-700 font-semibold'
-                                 : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300' }}">
+                                 ? 'border-primary text-primary font-semibold'
+                                 : 'border-transparent text-muted hover:text-ink hover:border-line-strong' }}">
+                        {{ $label }}
+                    </a>
+                @endforeach
+            </div>
+
+            {{-- Mobile toggle --}}
+            <button type="button" class="md:hidden inline-flex items-center text-muted hover:text-ink rounded-md px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    @click="open = !open" :aria-expanded="open" aria-label="Меню">
+                <x-icon name="bars-3" x-show="!open" />
+                <x-icon name="x-mark" x-show="open" x-cloak />
+            </button>
+        </div>
+
+        {{-- Mobile drawer --}}
+        <div class="md:hidden border-t border-line bg-surface" x-show="open" x-cloak
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 -translate-y-1"
+             x-transition:enter-end="opacity-100 translate-y-0">
+            <div class="px-4 py-2 space-y-1">
+                @foreach($navItems as $label => $item)
+                    <a href="{{ route($item['route']) }}"
+                       @if(request()->routeIs($item['match'])) aria-current="page" @endif
+                       class="block px-3 py-2 rounded-md text-sm font-medium transition
+                              {{ request()->routeIs($item['match'])
+                                 ? 'bg-info-soft text-primary'
+                                 : 'text-muted hover:text-ink hover:bg-surface-subtle' }}">
                         {{ $label }}
                     </a>
                 @endforeach
@@ -48,53 +85,26 @@
     </nav>
 
     {{-- Main Content --}}
-    <main class="max-w-7xl mx-auto px-6 py-8">
+    <main id="main" class="max-w-7xl mx-auto px-6 py-8">
 
-        {{-- Flash Messages (auto-dismiss after 5s) --}}
+        {{-- Flash messages --}}
         @if(session('success'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)"
-             x-transition:leave="transition ease-in duration-300"
-             x-transition:leave-start="opacity-100 translate-y-0"
-             x-transition:leave-end="opacity-0 -translate-y-2"
-             class="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-green-500 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                <span class="text-sm">{{ session('success') }}</span>
-            </div>
-            <button @click="show = false" class="text-green-400 hover:text-green-600 transition">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-            </button>
-        </div>
+            <x-alert type="success" :timeout="5000" class="mb-6">{{ session('success') }}</x-alert>
         @endif
 
         @if(session('error'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 8000)"
-             x-transition:leave="transition ease-in duration-300"
-             x-transition:leave-start="opacity-100"
-             x-transition:leave-end="opacity-0"
-             class="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-red-500 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
-                <span class="text-sm">{{ session('error') }}</span>
-            </div>
-            <button @click="show = false" class="text-red-400 hover:text-red-600 transition">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-            </button>
-        </div>
+            <x-alert type="error" :timeout="8000" class="mb-6">{{ session('error') }}</x-alert>
         @endif
 
         @if($errors->any())
-        <div class="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-            <div class="flex items-center gap-2 mb-2 font-medium text-sm">
-                <svg class="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
-                Моля, поправи грешките:
-            </div>
-            <ul class="list-disc list-inside text-sm space-y-1">
-                @foreach($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
+            <x-alert type="error" :dismissible="false" class="mb-6">
+                <p class="font-medium mb-1">Моля, поправи грешките:</p>
+                <ul class="list-disc list-inside space-y-1">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </x-alert>
         @endif
 
         @yield('content')

@@ -34,11 +34,11 @@
             render: {
                 option: (data, escape) =>
                     `<div class="py-0.5">
-                        <div class="font-medium text-gray-800">${escape(data.text)}<span class="font-mono font-normal text-xs text-gray-400 ml-1">(${escape(data.value)})</span></div>
-                        ${data.description ? `<div class="text-xs text-gray-400 leading-tight mt-0.5">${escape(data.description)}</div>` : ''}
+                        <div class="font-medium text-ink">${escape(data.text)}<span class="font-mono font-normal text-xs text-subtle ml-1">(${escape(data.value)})</span></div>
+                        ${data.description ? `<div class="text-xs text-subtle leading-tight mt-0.5">${escape(data.description)}</div>` : ''}
                     </div>`,
                 item: (data, escape) =>
-                    `<div>${escape(data.text)} <span class="font-mono text-xs text-gray-400">(${escape(data.value)})</span></div>`,
+                    `<div>${escape(data.text)} <span class="font-mono text-xs text-subtle">(${escape(data.value)})</span></div>`,
             },
         });
     }

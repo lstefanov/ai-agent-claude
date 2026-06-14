@@ -356,7 +356,7 @@ class GenericAgent extends BaseAgent
             }
         }
 
-        return trim(mb_substr((string) $agentRun->input, 0, 200));
+        return $this->deriveSearchQuery($agent, (string) $agentRun->input, $context);
     }
 
     private function resolveGoogleReviewsQuery(array $params, array $context, string $fallback): string
