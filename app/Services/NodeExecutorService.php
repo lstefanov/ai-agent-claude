@@ -318,9 +318,16 @@ class NodeExecutorService
         $maxDedupRetries = min(5, max(0, (int) config('services.memory.dedup_max_retries', 2)));
         $dedupRetriesUsed = 0;
         $dedupFeedback = null;
+        // QA feedback from a sub-threshold attempt — fed into the next run so the
+        // retry knows WHAT to fix instead of blindly repeating the same prompt.
+        $qaFeedback = null;
+        // Cumulative paid cost across all attempts of THIS node (runOnce overwrites
+        // node_runs.cost_usd per attempt) — drives the retry cost cap.
+        $cumulativeCost = 0.0;
 
         while (true) {
-            $output = $this->runOnce($flowRun, $node, $nodeRun, $revision, $dedupFeedback);
+            $output = $this->runOnce($flowRun, $node, $nodeRun, $revision, $dedupFeedback, $qaFeedback);
+            $cumulativeCost += (float) $nodeRun->cost_usd;
 
             // Watchdog: degenerate output (empty/placeholder boilerplate) is a
             // failure even before QA — try one planner revision immediately.
@@ -375,8 +382,31 @@ class NodeExecutorService
                 return;
             }
 
+            // Budget guard: stop retrying if the node ran out of time, blew the
+            // cost cap, or the run already died — keep the best output we have
+            // instead of burning another full re-run (16 web searches etc.).
+            if (($capReason = $this->qaRetryBudgetExceeded($flowRun, $cumulativeCost)) !== null) {
+                RunLog::append($flowRun->id, "[QA] {$node->name}: приема се изход под прага (score {$qaResult['score']}) — {$capReason}");
+                $nodeRun->update([
+                    'status' => 'completed',
+                    'quality_metrics' => array_merge((array) $nodeRun->quality_metrics, [
+                        'qa_accepted_below_threshold' => true,
+                        'qa_cap_reason' => $capReason,
+                    ]),
+                ]);
+
+                return;
+            }
+
             if ($qaRetriesUsed < $maxQaRetries) {
                 $qaRetriesUsed++;
+
+                // Feed the verifier's actionable feedback into the next attempt so
+                // even the cheap first retry is informed, not a blind repeat.
+                $fb = trim((string) ($qaResult['feedback'] ?? ''));
+                $qaFeedback = $fb !== ''
+                    ? 'ОБРАТНА ВРЪЗКА ОТ ПРОВЕРКАТА НА КАЧЕСТВОТО (предишният опит беше отхвърлен — поправи конкретно следното): '.$fb
+                    : null;
 
                 // First retry is plain (cheap). From the second on, ask the
                 // planner to revise the failing agent (Фаза 3).
@@ -388,28 +418,56 @@ class NodeExecutorService
                 }
 
                 RunLog::append($flowRun->id, "[QA] {$node->name}: повторен опит {$qaRetriesUsed}/{$maxQaRetries}"
-                    .($revision !== null ? ' с ревизия от планера' : ''));
+                    .($revision !== null ? ' с ревизия от планера' : '')
+                    .($qaFeedback !== null ? ' (с обратна връзка)' : ''));
 
                 $this->resetForRetry($nodeRun);
 
                 continue;
             }
 
-            // Max retries exhausted — QA gate failed.
-            // We handle this as a business-logic failure (not a thrown exception) so that:
-            //  1. The NodeRun update is committed (no DB rollback from batch transaction).
-            //  2. The ExecuteNodeJob returns normally → batch thinks job succeeded.
-            //  3. The FlowRun is marked 'failed' here; subsequent dispatchWave calls
-            //     see status ≠ 'running' and stop the chain.
-            // Technical failures (Ollama down, etc.) still throw — those are caught by
-            // the batch dispatcher and handled via the try/catch in dispatchWave.
+            // Max retries exhausted — QA gate failed. Handled as a business-logic
+            // failure (not a thrown exception) so the NodeRun update commits and
+            // ExecuteNodeJob returns normally. fail_fast marks the whole run failed
+            // (subsequent dispatchWave calls see status ≠ 'running' and stop the
+            // chain); best_effort marks only THIS node failed and lets the run go
+            // on — downstream of it is pruned by resolveActiveNodes, independent
+            // branches and the final report still complete.
             $message = "QA gate failed after {$maxQaRetries} retries for {$node->name}: "
                 ."score {$qaResult['score']} < threshold {$qaConfig['threshold']}";
             $nodeRun->update(['status' => 'failed', 'error' => $message]);
-            $this->failFlowRun($flowRun, $message);
+
+            if (($flowRun->context['failure_policy'] ?? 'best_effort') === 'fail_fast') {
+                $this->failFlowRun($flowRun, $message);
+            } else {
+                RunLog::append($flowRun->id, "[QA] {$node->name}: провал след {$maxQaRetries} опита — best_effort, run-ът продължава без този възел");
+            }
 
             return;
         }
+    }
+
+    /**
+     * Reason to stop the QA retry loop early (time/cost budget or a dead run), or
+     * null to keep retrying. Prevents a single gated node from burning unbounded
+     * money and time on repeated full re-runs.
+     */
+    private function qaRetryBudgetExceeded(FlowRun $flowRun, float $cumulativeCost): ?string
+    {
+        if ($this->jobDeadlineTs !== null && microtime(true) >= $this->jobDeadlineTs) {
+            return 'времевият бюджет на възела изтече';
+        }
+
+        $cap = (float) config('services.qa.max_retry_cost_usd', 0);
+        if ($cap > 0 && $cumulativeCost > $cap) {
+            return 'разходният таван ($'.number_format($cap, 2).') е надхвърлен';
+        }
+
+        if (FlowRun::whereKey($flowRun->id)->value('status') !== 'running') {
+            return 'run-ът вече не е активен';
+        }
+
+        return null;
     }
 
     private function failFlowRun(FlowRun $flowRun, string $message): void
@@ -426,7 +484,7 @@ class NodeExecutorService
      * A planner revision (Фаза 3) is applied to the in-memory node only —
      * never persisted to flow_nodes.
      */
-    private function runOnce(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun, ?array $revision = null, ?string $dedupFeedback = null): string
+    private function runOnce(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun, ?array $revision = null, ?string $dedupFeedback = null, ?string $qaFeedback = null): string
     {
         if ($revision !== null) {
             $this->replanner->applyRevision($node, $revision);
@@ -466,6 +524,10 @@ class NodeExecutorService
 
         if ($dedupFeedback !== null) {
             $input .= "\n\n".$dedupFeedback;
+        }
+
+        if ($qaFeedback !== null) {
+            $input .= "\n\n".$qaFeedback;
         }
 
         $nodeRun->fill([

@@ -46,22 +46,37 @@
         </div>
     @else
 
-    {{-- Recommendation (по ниво) --}}
+    {{-- Recommendation: качество + стойност (не само LOW) --}}
     @if($recommendation)
-        @php $best = $recommendation['best']; @endphp
+        @php $bq = $recommendation['best_quality']; $bv = $recommendation['best_value']; @endphp
         <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-5 mb-6">
-            <div class="font-semibold text-indigo-900 mb-1">💡 Препоръка на оптимизатора (за {{ $version->name ?? '' }})</div>
-            <div class="text-sm text-indigo-800">
-                Ниво <b class="uppercase">{{ $best['level'] }}</b> — среден Score {{ $best['score'] }}/100 · Цена {{ $fmtCost($best['cost']) }}/run
-                @if(($best['cost'] ?? 0) > 0)
-                    · Ефективност {{ number_format($best['score'] / max($best['cost'], 0.0000001), 0) }} точки/$
-                @endif
-            </div>
-            @foreach($recommendation['comparisons'] as $cmp)
-                <div class="text-xs text-indigo-700 mt-1">
-                    vs <b class="uppercase">{{ $cmp['label'] }}</b>: +{{ $cmp['delta_score'] }} точки качество@if($cmp['delta_cost_pct'] !== null), но {{ $cmp['delta_cost_pct'] > 0 ? '+' : '' }}{{ $cmp['delta_cost_pct'] }}% цена@endif
+            <div class="font-semibold text-indigo-900 mb-2">💡 Препоръка (за {{ $version->name ?? '' }})</div>
+            @if($recommendation['same'])
+                <div class="text-sm text-indigo-800">
+                    🏆💰 Ниво <b class="uppercase">{{ $bv['level'] }}</b> е едновременно <b>най-качествено</b> и <b>най-изгодно</b> — лесен избор.
+                    Среден Score {{ round($bv['score']) }}/100 · {{ $fmtCost($bv['cost']) }}/run.
                 </div>
-            @endforeach
+            @else
+                <div class="grid sm:grid-cols-2 gap-3 text-sm">
+                    <div class="bg-white rounded-lg p-3 border border-indigo-100">
+                        <div class="font-medium text-gray-800">🏆 Най-добро качество</div>
+                        <div class="text-gray-600 mt-0.5">Ниво <b class="uppercase">{{ $bq['level'] }}</b> — {{ round($bq['score']) }}/100 · {{ $fmtCost($bq['cost']) }}/run</div>
+                    </div>
+                    <div class="bg-white rounded-lg p-3 border border-indigo-100">
+                        <div class="font-medium text-gray-800">💰 Най-изгодно <span class="text-gray-400 font-normal">(качество за пара)</span></div>
+                        <div class="text-gray-600 mt-0.5">
+                            Ниво <b class="uppercase">{{ $bv['level'] }}</b> — {{ round($bv['score']) }}/100 · {{ $fmtCost($bv['cost']) }}/run
+                            @if(($bv['cost'] ?? 0) > 0)
+                                <span class="block text-xs text-gray-400">{{ number_format($recommendation['efficiency'], 0) }} точки/$ = {{ round($bv['score']) }} ÷ {{ $fmtCost($bv['cost']) }}</span>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+                <div class="text-xs text-indigo-700 mt-2">
+                    Най-доброто качество ({{ strtoupper($bq['level']) }}) дава <b>+{{ $recommendation['delta_score'] }} точки</b>@if($recommendation['delta_cost_pct'] !== null) срещу <b>{{ $recommendation['delta_cost_pct'] > 0 ? '+' : '' }}{{ $recommendation['delta_cost_pct'] }}% цена</b>@endif спрямо най-изгодното ({{ strtoupper($bv['level']) }}).
+                    За клиентски материали → избери качество; за чернови/вътрешно → изгодно.
+                </div>
+            @endif
         </div>
     @endif
 
@@ -72,7 +87,12 @@
                 <tr class="border-b border-gray-100 text-gray-500">
                     <th class="text-left px-4 py-3 font-medium">Тест \ Ниво</th>
                     @foreach($levels as $level)
-                        <th class="px-4 py-3 font-medium uppercase text-xs">{{ $level }}</th>
+                        <th class="px-4 py-3 font-medium uppercase text-xs">
+                            {{ $level }}
+                            @if($version && $version->model_level === $level)
+                                <span class="block text-[10px] text-indigo-500 normal-case font-normal" title="Реалното (родно) ниво на версията — другите колони са хипотетични пре-закачания">★ конфигурирано</span>
+                            @endif
+                        </th>
                     @endforeach
                 </tr>
             </thead>
@@ -128,10 +148,11 @@
             </tbody>
         </table>
     </div>
-    <p class="text-xs text-gray-400 mb-6">
-        Всяка клетка = качество (0–100) / средна цена на run за този тест на това ниво. Долният ред е среднопретегленото по тестове (с покритие done/total).
-        🟢 ≥85 · 🟡 65–84 · 🔴 &lt;65 · ✗ провал (клик за грешката) · ⏳ тече · — няма. Клик за детайл.
-    </p>
+    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-500 mb-6 space-y-1">
+        <div><b>Как се чете:</b> всяка клетка = <b>Score</b> (качество 0–100, претеглено от критериите) / <b>средна цена</b> на 1 run. Долният ред = среднопретеглено по тестове (с покритие done/total).</div>
+        <div><b>Формули:</b> Ефективност = <b>Score ÷ Цена</b> (точки на $) · „+X% цена" = колко по-скъпо е едно ниво спрямо друго.</div>
+        <div><b>Цветове:</b> 🟢 ≥85 · 🟡 65–84 · 🔴 &lt;65 · ✗ провал (клик за грешката) · ⏳ тече · — няма. <b>★ конфигурирано</b> = реалното ниво на версията; останалите колони са „какво би било" на друго ниво.</div>
+    </div>
 
     {{-- Scatter (агрегат per ниво) --}}
     @if(!empty($points))

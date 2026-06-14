@@ -55,18 +55,22 @@
     {{-- Run section --}}
     @if($cases->where('is_active', true)->count() && $versions->count())
     <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 class="font-semibold text-gray-800 mb-4">▶ Стартирай Eval</h2>
+        <h2 class="font-semibold text-gray-800 mb-1">▶ Стартирай Eval</h2>
+        <p class="text-xs text-gray-500 mb-4">
+            Пуска избран(и) <b>шаблон(и)</b> на избрани <b>ценови нива</b> и оценява изхода. Целта: кое е най-евтиното ниво без загуба на качество.
+            @if($versions->count() === 1)<br>Имаш 1 шаблон — просто избери нивата, на които да го тестваш.@endif
+        </p>
 
         <div class="grid md:grid-cols-2 gap-6">
             <div>
-                <div class="text-sm font-medium text-gray-700 mb-2">Версии</div>
+                <div class="text-sm font-medium text-gray-700 mb-2">Версии <span class="font-normal text-gray-400">(шаблони на flow-а)</span></div>
                 <div class="space-y-1.5 max-h-44 overflow-auto pr-1">
                     @foreach($versions as $version)
                         <label class="flex items-center gap-2 text-sm">
                             <input type="checkbox" value="{{ $version->id }}" x-model.number="versionIds" class="rounded border-gray-300 text-indigo-600">
                             <span>{{ $version->name }}</span>
                             @if($version->is_active)<span class="text-xs text-green-600">(активна)</span>@endif
-                            @if($version->model_level)<span class="text-xs text-gray-400">· {{ $version->model_level }}</span>@endif
+                            @if($version->model_level)<span class="text-xs text-gray-400" title="Родното ниво на този шаблон">· родно: {{ $version->model_level }}</span>@endif
                         </label>
                     @endforeach
                 </div>

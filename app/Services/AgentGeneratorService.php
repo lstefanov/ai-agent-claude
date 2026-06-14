@@ -254,8 +254,13 @@ class AgentGeneratorService
                 continue;
             }
             $tool = (string) ($agent['config']['tool'] ?? '');
-            $isWrite = ($agent['config']['requires_approval'] ?? false) || in_array($tool, $writeTools, true);
-            if (! $isWrite) {
+            // Write tool → одобрение, ОСВЕН ако requires_approval е ИЗРИЧНО false
+            // (потребителят/описанието е опт-аутнал — §14).
+            $requiresApproval = $agent['config']['requires_approval'] ?? null;
+            if ($requiresApproval === false) {
+                continue;
+            }
+            if ($requiresApproval !== true && ! in_array($tool, $writeTools, true)) {
                 continue;
             }
 
@@ -284,7 +289,9 @@ class AgentGeneratorService
                 'depends_on' => $deps,
                 'output_language' => null,
             ];
-            $agent['depends_on'] = [$apUid];
+            // Действието ПАЗИ data-зависимостите си (за {{agent.X.output}}) + чака
+            // одобрението. Изтриване на одобрението оставя data-връзките непокътнати.
+            $agent['depends_on'] = array_values(array_unique([...$deps, $apUid]));
         }
         unset($agent);
 

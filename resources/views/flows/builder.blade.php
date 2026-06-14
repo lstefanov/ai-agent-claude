@@ -726,7 +726,7 @@
                 <p class="text-xs text-gray-400 mt-0.5">Избери кой LLM да проектира pipeline-а — един провайдър за всичко или хибрид по фази.</p>
             </div>
             <div class="p-6 overflow-y-auto space-y-4">
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 gap-3">
                     <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1">Провайдър</label>
                         {{-- :selected — опциите от x-for се щамповат след x-model
@@ -1574,7 +1574,7 @@
                                     <select x-model.number="selected.config.connector_id" @change="onMcpConnectorChange()" :disabled="modalReadOnly"
                                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                                         <option value="">— избери акаунт —</option>
-                                        <template x-for="c in mcpConnectors" :key="c.id">
+                                        <template x-for="c in mcpAccounts()" :key="c.id">
                                             <option :value="c.id" x-text="c.name + ' (' + c.type + ')'"></option>
                                         </template>
                                     </select>
@@ -1633,6 +1633,16 @@
                                                         <input type="text" :value="selected.config.tool_params[p.key] || ''" @input="setMcpParam(p.key, $event.target.value)" :disabled="modalReadOnly"
                                                                :placeholder="p.widget === 'emails' ? 'имейл1@..., имейл2@...' : ''"
                                                                class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                    </template>
+                                                    {{-- Tag picker: вмъква {{agent.X.output}} / {{flow.input.X}} / {{date}} --}}
+                                                    <template x-if="p.widget !== 'select'">
+                                                        <select @change="if($event.target.value){ insertMcpTag(p.key, $event.target.value); $event.target.value=''; }" :disabled="modalReadOnly"
+                                                                class="mt-1 text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-500 bg-white">
+                                                            <option value="">+ вмъкни таг…</option>
+                                                            <template x-for="tag in mcpTagSuggestions()" :key="tag.value">
+                                                                <option :value="tag.value" x-text="tag.label"></option>
+                                                            </template>
+                                                        </select>
                                                     </template>
                                                 </div>
                                             </template>
@@ -2250,6 +2260,47 @@ function flowBuilder(config) {
         mcpToolsFor(connectorId) {
             const c = this.mcpConnectors.find(x => x.id == connectorId);
             return c ? c.tools : [];
+        },
+        // Само акаунти от типа на избраното действие (gmail.send_email → gmail).
+        mcpAccounts() {
+            const tool = this.selected?.config?.tool;
+            if (!tool) return this.mcpConnectors;
+            const type = tool.split('.')[0];
+            return this.mcpConnectors.filter(c => c.type === type);
+        },
+        // Имена на преките предшественици (съдържателни) от Drawflow графа.
+        mcpPredecessorNames() {
+            if (!this.editor || !this.selected?.id) return [];
+            try {
+                const data = this.editor.export()?.drawflow?.Home?.data || {};
+                const node = data[this.selected.id];
+                if (!node) return [];
+                const sources = new Set();
+                Object.values(node.inputs || {}).forEach(inp => (inp.connections || []).forEach(c => sources.add(String(c.node))));
+                const names = [];
+                sources.forEach(id => {
+                    const n = data[id]?.data || {};
+                    if (n.name && n.type !== 'flow_start' && n.type !== 'flow_end' && n.type !== 'human_approval') names.push(n.name);
+                });
+                return names;
+            } catch { return []; }
+        },
+        mcpTagSuggestions() {
+            const tags = [];
+            const op = '{' + '{', cl = '}' + '}'; // избягва Blade @{{ }} обработката в <script>
+            this.mcpPredecessorNames().forEach(name => tags.push({ label: '⮤ ' + name, value: op + 'agent.' + name + '.output' + cl }));
+            const keys = new Set(['topic']);
+            (Array.isArray(this.runInputs) ? this.runInputs : []).forEach(i => {
+                const k = (typeof i === 'string') ? i : (i.key || i.placeholder || i.name);
+                if (k) keys.add(k);
+            });
+            keys.forEach(k => tags.push({ label: 'вход: ' + k, value: op + 'flow.input.' + k + cl }));
+            tags.push({ label: 'дата', value: op + 'date:Y-m-d' + cl });
+            return tags;
+        },
+        insertMcpTag(key, value) {
+            const cur = this.selected.config.tool_params?.[key] || '';
+            this.setMcpParam(key, cur ? (cur + ' ' + value) : value);
         },
         mcpSelectedTool() {
             if (!this.selected || this.selected.type !== 'mcp_action') return null;
@@ -3114,6 +3165,30 @@ function flowBuilder(config) {
         selectedVersionName() {
             const v = this.versions.find(v => String(v.id) === String(this.selectedVersionId));
             return v ? v.name : '';
+        },
+
+        defaultGeneratedTemplateName(meta = {}) {
+            const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
+            const base = [
+                clean(config.flowName),
+                clean(meta.intent?.deliverable_description),
+                clean(meta.intent?.deliverable),
+            ].find(Boolean) || 'Нов шаблон';
+            const name = base === 'Нов шаблон'
+                ? base
+                : `${base.slice(0, 220)} - нов план`;
+
+            return this.uniqueVersionName(name);
+        },
+
+        uniqueVersionName(baseName) {
+            const existing = new Set(this.versions.map(v => String(v.name || '').trim()).filter(Boolean));
+            if (!existing.has(baseName)) return baseName;
+
+            let suffix = 2;
+            while (existing.has(`${baseName} ${suffix}`)) suffix++;
+
+            return `${baseName} ${suffix}`;
         },
 
         // Слива създадена/обновена версия в dropdown състоянието.
@@ -4507,11 +4582,6 @@ function flowBuilder(config) {
             // after a failure the modal stays active to show the error, and
             // "Опитай пак" must be able to restart.
             if (this.gen.active && !this.gen.error) return;
-            const hasNodes = Object.values(this.editor.export().drawflow.Home.data || {})
-                .some(n => !this.isBoundaryData(n.data));
-            if (hasNodes && !config.generate) {
-                if (!confirm('Това ще ИЗТРИЕ всички текущи агенти в графа и ще създаде нови. Продължаваме?')) return;
-            }
 
             this.gen = {
                 active: true,
@@ -4717,7 +4787,7 @@ function flowBuilder(config) {
             this.saveDlg = {
                 open: true,
                 mode: 'new',
-                name: meta.generator?.label || 'Нов шаблон',
+                name: this.defaultGeneratedTemplateName(meta),
                 isActive: true,
                 agents,
                 meta,

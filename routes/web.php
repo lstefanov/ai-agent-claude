@@ -221,6 +221,15 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
 
     // Разходи — LLM usage + paid cost tracking (default admin landing page)
     Route::get('costs', [AdminCostController::class, 'index'])->name('costs.index');
+    // AJAX data endpoints — one per tab/section, lazy-loaded with server-side pagination
+    Route::get('costs/data/overview', [AdminCostController::class, 'overview'])->name('costs.data.overview');
+    Route::get('costs/data/grid', [AdminCostController::class, 'grid'])->name('costs.data.grid');
+    Route::get('costs/data/chat', [AdminCostController::class, 'chat'])->name('costs.data.chat');
+    Route::get('costs/data/external', [AdminCostController::class, 'external'])->name('costs.data.external');
+    Route::get('costs/data/knowledge', [AdminCostController::class, 'knowledge'])->name('costs.data.knowledge');
+    Route::get('costs/data/other', [AdminCostController::class, 'other'])->name('costs.data.other');
+    Route::get('costs/data/ocr', [AdminCostController::class, 'ocr'])->name('costs.data.ocr');
+    // Drill-down popups
     Route::get('costs/detail', [AdminCostController::class, 'show'])->name('costs.show');
     Route::get('costs/group-detail', [AdminCostController::class, 'groupDetail'])->name('costs.group-detail');
     Route::get('costs/chat-detail', [AdminCostController::class, 'chatDetail'])->name('costs.chat-detail');

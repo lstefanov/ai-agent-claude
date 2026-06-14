@@ -5,7 +5,111 @@
 @source '../**/*.blade.php';
 @source '../**/*.js';
 
+/* ============================================================
+   FlowAI — Design System tokens (Modern SaaS / Linear·Vercel)
+   Light theme. Single source of truth — no hardcoded hex in Blade.
+   ============================================================ */
 @theme {
+    /* Typography — Geist (display) + Instrument Sans (body) + Geist Mono */
+    --font-display: 'Geist', ui-sans-serif, system-ui, sans-serif;
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* Surfaces */
+    --color-canvas: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-subtle: #fafafa;
+    --color-line: #e4e4e7;
+    --color-line-strong: #d4d4d8;
+
+    /* Text */
+    --color-ink: #18181b;
+    --color-muted: #52525b;
+    --color-subtle: #a1a1aa;
+
+    /* Brand + semantic */
+    --color-primary: #4f46e5;
+    --color-primary-hover: #4338ca;
+    --color-primary-fg: #ffffff;
+    --color-success: #16a34a;
+    --color-warning: #d97706;
+    --color-danger: #dc2626;
+    --color-info: #2563eb;
+
+    /* Layered shadows (ambient + direct) — additive, do not clobber Tailwind defaults */
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
+    --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Base: body uses --font-sans automatically (Tailwind default-font-family).
+   Headings get the Geist display face. */
+@layer base {
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-display);
+    }
+}
+
+/* Alpine cloak + line clamp helpers (moved out of inline <style> blocks) */
+[x-cloak] {
+    display: none !important;
+}
+.line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ============================================================
+   Tom Select — token-driven overrides (moved out of layouts)
+   ============================================================ */
+.ts-wrapper.single .ts-control {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-line);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    background: var(--color-surface);
+    box-shadow: none;
+    cursor: pointer;
+}
+.ts-wrapper.single.focus .ts-control {
+    border-color: var(--color-primary);
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+.ts-wrapper .ts-dropdown {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-line);
+    box-shadow: var(--shadow-card);
+    font-size: 0.875rem;
+}
+.ts-wrapper .ts-dropdown .ts-dropdown-content {
+    max-height: 280px;
+}
+.ts-wrapper .ts-dropdown .optgroup-header {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    padding: 0.5rem 0.75rem 0.25rem;
+    background: var(--color-surface-subtle);
+}
+.ts-wrapper .ts-dropdown .option {
+    padding: 0.5rem 0.75rem;
+}
+.ts-wrapper .ts-dropdown .option.active {
+    background: color-mix(in srgb, var(--color-primary) 12%, white);
+    color: var(--color-primary-hover);
+}
+.ts-wrapper .ts-dropdown .option:hover {
+    background: color-mix(in srgb, var(--color-primary) 7%, white);
 }

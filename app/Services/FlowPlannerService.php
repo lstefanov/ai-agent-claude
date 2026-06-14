@@ -423,11 +423,26 @@ PROMPT;
         $out = [];
         foreach ((array) $pairs as $pair) {
             if (is_array($pair) && isset($pair['key'])) {
-                $out[(string) $pair['key']] = (string) ($pair['value'] ?? '');
+                $value = trim((string) ($pair['value'] ?? ''));
+                // Планерска халюцинация-плейсхолдър (<UNKNOWN>, <recipient>…) → празно,
+                // за да го попълни потребителят, вместо да изпрати буквално „<UNKNOWN>".
+                if (preg_match('/^<[^>]*>$/', $value)) {
+                    $value = '';
+                }
+                $out[(string) $pair['key']] = $value;
             }
         }
 
         return $out;
+    }
+
+    /** Дали описанието на flow-а явно иска директно изпращане без одобрение. */
+    private function describesDirectSend(Flow $flow): bool
+    {
+        return (bool) preg_match(
+            '/без\s+одобрение|без\s+потвържден|директно\s+(изпрат|публикув|запиш)|автоматично\s+(изпрат|публикув)|no\s+approval|send\s+directly/iu',
+            (string) ($flow->description ?? ''),
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -776,7 +791,10 @@ PROMPT;
                 $config['connector_id'] = $connector?->id;
                 $config['tool'] = $mcpTool;
                 $config['tool_params'] = $this->mcpPairsToObject($spec['tool_params'] ?? []);
-                $config['requires_approval'] = in_array($mcpTool, (array) config('mcp.write_tools', []), true);
+                // Write tool → одобрение, ОСВЕН ако описанието иска директно изпращане
+                // (потребителски опт-аут; генераторът уважава false).
+                $isWrite = in_array($mcpTool, (array) config('mcp.write_tools', []), true);
+                $config['requires_approval'] = $isWrite && ! $this->describesDirectSend($flow);
             }
 
             // Site-wide research gets the proven map-reduce treatment by default.
@@ -996,10 +1014,12 @@ PROMPT;
             }
             $lines[] = 'Добави mcp_action агент САМО когато заданието явно иска действие в такава система '
                 .'(изпрати/запиши/публикувай/прочети). Полета: type="mcp_action", mcp_tool=точното име на '
-                .'действието по-горе, tool_params=списък {key,value} (value може да е {{flow.input.X}} или '
-                .'{{agent.UID.output}} от предходен агент). За WRITE действие ЗАДЪЛЖИТЕЛНО добави отделен агент '
-                .'type="human_approval" и сложи неговия uid в depends_on на mcp_action. mcp_action не пише текст — '
-                .'само изпълнява действието.';
+                .'действието по-горе, tool_params=списък {key,value}. За да вмъкнеш изхода на ПРЕДХОДЕН агент '
+                .'ползвай ТОЧНОТО МУ ИМЕ (name): {{agent.<точното name на агента>.output}} — НЕ uid. '
+                .'За вход от потребителя: {{flow.input.X}}. НИКОГА не измисляй стойности (получател/имейл/линк): '
+                .'ако не е подаден, остави полето ПРАЗНО (потребителят ще го попълни). За WRITE действие '
+                .'ЗАДЪЛЖИТЕЛНО добави отделен агент type="human_approval" и сложи неговия uid в depends_on на '
+                .'mcp_action. mcp_action не пише текст — само изпълнява действието.';
         }
 
         if ($kbReady) {

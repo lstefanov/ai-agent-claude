@@ -220,11 +220,12 @@ class EvalRunnerService
     }
 
     /**
-     * Авто-препоръка на оптимизатора: максималното съотношение score/цена
-     * (ефективната граница на Парето) + сравнения с по-качествените точки.
+     * Две препоръки, не една: НАЙ-ВИСОКО качество и НАЙ-ИЗГОДНО (score/цена) —
+     * за да не изглежда евтиното сляпо „единственото". Плюс сравнение колко
+     * повече качество/цена дава най-доброто качество спрямо най-изгодното.
      *
      * @param  array<int, array{label: string, version_id: int, version_name: string, level: string, score: float|null, cost: float}>  $points
-     * @return array{best: array<string, mixed>, comparisons: array<int, array<string, mixed>>}|null
+     * @return array{best_quality: array<string, mixed>, best_value: array<string, mixed>, same: bool, delta_score: float, delta_cost_pct: int|null, efficiency: float}|null
      */
     public function recommend(array $points): ?array
     {
@@ -240,27 +241,36 @@ class EvalRunnerService
         }
         unset($point);
 
-        usort($valid, fn ($a, $b) => $b['efficiency'] <=> $a['efficiency']);
-        $best = $valid[0];
-
-        $comparisons = [];
-        foreach ($valid as $point) {
-            if (($point['label'] ?? null) === ($best['label'] ?? null)) {
-                continue;
+        // Най-високо качество (при равенство → по-евтиното).
+        $bestQuality = $valid[0];
+        foreach ($valid as $p) {
+            if ($p['score'] > $bestQuality['score']
+                || ($p['score'] === $bestQuality['score'] && $p['cost'] < $bestQuality['cost'])) {
+                $bestQuality = $p;
             }
-            if ((float) ($point['score'] ?? 0) <= (float) ($best['score'] ?? 0)) {
-                continue;
-            }
-            $bestCost = (float) ($best['cost'] ?? 0);
-            $comparisons[] = [
-                'label' => $point['label'],
-                'delta_score' => round((float) $point['score'] - (float) $best['score'], 1),
-                'delta_cost_pct' => $bestCost > 0 ? (int) round(((float) $point['cost'] - $bestCost) / $bestCost * 100) : null,
-                'cost' => (float) $point['cost'],
-            ];
         }
 
-        return ['best' => $best, 'comparisons' => $comparisons];
+        // Най-изгодно (макс score/цена).
+        $bestValue = $valid[0];
+        foreach ($valid as $p) {
+            if ($p['efficiency'] > $bestValue['efficiency']) {
+                $bestValue = $p;
+            }
+        }
+
+        $valueCost = (float) $bestValue['cost'];
+
+        return [
+            'best_quality' => $bestQuality,
+            'best_value' => $bestValue,
+            'same' => ($bestQuality['label'] ?? null) === ($bestValue['label'] ?? null),
+            // Колко повече дава максималното качество спрямо най-изгодното.
+            'delta_score' => round((float) $bestQuality['score'] - (float) $bestValue['score'], 1),
+            'delta_cost_pct' => $valueCost > 0
+                ? (int) round(((float) $bestQuality['cost'] - $valueCost) / $valueCost * 100)
+                : null,
+            'efficiency' => (float) $bestValue['efficiency'],
+        ];
     }
 
     /**

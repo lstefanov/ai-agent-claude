@@ -520,7 +520,7 @@
         <div :class="chat.fullscreen
                 ? 'fixed inset-0 z-50 bg-white flex'
                 : 'w-96 shrink-0 bg-white rounded-xl border border-gray-200 flex'"
-             :style="chat.fullscreen ? '' : 'height: calc(100vh - 180px); position: sticky; top: 1rem;'"
+             :style="chat.fullscreen ? '' : 'height: calc(100vh - 350px); min-height: 320px; position: sticky; top: 5rem;'"
              @keydown.escape.window="chat.fullscreen = false; chat.showSessions = false">
 
             {{-- Sessions sidebar (само на цял екран) --}}
@@ -578,13 +578,28 @@
                     </div>
                 </div>
 
-                <div class="flex-1 overflow-y-auto p-3 space-y-3" x-ref="chatScroll"
+                <div class="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3" x-ref="chatScroll"
                      @mouseover="citeHover($event)" @mouseout="citeOut($event)" @scroll="chat.tip.show = false">
                     <div :class="chat.fullscreen ? 'max-w-3xl mx-auto w-full space-y-3' : 'space-y-3'">
-                        <div x-show="chat.messages.length === 0 && !chat.pending" class="text-center text-gray-400 text-sm py-8 px-4">
-                            Питай на човешки език:<br>
-                            <button @click="chat.input = 'Каква е цената на лазерна епилация на подмишници?'"
-                                    class="mt-2 text-xs text-indigo-500 hover:underline">„Каква е цената на лазерна епилация на подмишници?"</button>
+                        <div x-show="chat.messages.length === 0 && !chat.pending" class="py-6 px-3">
+                            <div class="flex flex-col items-center mb-4">
+                                <div class="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-xl mb-2">💬</div>
+                                <p class="text-sm font-medium text-gray-700">Питай на човешки език</p>
+                                <p class="text-xs text-gray-400 mt-0.5">Тествай какво знае базата знания</p>
+                            </div>
+                            <div class="flex flex-col gap-1.5">
+                                <template x-for="q in [
+                                    'Каква е цената на лазерна епилация на подмишници?',
+                                    'Какви процедури предлагате?',
+                                    'Как да се запишем за час?',
+                                    'Има ли промоции в момента?',
+                                    'Колко трае процедурата?',
+                                ]" :key="q">
+                                    <button @click="chat.input = q; sendChat()"
+                                            class="w-full text-left text-xs text-gray-600 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 hover:border-indigo-200 rounded-lg px-3 py-2 transition-colors leading-snug"
+                                            x-text="'↗ ' + q"></button>
+                                </template>
+                            </div>
                         </div>
 
                         <template x-for="m in chat.messages" :key="m.id">
@@ -617,15 +632,17 @@
                                     {{-- Footer: 👍/👎 (само web) + „Детайли" (винаги) --}}
                                     <div x-show="m.role === 'assistant' && !m.failed" class="mt-2 pt-2 border-t border-gray-200 flex items-center gap-2 flex-wrap">
                                         <template x-if="m.source_type === 'web'">
-                                            <span class="inline-flex items-center gap-2">
-                                                <span class="text-[11px] text-gray-400">Полезно?</span>
+                                            <span class="inline-flex items-center gap-1.5">
+                                                <span x-show="!m.feedback" class="text-[11px] text-gray-400">Полезно?</span>
+                                                {{-- Емоджитата пренебрегват CSS color, затова „избраното" се показва с фон+ring, а не с цвят на текста. --}}
                                                 <button @click="sendFeedback(m, 'up')" :disabled="!!m.feedback"
-                                                        :class="m.feedback === 'up' ? 'text-green-600' : 'text-gray-400 hover:text-green-600'"
-                                                        class="text-base leading-none transition disabled:cursor-default" title="Запиши в знанието">👍</button>
+                                                        :class="m.feedback === 'up' ? 'bg-green-100 ring-1 ring-green-300' : (m.feedback ? 'opacity-30' : 'hover:bg-gray-100')"
+                                                        class="w-6 h-6 flex items-center justify-center rounded-md text-sm leading-none transition disabled:cursor-default" title="Запиши в знанието">👍</button>
                                                 <button @click="sendFeedback(m, 'down')" :disabled="!!m.feedback"
-                                                        :class="m.feedback === 'down' ? 'text-red-500' : 'text-gray-400 hover:text-red-500'"
-                                                        class="text-base leading-none transition disabled:cursor-default" title="Не помогна">👎</button>
-                                                <span x-show="m.feedback === 'up'" class="text-[11px] text-green-600">✓ Записано в знанието</span>
+                                                        :class="m.feedback === 'down' ? 'bg-red-100 ring-1 ring-red-300' : (m.feedback ? 'opacity-30' : 'hover:bg-gray-100')"
+                                                        class="w-6 h-6 flex items-center justify-center rounded-md text-sm leading-none transition disabled:cursor-default" title="Не помогна">👎</button>
+                                                <span x-show="m.feedback === 'up'" x-cloak class="text-[11px] text-green-600">✓ Записано в знанието</span>
+                                                <span x-show="m.feedback === 'down'" x-cloak class="text-[11px] text-gray-400">✓ Благодаря за обратната връзка</span>
                                             </span>
                                         </template>
                                         <button @click="openDetail(m)"
@@ -826,7 +843,8 @@
                     Няма запазени детайли за това съобщение.
                 </div>
 
-                <div x-show="!detail.loading && detail.data && detail.data.available" x-cloak class="space-y-4">
+                <template x-if="!detail.loading && detail.data && detail.data.available">
+                  <div class="space-y-4">
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm">
                         <div><span class="text-gray-400">Време:</span> <span class="text-gray-800" x-text="detail.data.created_at"></span></div>
                         <div><span class="text-gray-400">Провайдър:</span> <span class="text-gray-800" x-text="detail.data.provider"></span></div>
@@ -850,7 +868,8 @@
                         <p class="text-xs text-gray-400 mb-1">Изход на модела</p>
                         <pre class="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-4 max-h-[55vh] overflow-y-auto" x-text="detail.data.response_text || '(празно)'"></pre>
                     </div>
-                </div>
+                  </div>
+                </template>
             </div>
         </div>
     </div>

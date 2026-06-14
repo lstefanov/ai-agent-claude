@@ -16,7 +16,7 @@ class HttpApiConnector extends AbstractConnector
 {
     public function listTools(): array
     {
-        $url = ['url' => ['label' => 'URL (https)', 'widget' => 'text']];
+        $url = ['url' => ['label' => 'URL (празно = базовия; път или пълен URL)', 'widget' => 'text']];
         $body = ['body' => ['label' => 'Body (JSON или текст)', 'widget' => 'textarea'], 'headers' => ['label' => 'Headers (JSON)', 'widget' => 'text']];
 
         return [
@@ -33,7 +33,21 @@ class HttpApiConnector extends AbstractConnector
 
     public function testConnection(): bool
     {
-        // Няма универсален ping endpoint — приемаме, че credentials присъстват.
+        // Ако има базов URL → реален ping (всеки HTTP отговор = достъпен и
+        // SSRF-allowed). Иначе само проверка, че credentials присъстват.
+        $base = trim((string) ($this->credentials['base_url'] ?? ''));
+        if ($base !== '') {
+            try {
+                SsrfGuard::assert($base);
+                Http::timeout((int) config('mcp.http_api.timeout_seconds', 15))
+                    ->withHeaders($this->authHeaders())->get($base);
+
+                return true;
+            } catch (\Throwable) {
+                return false;
+            }
+        }
+
         $type = $this->credentials['auth_type'] ?? 'bearer';
 
         return match ($type) {
@@ -57,7 +71,7 @@ class HttpApiConnector extends AbstractConnector
             return McpToolResult::fail("Непознат tool: {$tool}");
         }
 
-        $url = trim((string) ($params['url'] ?? ''));
+        $url = $this->resolveUrl((string) ($params['url'] ?? ''));
         try {
             SsrfGuard::assert($url);
         } catch (\Throwable $e) {
@@ -104,6 +118,25 @@ class HttpApiConnector extends AbstractConnector
         $text = "HTTP {$response->status()} {$method} {$host}\n".mb_substr($body, 0, 4000);
 
         return McpToolResult::ok($text, is_array($data) ? $data : []);
+    }
+
+    /** Празно → базовия URL; относителен път → база+път; пълен URL → както е. */
+    private function resolveUrl(string $url): string
+    {
+        $url = trim($url);
+        $base = trim((string) ($this->credentials['base_url'] ?? ''));
+
+        if ($url === '') {
+            return $base;
+        }
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+        if ($base !== '') {
+            return rtrim($base, '/').'/'.ltrim($url, '/');
+        }
+
+        return $url; // относителен без база → SsrfGuard ще го отхвърли
     }
 
     private function authHeaders(): array

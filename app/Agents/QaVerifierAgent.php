@@ -51,6 +51,38 @@ class QaVerifierAgent extends BaseAgent
         return (int) $agentRun->tokens_used;
     }
 
+    /**
+     * Pull the verifier's actionable feedback ("improvements"/"weaknesses") out of
+     * the JSON response, so a failed QA retry can be told WHAT to fix instead of
+     * blindly re-running the identical prompt. Returns '' if nothing usable.
+     */
+    public function extractFeedback(string $response): string
+    {
+        $items = [];
+
+        $decoded = json_decode(trim($response), true);
+        if (is_array($decoded)) {
+            foreach (['improvements', 'weaknesses'] as $key) {
+                foreach ((array) ($decoded[$key] ?? []) as $item) {
+                    if (($item = trim((string) $item)) !== '') {
+                        $items[] = $item;
+                    }
+                }
+            }
+        }
+
+        // Regex fallback for non-strict JSON: grab the "improvements" array body.
+        if ($items === [] && preg_match('/"improvements"\s*:\s*\[(.*?)\]/s', $response, $m)) {
+            foreach (preg_split('/"\s*,\s*"/', trim($m[1])) as $item) {
+                if (($item = trim($item, " \t\n\r\"")) !== '') {
+                    $items[] = $item;
+                }
+            }
+        }
+
+        return implode('; ', array_slice($items, 0, 4));
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // System prompt — ENGLISH ONLY, structured JSON output.
     // ──────────────────────────────────────────────────────────────────────

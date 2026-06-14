@@ -4,52 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'FlowAI') — FlowAI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    {{-- Fonts: Geist (display) · Instrument Sans (body) · Geist Mono --}}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    {{-- Tailwind v4 + app assets via Vite (replaces the old Tailwind play CDN) --}}
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+
     <link href="https://cdn.jsdelivr.net/npm/tom-select@2/dist/css/tom-select.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <style>
-        [x-cloak] { display: none !important; }
-        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-
-        /* Tom Select — match existing input style */
-        .ts-wrapper.single .ts-control {
-            border-radius: 0.5rem;
-            border: 1px solid #d1d5db;
-            padding: 0.5rem 0.75rem;
-            font-size: 0.875rem;
-            line-height: 1.25rem;
-            background: #fff;
-            box-shadow: none;
-            cursor: pointer;
-        }
-        .ts-wrapper.single.focus .ts-control {
-            border-color: #6366f1;
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(99,102,241,0.3);
-        }
-        .ts-wrapper .ts-dropdown {
-            border-radius: 0.5rem;
-            border: 1px solid #e5e7eb;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08);
-            font-size: 0.875rem;
-        }
-        .ts-wrapper .ts-dropdown .ts-dropdown-content { max-height: 280px; }
-        .ts-wrapper .ts-dropdown .optgroup-header {
-            font-size: 0.7rem;
-            font-weight: 700;
-            letter-spacing: 0.07em;
-            text-transform: uppercase;
-            color: #6b7280;
-            padding: 0.5rem 0.75rem 0.25rem;
-            background: #f9fafb;
-        }
-        .ts-wrapper .ts-dropdown .option { padding: 0.5rem 0.75rem; }
-        .ts-wrapper .ts-dropdown .option.active { background: #eef2ff; color: #3730a3; }
-        .ts-wrapper .ts-dropdown .option:hover { background: #f5f3ff; }
-    </style>
     @stack('head')
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -58,7 +24,7 @@
     <nav class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-6 py-0 flex items-stretch justify-between">
             <a href="{{ route('companies.index') }}" class="flex items-center gap-2 py-4 text-indigo-700 font-bold text-lg tracking-tight hover:text-indigo-900 transition">
-                <span class="text-xl">⚡</span> FlowAI
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg> FlowAI
             </a>
             <div class="flex items-stretch gap-1 text-sm font-medium">
                 @php

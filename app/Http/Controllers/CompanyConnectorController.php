@@ -25,8 +25,10 @@ class CompanyConnectorController extends Controller
                 'companyName' => $company->name,
                 'backUrl' => route('companies.show', $company),
                 'csrf' => csrf_token(),
-                'googleRedirect' => route('oauth.google.redirect', $company),
-                'slackRedirect' => route('oauth.slack.redirect', $company),
+                // Релативни → connect линковете остават на текущия хост (важно, ако
+                // ползваш flowai.local.com заради Google OAuth) вместо APP_URL.
+                'googleRedirect' => route('oauth.google.redirect', $company, absolute: false),
+                'slackRedirect' => route('oauth.slack.redirect', $company, absolute: false),
             ],
         ]);
     }
@@ -188,8 +190,11 @@ class CompanyConnectorController extends Controller
                 'fields' => [['key' => 'token', 'label' => 'Integration Token', 'type' => 'password']]],
             ['type' => 'airtable', 'label' => 'Airtable', 'auth' => 'api_key', 'icon' => '🗂', 'hint' => 'API ключ',
                 'fields' => [['key' => 'token', 'label' => 'Personal Access Token', 'type' => 'password']]],
-            ['type' => 'http_api', 'label' => 'HTTP API', 'auth' => 'bearer', 'icon' => '🔗', 'hint' => 'Bearer / ключ',
-                'fields' => [['key' => 'token', 'label' => 'Bearer токен', 'type' => 'password']]],
+            ['type' => 'http_api', 'label' => 'HTTP API', 'auth' => 'bearer', 'icon' => '🔗', 'hint' => 'Базов URL + токен',
+                'fields' => [
+                    ['key' => 'base_url', 'label' => 'Базов URL (напр. https://api.example.com)', 'type' => 'text'],
+                    ['key' => 'token', 'label' => 'Bearer токен (по избор)', 'type' => 'password'],
+                ]],
         ];
     }
 }

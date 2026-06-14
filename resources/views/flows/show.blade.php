@@ -227,7 +227,7 @@ function copyWebhookUrl() {
     <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
         <div>
             <h2 class="text-base font-semibold text-gray-900">Шаблони</h2>
-            <p class="text-xs text-gray-400 mt-0.5">Граф версии на този flow — активният (●) се изпълнява при Run.</p>
+            <p class="text-xs text-gray-400 mt-0.5">Граф версии на този flow — активният се изпълнява при Run.</p>
         </div>
         <a href="{{ route('flows.builder', $flow) }}?new_template=1"
            class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3 py-1.5 rounded-lg transition">

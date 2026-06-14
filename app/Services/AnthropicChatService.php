@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\ChatClientInterface;
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
+use App\Support\Utf8;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
@@ -277,6 +278,10 @@ class AnthropicChatService implements ChatClientInterface
      */
     private function send(array $payload, array $options, string $kind, string $auditSystem, string $auditUser): Response
     {
+        // Scrub invalid UTF-8 from scraped/tool content before Guzzle serializes
+        // the body — otherwise Utils::jsonEncode throws "Malformed UTF-8".
+        $payload = Utf8::clean($payload);
+
         $startMs = (int) (microtime(true) * 1000);
 
         // Transient failures (529 overloaded, rate-limit 429s, 5xx, network

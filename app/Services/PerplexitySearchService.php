@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
+use App\Support\Utf8;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -75,7 +76,8 @@ class PerplexitySearchService
                     ->post((string) config('services.perplexity.search_url', self::ENDPOINT), $payload);
 
                 if ($response->successful()) {
-                    $results = $this->normalizeResults($response->json());
+                    // Scrub invalid UTF-8 from result snippets/titles at the source.
+                    $results = Utf8::clean($this->normalizeResults($response->json()));
                     $flatCost = (float) config('services.perplexity.request_cost_usd', 0.005);
                     LlmUsage::addFlatCost($flatCost);
 

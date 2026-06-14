@@ -88,13 +88,13 @@ class GraphFlowExecutor
             ->where('is_active', true)
             ->where('type', 'decision')
             ->exists();
-        // Partial-failure policy: 'fail_fast' (default) cancels the run on the
-        // first node error; 'best_effort' lets independent branches continue and
-        // fan-in nodes assemble from whatever predecessors completed. A caller
-        // (напр. eval) може да наложи политиката през context преди dispatch.
-        $context['failure_policy'] = (($context['failure_policy'] ?? $version->graph_layout['failure_policy'] ?? 'fail_fast') === 'best_effort')
-            ? 'best_effort'
-            : 'fail_fast';
+        // Partial-failure policy: 'best_effort' (default) lets independent branches
+        // continue and fan-in nodes assemble from whatever predecessors completed;
+        // 'fail_fast' cancels the whole run on the first node error. A caller (напр.
+        // eval) или шаблонът (graph_layout.failure_policy) може да наложи политиката.
+        $context['failure_policy'] = (($context['failure_policy'] ?? $version->graph_layout['failure_policy'] ?? 'best_effort') === 'fail_fast')
+            ? 'fail_fast'
+            : 'best_effort';
 
         $flowRun->update([
             'status' => 'running',
@@ -163,11 +163,15 @@ class GraphFlowExecutor
         // WS4: prune branches not taken by an upstream decision. A node runs only
         // if it has an active incoming path; the rest are marked 'skipped'.
         $waveKeys = $waves[$index];
-        if ($flowRun->context['has_decisions'] ?? false) {
+        // best_effort → a failed node doesn't cancel the batch; later waves still run.
+        $bestEffort = ($flowRun->context['failure_policy'] ?? 'best_effort') === 'best_effort';
+        // Prune nodes whose path is dead: a decision didn't pick them, OR (best_effort)
+        // every predecessor failed/was skipped — running them input-less yields garbage.
+        if (($flowRun->context['has_decisions'] ?? false) || $bestEffort) {
             [$waveKeys, $skipped] = $this->resolveActiveNodes($flowRun, $waveKeys);
             if (! empty($skipped)) {
                 $this->markSkipped($flowRun, $skipped);
-                RunLog::append($flowRunId, '[SKIP] извън избрания branch: '.implode(', ', $skipped));
+                RunLog::append($flowRunId, '[SKIP] няма успял предшественик / извън избрания branch: '.implode(', ', $skipped));
             }
         }
 
@@ -182,9 +186,6 @@ class GraphFlowExecutor
 
             return;
         }
-
-        // best_effort → failed nodes don't cancel the batch; later waves still run.
-        $bestEffort = ($flowRun->context['failure_policy'] ?? 'fail_fast') === 'best_effort';
 
         RunLog::append($flowRunId, 'WAVE '.($index + 1).'/'.count($waves).': '.implode(', ', $waveKeys));
 

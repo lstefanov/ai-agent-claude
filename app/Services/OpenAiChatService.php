@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\ChatClientInterface;
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
+use App\Support\Utf8;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
@@ -335,6 +336,11 @@ class OpenAiChatService implements ChatClientInterface
 
     private function post(array $payload, int $timeout, string $kind = 'chat'): Response
     {
+        // Scrub invalid UTF-8 from scraped/tool content before Guzzle serializes
+        // the body — otherwise Utils::jsonEncode throws "Malformed UTF-8" and the
+        // node dies (deterministically, on every retry).
+        $payload = Utf8::clean($payload);
+
         $startMs = (int) (microtime(true) * 1000);
 
         // Transient failures (free-tier capacity 503s, rate-limit 429s, network

@@ -81,12 +81,35 @@
         </div>
 
         {{-- 3. Критерии --}}
-        <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <div class="bg-white rounded-xl border border-gray-200 p-5" x-data="{ help: false }">
             <div class="flex items-center justify-between mb-1">
                 <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide">3 · Критерии за качество</div>
-                <button type="button" @click="addCriterion()" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">+ Критерий</button>
+                <div class="flex items-center gap-3">
+                    <button type="button" @click="help = !help" class="text-sm text-gray-400 hover:text-gray-600" x-text="help ? '− Скрий помощта' : '? Как работят критериите'"></button>
+                    <button type="button" @click="addCriterion()" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">+ Критерий</button>
+                </div>
             </div>
-            <p class="text-xs text-gray-400 mb-4">Започни с 2–3. <b>llm_judge</b> = AI оценява (за субективни неща); <b>rule/regex</b> = автоматична проверка (дължина, ключова дума, формат).</p>
+            <p class="text-xs text-gray-400 mb-3">Започни с 2–3. <b>llm_judge</b> = AI оценява (за субективни неща); <b>rule/regex</b> = автоматична проверка (дължина, ключова дума, формат).</p>
+
+            {{-- Help панел --}}
+            <div x-show="help" x-cloak class="mb-4 border border-gray-200 rounded-lg p-4 bg-gray-50 text-xs text-gray-600 space-y-2">
+                <div>💡 <b>Тестът = реален вход В РАМКИТЕ на задачата на flow-а</b> (напр. различна зона/тема), НЕ различна задача. Ако подадеш съвсем друга задача, агентите (с фиксирани промптове) ще се справят зле — това не мери качество.</div>
+                <div><b>Всеки критерий</b> дава оценка 0–100; крайният Score е среднопретеглен по <b>тежест</b> (важен критерий = по-висока тежест, напр. точност 2.0, граматика 0.5).</div>
+                <div class="pt-1"><b>Типове:</b></div>
+                <ul class="list-disc list-inside space-y-1 ml-1">
+                    <li><b>llm_judge</b> — AI чете изхода и дава оценка спрямо твоята инструкция. За субективни неща: <i>„Текстът е на официален тон", „Цените са конкретни и реални"</i>.</li>
+                    <li><b>rule</b> — детерминистична проверка (без AI):
+                        <ul class="list-[circle] list-inside ml-4 mt-1 space-y-0.5">
+                            <li><code>word_count</code> — брой думи между мин и макс (напр. 300–600).</li>
+                            <li><code>contains_keyword</code> — изходът съдържа дума (напр. „промоция").</li>
+                            <li><code>no_placeholder</code> — няма незапълнени шаблони (<code>[ИМЕ]</code>, <code>@{{…}}</code>).</li>
+                            <li><code>valid_json</code> — изходът е валиден JSON.</li>
+                        </ul>
+                    </li>
+                    <li><b>regex</b> — съвпадение с регулярен израз (напр. имейл/телефон формат).</li>
+                </ul>
+                <div class="pt-1">✅ Винаги слагай поне 1 <b>rule</b> критерий — той е детерминистичен и не зависи от AI judge-а.</div>
+            </div>
 
             <template x-for="(c, i) in criteria" :key="i">
                 <div class="border border-gray-200 rounded-lg p-4 mb-3 bg-gray-50/50">
@@ -110,10 +133,12 @@
 
                         <div class="sm:col-span-12" x-show="c.type !== 'regex'">
                             <label class="block text-xs text-gray-500 mb-1">
-                                <span x-show="c.type === 'llm_judge'">Инструкция за judge-а — какво да провери</span>
+                                <span x-show="c.type === 'llm_judge'">Инструкция за judge-а — какво точно да провери (колкото по-конкретно, толкова по-добра оценка)</span>
                                 <span x-show="c.type === 'rule'">Описание (за справка)</span>
                             </label>
-                            <input type="text" x-model="c.description" placeholder="Всички цитирани цени са конкретни и реални, не общи фрази." class="{{ $fieldSm }}">
+                            <textarea x-model="c.description" rows="3" class="{{ $fieldSm }}"
+                                      placeholder="напр. Всички цитирани цени са конкретни и реални (не общи фрази); посочена е апаратурата; условията (брой сесии, подготовка) са пълни."></textarea>
+                            <p class="text-[11px] text-gray-400 mt-1" x-show="c.type === 'llm_judge'">Опиши какво е „добър" изход по този критерий — judge-ът (AI) дава 0–100 спрямо това.</p>
                         </div>
 
                         {{-- rule params --}}

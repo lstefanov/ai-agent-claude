@@ -198,6 +198,20 @@ return [
         'fact_min_confidence' => (float) env('KNOWLEDGE_FACT_MIN_CONFIDENCE', 0.5),
     ],
 
+    // Inline step-QA gate (StepQaGate / QaVerifierAgent) tuning.
+    'qa' => [
+        // Override the QA verifier model. Empty → the best installed local QA
+        // model via ModelSelectorService (qwen3:4b), which is noisy/harsh on long
+        // research output. Point this at a stronger judge — a cheap cloud model
+        // (e.g. gemini/gemini-3.1-flash-lite) or a larger local one. Routed like
+        // any paid-prefixed model through OllamaService::chat().
+        'model' => env('QA_VERIFIER_MODEL'),
+        // Per-node QA-retry cost ceiling (USD). Once a node's accumulated cost
+        // exceeds this, the loop stops re-running and accepts the best output it
+        // has (flagged), instead of burning money on more full re-runs. 0 = off.
+        'max_retry_cost_usd' => (float) env('QA_MAX_RETRY_COST_USD', 0.50),
+    ],
+
     // FlowPlannerService tuning (the "agent that creates agents").
     'planner' => [
         // Phase C: a second LLM pass that reviews + repairs the generated plan.
@@ -448,12 +462,18 @@ return [
     'brave' => [
         'api_key' => env('BRAVE_SEARCH_API_KEY'),
         'results_count' => env('BRAVE_RESULTS_COUNT', 10),
+        // Flat cost per query for the admin cost audit. Free tier = 0; paid plans
+        // run ~$3–5 / 1K queries — set this to your contract's per-query price.
+        'request_cost_usd' => env('BRAVE_REQUEST_COST_USD', 0.005),
     ],
 
     'google_places' => [
         // Google Places API (New) key — used for business reviews/rating.
         // Enable "Places API (New)" in Google Cloud Console for the key.
         'api_key' => env('GOOGLE_PLACES_API_KEY'),
+        // Flat cost per reviewsFor() lookup for the admin cost audit. One lookup
+        // bills Text Search (~$32/1K) + Place Details (~$17/1K) ≈ $0.049.
+        'request_cost_usd' => env('GOOGLE_PLACES_REQUEST_COST_USD', 0.05),
     ],
 
     // Google OAuth (Laravel Socialite) — глобален FlowAI app за MCP конекторите

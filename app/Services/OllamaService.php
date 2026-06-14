@@ -6,6 +6,7 @@ use App\Contracts\ChatClientInterface;
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
 use App\Support\PaidModel;
+use App\Support\Utf8;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -75,6 +76,10 @@ class OllamaService
         if ($think !== null) {
             $payload['think'] = (bool) $think;
         }
+
+        // Scrub invalid UTF-8 from scraped/tool content before Guzzle serializes
+        // the body — local nodes also ingest web content.
+        $payload = Utf8::clean($payload);
 
         // Use stream:true so Ollama sends tokens immediately (NDJSON).
         // Without streaming, Ollama buffers the entire response before sending ANY bytes,
@@ -235,6 +240,8 @@ class OllamaService
                     if ($think !== null) {
                         $payload['think'] = (bool) $think;
                     }
+
+                    $payload = Utf8::clean($payload);
 
                     $calls[] = $pool->as((string) $key)
                         ->timeout($httpTimeout)

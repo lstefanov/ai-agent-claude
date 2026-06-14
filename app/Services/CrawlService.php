@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\WebPageCache;
 use App\Support\NodeDeadline;
+use App\Support\Utf8;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -69,9 +70,12 @@ class CrawlService
             if ($response->successful()) {
                 $markdown = $response->json('markdown');
                 if (is_string($markdown) && trim($markdown) !== '') {
-                    $title = (string) ($response->json('title') ?? '');
-                    $meta = (string) ($response->json('meta_description') ?? '');
-                    $links = array_values(array_filter((array) ($response->json('internal_links') ?? []), 'is_string'));
+                    // Scrub invalid UTF-8 from live web content at the source so the
+                    // global cache, content_hash and every downstream consumer stay clean.
+                    $markdown = Utf8::clean($markdown);
+                    $title = Utf8::clean((string) ($response->json('title') ?? ''));
+                    $meta = Utf8::clean((string) ($response->json('meta_description') ?? ''));
+                    $links = Utf8::clean(array_values(array_filter((array) ($response->json('internal_links') ?? []), 'is_string')));
 
                     if ($links === []) {
                         $links = $this->linksFromMarkdown($markdown, $normalized);
