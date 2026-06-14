@@ -1673,6 +1673,12 @@
                                     <input type="checkbox" x-model="selected.config.requires_approval" :disabled="modalReadOnly" class="w-4 h-4 text-indigo-600 border-gray-300 rounded">
                                     <span class="text-sm text-gray-700">Изисква потвърждение преди изпълнение</span>
                                 </label>
+                                <p class="text-xs text-gray-500">
+                                    Това е само предпазен флаг. Реалната спирка е отделният възел
+                                    „Одобрение от човек". Ако такъв възел вече предхожда това действие в
+                                    графа, изпращането минава през него <strong>независимо</strong> от чекбокса.
+                                    За да изпращаш без одобрение, премахни самия възел „Одобрение от човек" от графа.
+                                </p>
                                 <p x-show="mcpSelectedTool()?.writes" class="text-xs text-amber-700">
                                     ⚠ Write действие — постави „Одобрение от човек" възел ПРЕДИ него в графа.
                                 </p>

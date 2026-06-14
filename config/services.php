@@ -459,6 +459,13 @@ return [
         'ocr_max_file_mb' => (int) env('MISTRAL_OCR_MAX_FILE_MB', 25),
     ],
 
+    // Единен web_search провайдър. Инструментът `web_search` рутира към този
+    // провайдър (Brave по подразбиране, Perplexity като алтернатива). pro_search
+    // и people_search си остават отделни Perplexity-специфични инструменти.
+    'web_search' => [
+        'provider' => env('WEB_SEARCH_PROVIDER', 'brave'), // brave | perplexity
+    ],
+
     'brave' => [
         'api_key' => env('BRAVE_SEARCH_API_KEY'),
         'results_count' => env('BRAVE_RESULTS_COUNT', 10),

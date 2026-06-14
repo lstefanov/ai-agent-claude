@@ -160,7 +160,7 @@ PROMPT;
             'required' => ['facts'],
         ];
 
-        LlmContext::set(array_merge(['purpose' => 'knowledge_fact_harvest'], $llmContext));
+        LlmContext::push(array_merge(['purpose' => 'knowledge_fact_harvest'], $llmContext));
 
         try {
             $json = OpenAiChatService::for($provider)->chatJson(
@@ -178,7 +178,7 @@ PROMPT;
 
             return [];
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
     }
 
@@ -253,7 +253,7 @@ PROMPT;
             'required' => ['digest', 'facts'],
         ];
 
-        LlmContext::set(array_merge(['purpose' => 'knowledge_synthesis'], $llmContext));
+        LlmContext::push(array_merge(['purpose' => 'knowledge_synthesis'], $llmContext));
 
         try {
             $json = OpenAiChatService::for($provider)->chatJson(
@@ -275,7 +275,7 @@ PROMPT;
 
             return ['digest' => mb_substr($content, 0, 4000), 'facts' => [], 'llm' => false];
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
     }
 

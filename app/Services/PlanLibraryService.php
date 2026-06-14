@@ -169,13 +169,13 @@ class PlanLibraryService
 
         $queryVector = null;
         if ($useVectors) {
-            LlmContext::set(['purpose' => 'embedding']);
+            LlmContext::push(['purpose' => 'embedding']);
             try {
                 $queryVector = app(OpenAiChatService::class)->embed($this->intentText($intent));
             } catch (\Throwable $e) {
                 Log::warning('[PlanLibrary] Query embedding failed, structural scoring used: '.$e->getMessage());
             } finally {
-                LlmContext::clear();
+                LlmContext::pop();
             }
         }
 
@@ -273,7 +273,7 @@ class PlanLibraryService
             return null;
         }
 
-        LlmContext::set(['purpose' => 'embedding']);
+        LlmContext::push(['purpose' => 'embedding']);
 
         try {
             return app(OpenAiChatService::class)->embed($this->intentText($intent));
@@ -282,7 +282,7 @@ class PlanLibraryService
 
             return null;
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
     }
 

@@ -428,20 +428,42 @@ class NodeExecutorService
 
             // Max retries exhausted — QA gate failed. Handled as a business-logic
             // failure (not a thrown exception) so the NodeRun update commits and
-            // ExecuteNodeJob returns normally. fail_fast marks the whole run failed
-            // (subsequent dispatchWave calls see status ≠ 'running' and stop the
-            // chain); best_effort marks only THIS node failed and lets the run go
-            // on — downstream of it is pruned by resolveActiveNodes, independent
-            // branches and the final report still complete.
+            // ExecuteNodeJob returns normally.
             $message = "QA gate failed after {$maxQaRetries} retries for {$node->name}: "
                 ."score {$qaResult['score']} < threshold {$qaConfig['threshold']}";
-            $nodeRun->update(['status' => 'failed', 'error' => $message]);
 
+            // fail_fast marks the whole run failed (subsequent dispatchWave calls
+            // see status ≠ 'running' and stop the chain).
             if (($flowRun->context['failure_policy'] ?? 'best_effort') === 'fail_fast') {
+                $nodeRun->update(['status' => 'failed', 'error' => $message]);
                 $this->failFlowRun($flowRun, $message);
-            } else {
-                RunLog::append($flowRun->id, "[QA] {$node->name}: провал след {$maxQaRetries} опита — best_effort, run-ът продължава без този възел");
+
+                return;
             }
+
+            // best_effort: a non-empty output WAS produced — accept it below the
+            // threshold (flagged) instead of marking the node failed. Marking it
+            // failed would let resolveActiveNodes prune everything downstream,
+            // silently dropping a delivery tail (e.g. approval → email) even
+            // though usable content exists. The best available text still flows;
+            // the flag keeps it auditable.
+            if (trim($output) !== '') {
+                RunLog::append($flowRun->id, "[QA] {$node->name}: провал след {$maxQaRetries} опита — приема се най-добрият изход под прага (best_effort); веригата продължава");
+                $nodeRun->update([
+                    'status' => 'completed',
+                    'quality_metrics' => array_merge((array) $nodeRun->quality_metrics, [
+                        'qa_accepted_below_threshold' => true,
+                        'qa_cap_reason' => "score {$qaResult['score']} < threshold {$qaConfig['threshold']} след {$maxQaRetries} опита",
+                    ]),
+                ]);
+
+                return;
+            }
+
+            // Empty/degenerate output — nothing usable to pass on; mark failed and
+            // let resolveActiveNodes prune the dead branch.
+            $nodeRun->update(['status' => 'failed', 'error' => $message]);
+            RunLog::append($flowRun->id, "[QA] {$node->name}: провал след {$maxQaRetries} опита — празен изход, run-ът продължава без този възел");
 
             return;
         }
@@ -478,6 +500,28 @@ class NodeExecutorService
     }
 
     /**
+     * Should the company-knowledge ("ЗНАНИЕ") block be injected into this node's
+     * prompt? Yes for synthesis/content nodes (incl. the ones that build
+     * comparisons/tables, which need OUR own services & prices to fill the
+     * own-company column); no for transformers, control nodes, or nodes that
+     * already pull facts through the agentic knowledge_search prepass.
+     */
+    private function shouldInjectKnowledge(FlowNode $node): bool
+    {
+        $excluded = ['bg_text_corrector', 'translator', 'human_approval', 'mcp_action', 'decision', 'qa_verifier'];
+        if (in_array($node->type, $excluded, true)) {
+            return false;
+        }
+
+        $tools = array_map('strval', (array) ($node->config['tools'] ?? []));
+        if (in_array('knowledge_search', $tools, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Execute the node exactly once. Returns the cleaned output string.
      * Throws RuntimeException after MAX_ATTEMPTS technical failures.
      *
@@ -506,12 +550,14 @@ class NodeExecutorService
             }
         }
 
-        // Знание: фактологичен RAG блок от базата знания на фирмата — само за
-        // content нодове и само от grounding колекциите (документи/сайт, НЕ
+        // Знание: фактологичен RAG блок от базата знания на фирмата — за синтез/
+        // content нодовете (вкл. тези, които строят сравнения/таблици), но НЕ за
+        // трансформъри/контрол-нодове или нодове с knowledge_search (те ползват
+        // агентния prepass). Само от grounding колекциите (документи/сайт, НЕ
         // история). Работи и за локални модели, които не могат tool-calling.
         if (KnowledgeService::enabledForFlow($flowRun->flow)
             && ($node->config['knowledge']['enabled'] ?? true) !== false
-            && $this->memory->isContentNode($node)) {
+            && $this->shouldInjectKnowledge($node)) {
             $knowledgeBlock = $this->knowledge->knowledgeBlock($flowRun->flow->company, $input, [
                 'company_id' => $flowRun->flow->company_id,
                 'flow_id' => $node->flow_id,

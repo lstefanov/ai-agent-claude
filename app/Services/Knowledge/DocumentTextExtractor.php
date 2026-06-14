@@ -81,7 +81,7 @@ class DocumentTextExtractor
 
         // Контекст за одит реда (admin → Разходи → Mistral OCR): дава линк към
         // оригиналния ресурс + digest в preview popup-а.
-        LlmContext::set([
+        LlmContext::push([
             'purpose' => 'knowledge_ocr',
             'company_id' => $document->company_id,
             'knowledge_resource_id' => $document->id,
@@ -90,7 +90,7 @@ class DocumentTextExtractor
         try {
             $text = $this->ocr->extractFile($path, $mime ?: 'application/pdf');
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
 
         if ($text === null || trim($text) === '') {

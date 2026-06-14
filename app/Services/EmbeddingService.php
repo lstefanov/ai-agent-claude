@@ -93,7 +93,7 @@ class EmbeddingService
             return null;
         }
 
-        LlmContext::set(array_merge(['purpose' => 'embedding'], $context));
+        LlmContext::push(array_merge(['purpose' => 'embedding'], $context));
 
         try {
             return $provider === 'ollama'
@@ -104,7 +104,7 @@ class EmbeddingService
 
             return null;
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
     }
 
@@ -128,7 +128,7 @@ class EmbeddingService
             return array_map(fn (string $text) => $this->embed($text, $context), $texts);
         }
 
-        LlmContext::set(array_merge(['purpose' => 'embedding'], $context));
+        LlmContext::push(array_merge(['purpose' => 'embedding'], $context));
 
         try {
             return app(OllamaService::class)->embedMany($texts, $this->model());
@@ -137,7 +137,7 @@ class EmbeddingService
 
             return array_fill(0, count($texts), null);
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
     }
 

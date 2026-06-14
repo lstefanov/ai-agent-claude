@@ -472,18 +472,18 @@ class ModelRouterService
         ]) : null;
         $startMs = (int) (microtime(true) * 1000);
 
+        LlmContext::push([
+            'purpose' => 'model_routing',
+            'session_id' => $logToken,
+            'company_id' => $flow?->company_id,
+            'flow_id' => $flow?->id,
+        ]);
+
         try {
-            LlmContext::set([
-                'purpose' => 'model_routing',
-                'session_id' => $logToken,
-                'company_id' => $flow?->company_id,
-                'flow_id' => $flow?->id,
-            ]);
             $result = OpenAiChatService::for($provider)->chatJson($model, $system, $user, 'model_routing', $schema, [
                 'temperature' => 0.1,
                 'num_predict' => 4000,
             ]);
-            LlmContext::clear();
 
             $log?->update(array_merge(LlmUsage::take(), [
                 'raw_response' => json_encode($result, JSON_UNESCAPED_UNICODE),
@@ -492,7 +492,6 @@ class ModelRouterService
                 'status' => 'completed',
             ]));
         } catch (Throwable $e) {
-            LlmContext::clear();
             $log?->update(array_merge(LlmUsage::take(), [
                 'status' => 'failed',
                 'error' => $e->getMessage(),
@@ -501,6 +500,8 @@ class ModelRouterService
             Log::warning('[ModelRouter] Smart профилирането се провали — детерминистичната матрица поема: '.$e->getMessage());
 
             return $profiles;
+        } finally {
+            LlmContext::pop();
         }
 
         foreach ((array) ($result['agents'] ?? []) as $row) {

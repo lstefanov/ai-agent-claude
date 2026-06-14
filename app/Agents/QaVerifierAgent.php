@@ -99,6 +99,7 @@ CRITICAL RULES:
 1. Respond ONLY in ENGLISH. Never use any other language in your response.
 2. The content being reviewed may be in Bulgarian or other languages — that is CORRECT and EXPECTED.
 3. Focus ONLY on the criteria below.
+4. Explicitly-marked unavailable EXTERNAL data (e.g. "н/д", "не е публично", "N/A") is ACCEPTABLE when that information is genuinely not public — do NOT lower the score for it. Only penalize data that WAS provided in the source/knowledge but the author failed to use (e.g. our own company's facts left as "н/д").
 
 EVALUATION CRITERIA:
 {$customCriteria}
