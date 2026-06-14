@@ -19,15 +19,69 @@ class GoogleDriveConnector extends AbstractConnector
     public function listTools(): array
     {
         return [
-            ['name' => 'drive.list_files', 'description' => 'Файлове в папка (или по заявка)', 'writes' => false,
-                'parameters' => ['folder_id' => ['type' => 'string'], 'query' => ['type' => 'string'], 'max' => ['type' => 'integer']]],
+            ['name' => 'drive.list_files', 'description' => 'Файлове в папка (с филтър за снимки + подредба по дата)', 'writes' => false,
+                'parameters' => [
+                    'folder_id' => ['label' => 'Папка', 'widget' => 'select', 'options' => 'drive_folders'],
+                    'only_images' => ['label' => 'Само снимки (1/0)', 'widget' => 'text'],
+                    'newest_first' => ['label' => 'Най-новите първо (1/0)', 'widget' => 'text'],
+                    'max' => ['label' => 'Брой', 'widget' => 'text'],
+                ]],
             ['name' => 'drive.get_file_content', 'description' => 'Текстово съдържание на файл (Docs/текст)', 'writes' => false,
-                'parameters' => ['file_id' => ['type' => 'string']]],
+                'parameters' => [
+                    'folder_id' => ['label' => 'Папка', 'widget' => 'select', 'options' => 'drive_folders'],
+                    'file_id' => ['label' => 'Файл', 'widget' => 'select', 'options' => 'drive_files', 'depends_on' => 'folder_id'],
+                ]],
             ['name' => 'drive.upload_file', 'description' => 'Качва текстов файл в папка', 'writes' => true,
-                'parameters' => ['name' => ['type' => 'string'], 'content' => ['type' => 'string'], 'mime' => ['type' => 'string'], 'folder_id' => ['type' => 'string']]],
+                'parameters' => [
+                    'name' => ['label' => 'Име на файл', 'widget' => 'text'],
+                    'content' => ['label' => 'Съдържание', 'widget' => 'textarea'],
+                    'mime' => ['label' => 'MIME (по избор)', 'widget' => 'text'],
+                    'folder_id' => ['label' => 'Папка', 'widget' => 'select', 'options' => 'drive_folders'],
+                ]],
             ['name' => 'drive.create_doc', 'description' => 'Нов Google Doc с текст', 'writes' => true,
-                'parameters' => ['title' => ['type' => 'string'], 'content' => ['type' => 'string'], 'folder_id' => ['type' => 'string']]],
+                'parameters' => [
+                    'title' => ['label' => 'Заглавие', 'widget' => 'text'],
+                    'content' => ['label' => 'Съдържание', 'widget' => 'textarea'],
+                    'folder_id' => ['label' => 'Папка', 'widget' => 'select', 'options' => 'drive_folders'],
+                ]],
         ];
+    }
+
+    public function listOptions(string $source, array $context = []): array
+    {
+        try {
+            return match ($source) {
+                'drive_folders' => $this->driveOptions("mimeType = 'application/vnd.google-apps.folder' and trashed = false", 'name'),
+                'drive_files', 'drive_images' => $this->driveOptions($this->fileOptionQuery($context, $source === 'drive_images'), 'modifiedTime desc'),
+                default => [],
+            };
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function fileOptionQuery(array $context, bool $imagesOnly): string
+    {
+        $clauses = ['trashed = false'];
+        if (! empty($context['folder_id'])) {
+            $clauses[] = "'".$context['folder_id']."' in parents";
+        }
+        if ($imagesOnly) {
+            $clauses[] = "mimeType contains 'image/'";
+        }
+
+        return implode(' and ', $clauses);
+    }
+
+    private function driveOptions(string $q, string $orderBy): array
+    {
+        $res = $this->client()->acceptJson()->get(self::BASE.'/files', [
+            'q' => $q, 'orderBy' => $orderBy, 'pageSize' => 100, 'fields' => 'files(id,name)',
+        ]);
+
+        return collect((array) $res->json('files', []))
+            ->map(fn ($f) => ['value' => (string) ($f['id'] ?? ''), 'label' => (string) ($f['name'] ?? '')])
+            ->values()->all();
     }
 
     public function testConnection(): bool
@@ -57,22 +111,31 @@ class GoogleDriveConnector extends AbstractConnector
 
     private function listFiles(array $params): McpToolResult
     {
-        $q = $params['query'] ?? null;
+        $clauses = ['trashed = false'];
         if (! empty($params['folder_id'])) {
-            $q = "'".$params['folder_id']."' in parents".($q ? " and {$q}" : '');
+            $clauses[] = "'".$params['folder_id']."' in parents";
+        }
+        if (filter_var($params['only_images'] ?? false, FILTER_VALIDATE_BOOL)) {
+            $clauses[] = "mimeType contains 'image/'";
+        }
+        if (! empty($params['query'])) {
+            $clauses[] = (string) $params['query'];
         }
 
-        $res = $this->client()->acceptJson()->get(self::BASE.'/files', array_filter([
-            'q' => $q,
+        $newestFirst = filter_var($params['newest_first'] ?? true, FILTER_VALIDATE_BOOL);
+
+        $res = $this->client()->acceptJson()->get(self::BASE.'/files', [
+            'q' => implode(' and ', $clauses),
+            'orderBy' => $newestFirst ? 'modifiedTime desc' : 'name',
             'pageSize' => min(100, max(1, (int) ($params['max'] ?? 25))),
-            'fields' => 'files(id,name,mimeType,modifiedTime)',
-        ], fn ($v) => $v !== null));
+            'fields' => 'files(id,name,mimeType,modifiedTime,webViewLink,thumbnailLink)',
+        ]);
         if ($res->failed()) {
             return McpToolResult::fail("HTTP {$res->status()}: ".mb_substr($res->body(), 0, 300));
         }
 
         $files = (array) $res->json('files', []);
-        $lines = array_map(fn ($f) => '- '.($f['name'] ?? '?').' ('.($f['id'] ?? '').', '.($f['mimeType'] ?? '').')', $files);
+        $lines = array_map(fn ($f) => '- '.($f['name'] ?? '?').' ('.($f['id'] ?? '').') '.($f['webViewLink'] ?? ''), $files);
 
         return McpToolResult::ok(count($files).' файла:'."\n".implode("\n", $lines), ['files' => $files]);
     }

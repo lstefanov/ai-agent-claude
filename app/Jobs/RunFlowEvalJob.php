@@ -3,9 +3,11 @@
 namespace App\Jobs;
 
 use App\Models\FlowEvalCase;
+use App\Models\FlowRun;
 use App\Models\FlowVersion;
 use App\Services\EvalRunnerService;
 use App\Support\ModelLevel;
+use DateTimeInterface;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -26,7 +28,8 @@ class RunFlowEvalJob implements ShouldQueue
 
     public int $timeout = 120;
 
-    public int $tries = 1;
+    /** Реална грешка проваля веднага; release-ите от дросела не се броят тук. */
+    public int $maxExceptions = 1;
 
     public function __construct(
         public readonly int $evalCaseId,
@@ -38,8 +41,26 @@ class RunFlowEvalJob implements ShouldQueue
         $this->onQueue('default');
     }
 
+    /** Позволява многото release-и от дросела (retryUntil > maxTries проверката). */
+    public function retryUntil(): DateTimeInterface
+    {
+        return now()->addHours(2);
+    }
+
     public function handle(EvalRunnerService $runner): void
     {
+        // Дросел: локалният GPU е 1 слот — твърде много паралелни eval flow-ове
+        // гладуват и удрят node timeout-а. Изчакай, ако вече текат достатъчно.
+        $max = (int) config('services.eval.max_concurrent', 3);
+        $inflight = FlowRun::where('triggered_by', 'eval')
+            ->whereIn('status', ['pending', 'running'])
+            ->count();
+        if ($inflight >= $max) {
+            $this->release(20);
+
+            return;
+        }
+
         $case = FlowEvalCase::find($this->evalCaseId);
         $version = FlowVersion::find($this->versionId);
 

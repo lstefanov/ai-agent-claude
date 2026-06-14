@@ -65,6 +65,9 @@ class EvalRunnerService
                 'eval_run_id' => $evalRun->id,
                 'eval_level' => $level->value,
                 'model_overrides' => $overrides,
+                // Eval = устойчив: timeout/провал на един възел да НЕ убива целия
+                // eval — flow-ът финализира с произведеното и judge-ът го оценява.
+                'failure_policy' => 'best_effort',
             ],
         ]);
 

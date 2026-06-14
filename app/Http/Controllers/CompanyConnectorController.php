@@ -55,11 +55,28 @@ class CompanyConnectorController extends Controller
                 'name' => $t['name'],
                 'description' => $t['description'] ?? '',
                 'writes' => (bool) ($t['writes'] ?? false),
-                'parameters' => array_keys((array) ($t['parameters'] ?? [])),
+                'parameters' => collect((array) ($t['parameters'] ?? []))->map(fn ($meta, $key) => [
+                    'key' => $key,
+                    'label' => is_array($meta) ? ($meta['label'] ?? $key) : $key,
+                    'widget' => is_array($meta) ? ($meta['widget'] ?? 'text') : 'text',
+                    'options' => is_array($meta) ? ($meta['options'] ?? null) : null,
+                    'depends_on' => is_array($meta) ? ($meta['depends_on'] ?? null) : null,
+                ])->values(),
             ])->values(),
         ]);
 
         return response()->json(['connectors' => $items]);
+    }
+
+    /** Live опции за select-параметър (Drive папки, Slack канали…). */
+    public function options(Request $request, Company $company, CompanyConnector $connector, McpClientService $mcp): JsonResponse
+    {
+        abort_unless($connector->company_id === $company->id, 404);
+
+        $source = (string) $request->query('source', '');
+        $context = (array) $request->query('context', []);
+
+        return response()->json(['options' => $mcp->listOptions($connector, $source, $context)]);
     }
 
     /** Създава API-key/bearer/basic конектор (OAuth минава през OAuthController). */

@@ -23,6 +23,12 @@ abstract class AbstractConnector implements McpConnectorInterface
         return $clone;
     }
 
+    /** Default: конекторът няма live опции. Override-ва се per source. */
+    public function listOptions(string $source, array $context = []): array
+    {
+        return [];
+    }
+
     /** @return array{name:string,description:string,parameters:array,writes:bool}|null */
     protected function toolDef(string $tool): ?array
     {

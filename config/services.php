@@ -261,6 +261,13 @@ return [
         ],
     ],
 
+    // Eval Suite — колко eval FlowRun-а текат едновременно. Локалният GPU има
+    // ОДИН слот (OLLAMA_MAX_CONCURRENT=1), затова десетки паралелни eval flow-а
+    // гладуват и удрят node timeout-а. RunFlowEvalJob дроселира до тази бройка.
+    'eval' => [
+        'max_concurrent' => (int) env('EVAL_MAX_CONCURRENT', 3),
+    ],
+
     'anthropic' => [
         'api_key' => env('ANTHROPIC_API_KEY'),
         'model' => env('ANTHROPIC_GENERATOR_MODEL', 'claude-sonnet-4-6'),

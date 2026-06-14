@@ -17,18 +17,37 @@ class GoogleSheetsConnector extends AbstractConnector
 
     public function listTools(): array
     {
+        $ss = ['label' => 'Spreadsheet ID', 'widget' => 'text'];
+        $tab = ['label' => 'Лист', 'widget' => 'select', 'options' => 'sheets_tabs', 'depends_on' => 'spreadsheet_id'];
+
         return [
             ['name' => 'sheets.read_range', 'description' => 'Чете клетки (A1 нотация, напр. Sheet1!A1:D100)', 'writes' => false,
-                'parameters' => ['spreadsheet_id' => ['type' => 'string'], 'range' => ['type' => 'string']]],
+                'parameters' => ['spreadsheet_id' => $ss, 'range' => ['label' => 'Диапазон (A1)', 'widget' => 'text']]],
             ['name' => 'sheets.get_values', 'description' => 'Всички стойности от лист', 'writes' => false,
-                'parameters' => ['spreadsheet_id' => ['type' => 'string'], 'sheet' => ['type' => 'string']]],
+                'parameters' => ['spreadsheet_id' => $ss, 'sheet' => $tab]],
             ['name' => 'sheets.append_row', 'description' => 'Добавя ред в края', 'writes' => true,
-                'parameters' => ['spreadsheet_id' => ['type' => 'string'], 'range' => ['type' => 'string'], 'values' => ['type' => 'array']]],
+                'parameters' => ['spreadsheet_id' => $ss, 'range' => $tab, 'values' => ['label' => 'Стойности (CSV ред)', 'widget' => 'textarea']]],
             ['name' => 'sheets.update_range', 'description' => 'Обновява клетки', 'writes' => true,
-                'parameters' => ['spreadsheet_id' => ['type' => 'string'], 'range' => ['type' => 'string'], 'values' => ['type' => 'array']]],
+                'parameters' => ['spreadsheet_id' => $ss, 'range' => ['label' => 'Диапазон (A1)', 'widget' => 'text'], 'values' => ['label' => 'Стойности', 'widget' => 'textarea']]],
             ['name' => 'sheets.create_sheet', 'description' => 'Нов лист в spreadsheet', 'writes' => true,
-                'parameters' => ['spreadsheet_id' => ['type' => 'string'], 'title' => ['type' => 'string']]],
+                'parameters' => ['spreadsheet_id' => $ss, 'title' => ['label' => 'Име на листа', 'widget' => 'text']]],
         ];
+    }
+
+    public function listOptions(string $source, array $context = []): array
+    {
+        if ($source !== 'sheets_tabs' || empty($context['spreadsheet_id'])) {
+            return [];
+        }
+        try {
+            $res = $this->client()->get(self::BASE.'/'.$context['spreadsheet_id'], ['fields' => 'sheets.properties.title']);
+
+            return collect((array) $res->json('sheets', []))
+                ->map(fn ($s) => ['value' => (string) ($s['properties']['title'] ?? ''), 'label' => (string) ($s['properties']['title'] ?? '')])
+                ->filter(fn ($o) => $o['value'] !== '')->values()->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     public function testConnection(): bool

@@ -195,76 +195,95 @@ class FlowEvalController extends Controller
         ]);
     }
 
-    /** Матрица version × level + scatter точки + авто-препоръка. */
+    /** Матрица ТЕСТ × НИВО за избрана версия + агрегат per ниво + scatter + препоръка. */
     public function results(Request $request, Flow $flow)
     {
         $flow->load('company');
         $versions = $flow->versions()->orderByDesc('is_active')->orderByDesc('id')->get();
-        $cases = $flow->evalCases()->where('is_active', true)->get()->keyBy('id');
 
-        $onlyVersion = $request->integer('version') ?: null;
+        // Избрана версия: ?version=, иначе активната, иначе последната.
+        $selectedId = $request->integer('version')
+            ?: ($versions->firstWhere('is_active', true)?->id ?? $versions->first()?->id);
+        $version = $versions->firstWhere('id', $selectedId);
 
-        // Последният completed eval run per (version, level, case).
+        // Последният eval run (НЕЗАВИСИМО от статус) per (case, level) за версията —
+        // така провалените/течащите клетки също се виждат (изходът е ПЪЛЕН).
         $latest = [];
-        $rows = FlowEvalRun::where('flow_id', $flow->id)
-            ->where('status', 'completed')
-            ->orderByDesc('id')
-            ->get(['id', 'flow_version_id', 'model_level', 'eval_case_id', 'score', 'cost_usd']);
-        foreach ($rows as $r) {
-            $latest[$r->flow_version_id][$r->model_level][$r->eval_case_id] ??= $r;
+        if ($version) {
+            $rows = FlowEvalRun::where('flow_id', $flow->id)
+                ->where('flow_version_id', $version->id)
+                ->orderByDesc('id')
+                ->get(['id', 'model_level', 'eval_case_id', 'status', 'score', 'cost_usd', 'error']);
+            foreach ($rows as $r) {
+                $latest[$r->eval_case_id][$r->model_level] ??= $r;
+            }
         }
 
+        // Показваме активните cases + всеки case, който има run за тази версия.
+        $allCases = $flow->evalCases()->orderBy('id')->get();
+        $displayIds = $allCases->where('is_active', true)->pluck('id')
+            ->merge(array_keys($latest))->unique();
+        $cases = $allCases->whereIn('id', $displayIds)->values();
+
         $matrix = [];
+        foreach ($cases as $case) {
+            foreach (self::LEVELS as $level) {
+                $r = $latest[$case->id][$level] ?? null;
+                $matrix[$case->id][$level] = $r ? [
+                    'status' => $r->status,
+                    'score' => $r->status === 'completed' && $r->score !== null ? round((float) $r->score, 1) : null,
+                    'cost' => round((float) $r->cost_usd, 4),
+                    'run_id' => $r->id,
+                    'error' => $r->error,
+                ] : null;
+            }
+        }
+
+        // Агрегат per НИВО (среднопретеглено по case.weight, само завършените) +
+        // покритие, и по една scatter точка на ниво.
+        $activeCases = $cases->where('is_active', true);
+        $aggregate = [];
         $points = [];
-        foreach ($versions as $version) {
-            if ($onlyVersion && $version->id !== $onlyVersion) {
+        foreach (self::LEVELS as $level) {
+            $sumScore = 0.0;
+            $sumCost = 0.0;
+            $weightTotal = 0.0;
+            $done = 0;
+            foreach ($activeCases as $case) {
+                $cell = $matrix[$case->id][$level] ?? null;
+                if (! $cell || $cell['status'] !== 'completed') {
+                    continue;
+                }
+                $weight = (float) ($case->weight ?: 1.0);
+                $sumScore += (float) $cell['score'] * $weight;
+                $sumCost += (float) $cell['cost'];
+                $weightTotal += $weight;
+                $done++;
+            }
+            if ($weightTotal <= 0) {
                 continue;
             }
-            foreach (self::LEVELS as $level) {
-                $perCase = $latest[$version->id][$level] ?? [];
-                if ($perCase === []) {
-                    continue;
-                }
-
-                $sumScore = 0.0;
-                $sumCost = 0.0;
-                $weightTotal = 0.0;
-                $runIds = [];
-                foreach ($perCase as $caseId => $run) {
-                    $weight = (float) ($cases[$caseId]->weight ?? 1.0);
-                    $sumScore += (float) $run->score * $weight;
-                    $sumCost += (float) $run->cost_usd;
-                    $weightTotal += $weight;
-                    $runIds[$caseId] = $run->id;
-                }
-                if ($weightTotal <= 0) {
-                    continue;
-                }
-
-                $score = round($sumScore / $weightTotal, 1);
-                $cost = round($sumCost / max(1, count($perCase)), 4);
-                $matrix[$version->id][$level] = [
-                    'score' => $score,
-                    'cost' => $cost,
-                    'cases' => count($perCase),
-                    'run_id' => reset($runIds) ?: null,
-                ];
-                $points[] = [
-                    'label' => $version->name.' / '.$level,
-                    'version_id' => $version->id,
-                    'version_name' => $version->name,
-                    'level' => $level,
-                    'score' => $score,
-                    'cost' => $cost,
-                ];
-            }
+            $score = round($sumScore / $weightTotal, 1);
+            $cost = round($sumCost / max(1, $done), 4);
+            $aggregate[$level] = ['score' => $score, 'cost' => $cost, 'done' => $done, 'total' => $activeCases->count()];
+            $points[] = [
+                'label' => strtoupper($level),
+                'level' => $level,
+                'version_id' => $version?->id,
+                'version_name' => $version?->name ?? '',
+                'score' => $score,
+                'cost' => $cost,
+            ];
         }
 
         return view('flows.eval.results', [
             'flow' => $flow,
-            'versions' => $versions->when($onlyVersion, fn ($c) => $c->where('id', $onlyVersion)->values()),
+            'versions' => $versions,
+            'version' => $version,
+            'cases' => $cases,
             'levels' => self::LEVELS,
             'matrix' => $matrix,
+            'aggregate' => $aggregate,
             'points' => $points,
             'recommendation' => $this->runner->recommend($points),
         ]);

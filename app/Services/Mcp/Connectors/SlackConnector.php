@@ -17,16 +17,47 @@ class SlackConnector extends AbstractConnector
     {
         return [
             ['name' => 'slack.list_channels', 'description' => 'Наличните канали', 'writes' => false,
-                'parameters' => ['limit' => ['type' => 'integer']]],
+                'parameters' => ['limit' => ['label' => 'Брой', 'widget' => 'text']]],
             ['name' => 'slack.list_messages', 'description' => 'Последни N съобщения от канал', 'writes' => false,
-                'parameters' => ['channel' => ['type' => 'string'], 'limit' => ['type' => 'integer']]],
+                'parameters' => [
+                    'channel' => ['label' => 'Канал', 'widget' => 'select', 'options' => 'slack_channels'],
+                    'limit' => ['label' => 'Брой', 'widget' => 'text'],
+                ]],
             ['name' => 'slack.post_message', 'description' => 'Публикува в канал', 'writes' => true,
-                'parameters' => ['channel' => ['type' => 'string'], 'text' => ['type' => 'string']]],
+                'parameters' => [
+                    'channel' => ['label' => 'Канал', 'widget' => 'select', 'options' => 'slack_channels'],
+                    'text' => ['label' => 'Текст', 'widget' => 'textarea'],
+                ]],
             ['name' => 'slack.create_thread', 'description' => 'Отговор в нишка', 'writes' => true,
-                'parameters' => ['channel' => ['type' => 'string'], 'thread_ts' => ['type' => 'string'], 'text' => ['type' => 'string']]],
+                'parameters' => [
+                    'channel' => ['label' => 'Канал', 'widget' => 'select', 'options' => 'slack_channels'],
+                    'thread_ts' => ['label' => 'Thread ts', 'widget' => 'text'],
+                    'text' => ['label' => 'Текст', 'widget' => 'textarea'],
+                ]],
             ['name' => 'slack.upload_file', 'description' => 'Прикачва текстов файл', 'writes' => true,
-                'parameters' => ['channel' => ['type' => 'string'], 'content' => ['type' => 'string'], 'filename' => ['type' => 'string'], 'title' => ['type' => 'string']]],
+                'parameters' => [
+                    'channel' => ['label' => 'Канал', 'widget' => 'select', 'options' => 'slack_channels'],
+                    'content' => ['label' => 'Съдържание', 'widget' => 'textarea'],
+                    'filename' => ['label' => 'Име на файл', 'widget' => 'text'],
+                    'title' => ['label' => 'Заглавие', 'widget' => 'text'],
+                ]],
         ];
+    }
+
+    public function listOptions(string $source, array $context = []): array
+    {
+        if ($source !== 'slack_channels') {
+            return [];
+        }
+        try {
+            $json = $this->call('conversations.list', ['limit' => 200, 'exclude_archived' => true], true);
+
+            return collect((array) ($json['channels'] ?? []))
+                ->map(fn ($c) => ['value' => (string) ($c['id'] ?? ''), 'label' => '#'.($c['name'] ?? '?')])
+                ->values()->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     public function testConnection(): bool

@@ -1556,7 +1556,7 @@
                             </div>
 
                             {{-- MCP Действие: конфигурация на действие в свързана система --}}
-                            <div x-show="selected.type === 'mcp_action'" class="border border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-4">
+                            <div x-show="selected.type === 'mcp_action'" x-effect="mcpFormEffect()" class="border border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-4">
                                 <div class="flex items-center gap-2">
                                     <span class="text-lg">🔌</span>
                                     <h4 class="font-semibold text-gray-800 text-sm">MCP Действие</h4>
@@ -1570,10 +1570,10 @@
                                 </template>
 
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-500 mb-1">Конектор</label>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1">Изпрати ОТ / акаунт</label>
                                     <select x-model.number="selected.config.connector_id" @change="onMcpConnectorChange()" :disabled="modalReadOnly"
                                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                        <option value="">— избери —</option>
+                                        <option value="">— избери акаунт —</option>
                                         <template x-for="c in mcpConnectors" :key="c.id">
                                             <option :value="c.id" x-text="c.name + ' (' + c.type + ')'"></option>
                                         </template>
@@ -1593,21 +1593,70 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-500 mb-1">Параметри</label>
-                                    <p class="text-xs text-gray-400 mb-2">Стойностите поддържат <code>@{{flow.input.X}}</code>, <code>@{{agent.Възел.output}}</code>, <code>@{{connector.setting.X}}</code>, <code>@{{date:Y-m-d}}</code>.</p>
-                                    <template x-for="(val, key) in (selected.config.tool_params || {})" :key="key">
-                                        <div class="flex items-center gap-2 mb-2">
-                                            <span class="text-xs font-mono text-gray-600 w-32 shrink-0 truncate" x-text="key"></span>
-                                            <input type="text" :value="val" @input="selected.config.tool_params[key] = $event.target.value" :disabled="modalReadOnly"
-                                                   class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                            <button type="button" @click="removeMcpParam(key)" class="text-gray-400 hover:text-red-600 text-sm">✕</button>
+                                    <div class="flex items-center justify-between mb-1">
+                                        <label class="block text-xs font-medium text-gray-500">Параметри</label>
+                                        <button type="button" @click="mcpAdvanced = !mcpAdvanced" class="text-xs text-indigo-600 hover:underline"
+                                                x-text="mcpAdvanced ? 'Опростено' : 'Разширено'"></button>
+                                    </div>
+                                    <p class="text-xs text-gray-400 mb-2">Може да ползваш <code>@{{flow.input.X}}</code>, <code>@{{agent.Възел.output}}</code>, <code>@{{date:Y-m-d}}</code>.</p>
+
+                                    {{-- Водена форма по схемата на действието --}}
+                                    <template x-if="!mcpAdvanced && mcpToolParams().length">
+                                        <div class="space-y-3">
+                                            <template x-for="p in mcpToolParams()" :key="p.key">
+                                                <div>
+                                                    <label class="block text-xs text-gray-600 mb-1" x-text="p.label"></label>
+                                                    <template x-if="p.widget === 'textarea'">
+                                                        <textarea :value="selected.config.tool_params[p.key] || ''" @input="setMcpParam(p.key, $event.target.value)" :disabled="modalReadOnly" rows="3"
+                                                                  class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                                                    </template>
+                                                    <template x-if="p.widget === 'select'">
+                                                        <div>
+                                                            <div class="flex items-center gap-2" x-show="!mcpManual[p.key]">
+                                                                <select :value="selected.config.tool_params[p.key] || ''" @change="setMcpParam(p.key, $event.target.value); refreshDependents(p.key)" :disabled="modalReadOnly"
+                                                                        class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                                    <option value="">— избери —</option>
+                                                                    <template x-for="o in (mcpOptions[p.key] || [])" :key="o.value">
+                                                                        <option :value="o.value" x-text="o.label"></option>
+                                                                    </template>
+                                                                </select>
+                                                                <button type="button" @click="mcpManual[p.key] = true" class="text-xs text-gray-400 hover:text-indigo-600 shrink-0" title="Ръчно / placeholder">✎</button>
+                                                            </div>
+                                                            <div class="flex items-center gap-2" x-show="mcpManual[p.key]">
+                                                                <input type="text" :value="selected.config.tool_params[p.key] || ''" @input="setMcpParam(p.key, $event.target.value)" :disabled="modalReadOnly"
+                                                                       placeholder="ID или @{{...}}" class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                                <button type="button" @click="mcpManual[p.key] = false; loadMcpOptions(p)" class="text-xs text-gray-400 hover:text-indigo-600 shrink-0" title="Избор от списък">☰</button>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="p.widget !== 'textarea' && p.widget !== 'select'">
+                                                        <input type="text" :value="selected.config.tool_params[p.key] || ''" @input="setMcpParam(p.key, $event.target.value)" :disabled="modalReadOnly"
+                                                               :placeholder="p.widget === 'emails' ? 'имейл1@..., имейл2@...' : ''"
+                                                               class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                    </template>
+                                                </div>
+                                            </template>
                                         </div>
                                     </template>
-                                    <div class="flex items-center gap-2 mt-2">
-                                        <input type="text" x-model="mcpNewParamKey" placeholder="нов параметър" @keydown.enter.prevent="addMcpParam()"
-                                               class="w-40 border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
-                                        <button type="button" @click="addMcpParam()" class="text-indigo-600 hover:underline text-sm">+ добави</button>
-                                    </div>
+
+                                    {{-- Разширено: суров key/value (или ако действието няма схема) --}}
+                                    <template x-if="mcpAdvanced || !mcpToolParams().length">
+                                        <div>
+                                            <template x-for="(val, key) in (selected.config.tool_params || {})" :key="key">
+                                                <div class="flex items-center gap-2 mb-2">
+                                                    <span class="text-xs font-mono text-gray-600 w-32 shrink-0 truncate" x-text="key"></span>
+                                                    <input type="text" :value="val" @input="setMcpParam(key, $event.target.value)" :disabled="modalReadOnly"
+                                                           class="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                                    <button type="button" @click="removeMcpParam(key)" class="text-gray-400 hover:text-red-600 text-sm">✕</button>
+                                                </div>
+                                            </template>
+                                            <div class="flex items-center gap-2 mt-2">
+                                                <input type="text" x-model="mcpNewParamKey" placeholder="нов параметър" @keydown.enter.prevent="addMcpParam()"
+                                                       class="w-40 border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                                                <button type="button" @click="addMcpParam()" class="text-indigo-600 hover:underline text-sm">+ добави</button>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
 
                                 <label class="flex items-center gap-2">
@@ -2010,6 +2059,10 @@ function flowBuilder(config) {
         // MCP конектори за mcp_action node панела (активни конектори + tools).
         mcpConnectors: [],
         mcpNewParamKey: '',
+        mcpOptions: {},
+        mcpManual: {},
+        mcpAdvanced: false,
+        _mcpFormSig: '',
         templateIcons: config.templateIcons || {},
         typeIconFallbacks: {
             researcher: '🔎',
@@ -2202,18 +2255,55 @@ function flowBuilder(config) {
             if (!this.selected || this.selected.type !== 'mcp_action') return null;
             return this.mcpToolsFor(this.selected.config?.connector_id).find(t => t.name === this.selected.config?.tool) || null;
         },
+        mcpToolParams() {
+            return this.mcpSelectedTool()?.parameters || [];
+        },
+        setMcpParam(key, value) {
+            if (!this.selected.config.tool_params) this.selected.config.tool_params = {};
+            this.selected.config.tool_params[key] = value;
+        },
         onMcpConnectorChange() {
             if (!this.selected.config) this.selected.config = {};
             this.selected.config.tool = '';
             this.selected.config.tool_params = {};
+            this.mcpOptions = {}; this.mcpManual = {}; this._mcpFormSig = '';
         },
         onMcpToolChange() {
             if (!this.selected.config) this.selected.config = {};
             const tool = this.mcpSelectedTool();
             const params = {};
-            (tool?.parameters || []).forEach(k => { params[k] = this.selected.config.tool_params?.[k] || ''; });
+            (tool?.parameters || []).forEach(p => { params[p.key] = this.selected.config.tool_params?.[p.key] || ''; });
             this.selected.config.tool_params = params;
             this.selected.config.requires_approval = !!tool?.writes;
+            this.mcpOptions = {}; this.mcpManual = {}; this._mcpFormSig = '';
+        },
+        // x-effect: при показване/смяна на mcp_action node зарежда live опциите.
+        mcpFormEffect() {
+            if (!this.selected || this.selected.type !== 'mcp_action') return;
+            const sig = (this.selected.config?.connector_id || '') + '|' + (this.selected.config?.tool || '');
+            if (sig === this._mcpFormSig) return;
+            this._mcpFormSig = sig;
+            this.mcpToolParams()
+                .filter(p => p.widget === 'select' && p.options && (!p.depends_on || this.selected.config?.tool_params?.[p.depends_on]))
+                .forEach(p => this.loadMcpOptions(p));
+        },
+        loadMcpOptions(p) {
+            const cid = this.selected.config?.connector_id;
+            if (!cid || !p.options) return;
+            let url = `${config.connectorsUrl}/${cid}/options?source=${encodeURIComponent(p.options)}`;
+            if (p.depends_on) {
+                url += `&context[${p.depends_on}]=${encodeURIComponent(this.selected.config?.tool_params?.[p.depends_on] || '')}`;
+            }
+            fetch(url, { headers: { 'Accept': 'application/json' } })
+                .then(r => r.json())
+                .then(j => { this.mcpOptions[p.key] = j.options || []; })
+                .catch(() => { this.mcpOptions[p.key] = []; });
+        },
+        refreshDependents(parentKey) {
+            this.mcpToolParams().filter(p => p.depends_on === parentKey).forEach(p => {
+                this.setMcpParam(p.key, '');
+                this.loadMcpOptions(p);
+            });
         },
         addMcpParam() {
             const key = (this.mcpNewParamKey || '').trim();

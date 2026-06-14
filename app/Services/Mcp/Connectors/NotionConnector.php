@@ -14,16 +14,41 @@ class NotionConnector extends AbstractConnector
 {
     public function listTools(): array
     {
+        $db = ['label' => 'База (database)', 'widget' => 'select', 'options' => 'notion_databases'];
+
         return [
             ['name' => 'notion.query_database', 'description' => 'Query на Notion database с филтри/сортиране', 'writes' => false,
-                'parameters' => ['database_id' => ['type' => 'string'], 'filter' => ['type' => 'object'], 'sorts' => ['type' => 'array'], 'page_size' => ['type' => 'integer']]],
+                'parameters' => ['database_id' => $db, 'page_size' => ['label' => 'Брой', 'widget' => 'text']]],
             ['name' => 'notion.get_page_content', 'description' => 'Чете текстовото съдържание на страница', 'writes' => false,
-                'parameters' => ['page_id' => ['type' => 'string']]],
+                'parameters' => ['page_id' => ['label' => 'Page ID', 'widget' => 'text']]],
             ['name' => 'notion.create_page', 'description' => 'Нова страница в database/страница', 'writes' => true,
-                'parameters' => ['database_id' => ['type' => 'string'], 'page_id' => ['type' => 'string'], 'title' => ['type' => 'string'], 'title_property' => ['type' => 'string'], 'properties' => ['type' => 'object'], 'content' => ['type' => 'string']]],
+                'parameters' => [
+                    'database_id' => $db,
+                    'title' => ['label' => 'Заглавие', 'widget' => 'text'],
+                    'title_property' => ['label' => 'Title property (по избор, default Name)', 'widget' => 'text'],
+                    'content' => ['label' => 'Съдържание', 'widget' => 'textarea'],
+                ]],
             ['name' => 'notion.update_page', 'description' => 'Обновява properties на страница', 'writes' => true,
-                'parameters' => ['page_id' => ['type' => 'string'], 'properties' => ['type' => 'object']]],
+                'parameters' => ['page_id' => ['label' => 'Page ID', 'widget' => 'text'], 'properties' => ['label' => 'Properties (JSON)', 'widget' => 'textarea']]],
         ];
+    }
+
+    public function listOptions(string $source, array $context = []): array
+    {
+        if ($source !== 'notion_databases') {
+            return [];
+        }
+        try {
+            $res = $this->client()->post('/search', ['filter' => ['property' => 'object', 'value' => 'database'], 'page_size' => 100]);
+
+            return collect((array) $res->json('results', []))
+                ->map(fn ($d) => [
+                    'value' => (string) ($d['id'] ?? ''),
+                    'label' => (string) ($d['title'][0]['plain_text'] ?? ($d['id'] ?? '?')),
+                ])->values()->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     public function testConnection(): bool

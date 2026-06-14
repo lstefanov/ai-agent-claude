@@ -14,6 +14,15 @@ interface McpConnectorInterface
     /** Изпълнява един tool call. */
     public function callTool(string $tool, array $params): McpToolResult;
 
+    /**
+     * Live опции за select-параметър в builder-а (Drive папки, Slack канали…).
+     * $context носи стойностите на родителски параметри (напр. folder_id за
+     * списък с файлове).
+     *
+     * @return array<int, array{value:string, label:string}>
+     */
+    public function listOptions(string $source, array $context = []): array;
+
     /** Проверява дали credentials са валидни (лек read-only ping). */
     public function testConnection(): bool;
 

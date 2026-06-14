@@ -71,20 +71,20 @@
                     <span class="font-semibold text-gray-800 text-sm" x-text="t.label"></span>
                 </div>
                 <div class="text-xs text-gray-400 mb-3" x-text="t.hint"></div>
-                <div class="mt-auto">
-                    <template x-if="isConnected(t.type)">
-                        <span class="inline-flex items-center gap-1 text-sm text-green-600 font-medium">✓ Свързан</span>
-                    </template>
-                    <template x-if="!isConnected(t.type) && t.auth === 'oauth2'">
+                <div class="mt-auto space-y-1.5">
+                    <span x-show="connectedCount(t.type)" class="block text-xs text-green-600 font-medium">
+                        ✓ <span x-text="connectedCount(t.type)"></span> свързан(и)
+                    </span>
+                    <template x-if="t.auth === 'oauth2'">
                         <a :href="oauthUrl(t)"
                            class="block text-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg">
-                            <span x-text="t.provider === 'google' ? 'Свържи с Google' : 'Свържи'"></span>
+                            <span x-text="connectedCount(t.type) ? '+ Нов акаунт' : (t.provider === 'google' ? 'Свържи с Google' : 'Свържи')"></span>
                         </a>
                     </template>
-                    <template x-if="!isConnected(t.type) && t.auth !== 'oauth2'">
+                    <template x-if="t.auth !== 'oauth2'">
                         <button @click="openApiKey(t)"
                                 class="w-full bg-white border border-gray-300 hover:border-indigo-400 text-gray-700 text-sm font-medium px-3 py-1.5 rounded-lg">
-                            Добави ключ
+                            <span x-text="connectedCount(t.type) ? '+ Добави още' : 'Добави ключ'"></span>
                         </button>
                     </template>
                 </div>
@@ -190,6 +190,7 @@ function companyConnectors(config) {
         },
 
         isConnected(type) { return this.connectors.some(c => c.connector_type === type); },
+        connectedCount(type) { return this.connectors.filter(c => c.connector_type === type).length; },
 
         oauthUrl(t) {
             if (t.provider === 'google') return `${this.config.googleRedirect}?service=${t.service}`;

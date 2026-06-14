@@ -149,6 +149,7 @@ Route::prefix('companies/{company}/connectors')->name('companies.connectors.')->
     Route::delete('{connector}', [CompanyConnectorController::class, 'destroy'])->name('destroy');
     Route::post('{connector}/test', [CompanyConnectorController::class, 'test'])->name('test');
     Route::get('{connector}/logs', [CompanyConnectorController::class, 'logs'])->name('logs');
+    Route::get('{connector}/options', [CompanyConnectorController::class, 'options'])->name('options');
 });
 
 // OAuth (Socialite/Http) — Google (Gmail/Sheets/Drive) + Slack. Callback-ите са

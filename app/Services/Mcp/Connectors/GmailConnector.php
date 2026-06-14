@@ -4,6 +4,7 @@ namespace App\Services\Mcp\Connectors;
 
 use App\Services\Mcp\McpToolResult;
 use App\Services\Mcp\ScopeException;
+use App\Services\Mcp\SsrfGuard;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -29,18 +30,58 @@ class GmailConnector extends AbstractConnector
     {
         return [
             ['name' => 'gmail.list_emails', 'description' => 'Последни N имейли с филтри (q, label)', 'writes' => false,
-                'parameters' => ['query' => ['type' => 'string'], 'label' => ['type' => 'string'], 'max' => ['type' => 'integer']]],
+                'parameters' => [
+                    'query' => ['label' => 'Филтър (напр. is:unread subject:Запитване)', 'widget' => 'text'],
+                    'label' => ['label' => 'Label', 'widget' => 'select', 'options' => 'gmail_labels'],
+                    'max' => ['label' => 'Брой имейли', 'widget' => 'text'],
+                ]],
             ['name' => 'gmail.get_email', 'description' => 'Пълно съдържание по message_id', 'writes' => false,
-                'parameters' => ['message_id' => ['type' => 'string']]],
+                'parameters' => ['message_id' => ['label' => 'Message ID', 'widget' => 'text']]],
             ['name' => 'gmail.send_email', 'description' => 'Изпраща имейл', 'writes' => true,
-                'parameters' => ['to' => ['type' => 'string'], 'subject' => ['type' => 'string'], 'body' => ['type' => 'string'], 'cc' => ['type' => 'string']]],
+                'parameters' => [
+                    'to' => ['label' => 'До (имейли, през запетая)', 'widget' => 'emails'],
+                    'cc' => ['label' => 'Копие (CC)', 'widget' => 'emails'],
+                    'subject' => ['label' => 'Тема', 'widget' => 'text'],
+                    'body' => ['label' => 'Текст', 'widget' => 'textarea'],
+                    'attachment_url' => ['label' => 'Прикачи файл по URL (по избор)', 'widget' => 'text'],
+                ]],
             ['name' => 'gmail.create_draft', 'description' => 'Създава чернова (без изпращане)', 'writes' => true,
-                'parameters' => ['to' => ['type' => 'string'], 'subject' => ['type' => 'string'], 'body' => ['type' => 'string'], 'cc' => ['type' => 'string']]],
+                'parameters' => [
+                    'to' => ['label' => 'До (имейли, през запетая)', 'widget' => 'emails'],
+                    'cc' => ['label' => 'Копие (CC)', 'widget' => 'emails'],
+                    'subject' => ['label' => 'Тема', 'widget' => 'text'],
+                    'body' => ['label' => 'Текст', 'widget' => 'textarea'],
+                ]],
             ['name' => 'gmail.reply', 'description' => 'Отговаря на нишка', 'writes' => true,
-                'parameters' => ['thread_id' => ['type' => 'string'], 'to' => ['type' => 'string'], 'subject' => ['type' => 'string'], 'body' => ['type' => 'string']]],
+                'parameters' => [
+                    'thread_id' => ['label' => 'Thread ID', 'widget' => 'text'],
+                    'to' => ['label' => 'До', 'widget' => 'emails'],
+                    'subject' => ['label' => 'Тема', 'widget' => 'text'],
+                    'body' => ['label' => 'Текст', 'widget' => 'textarea'],
+                ]],
             ['name' => 'gmail.label_email', 'description' => 'Добавя/маха label', 'writes' => true,
-                'parameters' => ['message_id' => ['type' => 'string'], 'add' => ['type' => 'array'], 'remove' => ['type' => 'array']]],
+                'parameters' => [
+                    'message_id' => ['label' => 'Message ID', 'widget' => 'text'],
+                    'add' => ['label' => 'Добави label', 'widget' => 'select', 'options' => 'gmail_labels'],
+                    'remove' => ['label' => 'Махни label', 'widget' => 'select', 'options' => 'gmail_labels'],
+                ]],
         ];
+    }
+
+    public function listOptions(string $source, array $context = []): array
+    {
+        if ($source !== 'gmail_labels') {
+            return [];
+        }
+        try {
+            $labels = (array) $this->client()->get('/labels')->json('labels', []);
+
+            return collect($labels)
+                ->map(fn ($l) => ['value' => (string) ($l['id'] ?? ''), 'label' => (string) ($l['name'] ?? '')])
+                ->values()->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     public function testConnection(): bool
@@ -221,18 +262,34 @@ class GmailConnector extends AbstractConnector
         $subject = (string) ($params['subject'] ?? '');
         $body = (string) ($params['body'] ?? '');
 
-        $headers = [
-            "To: {$to}",
-            'Subject: =?UTF-8?B?'.base64_encode($subject).'?=',
-            'MIME-Version: 1.0',
-            'Content-Type: text/plain; charset="UTF-8"',
-            'Content-Transfer-Encoding: base64',
-        ];
+        $baseHeaders = ["To: {$to}", 'Subject: =?UTF-8?B?'.base64_encode($subject).'?=', 'MIME-Version: 1.0'];
         if (! empty($params['cc'])) {
-            array_splice($headers, 1, 0, 'Cc: '.(string) $params['cc']);
+            $baseHeaders[] = 'Cc: '.(string) $params['cc'];
         }
 
-        $mime = implode("\r\n", $headers)."\r\n\r\n".chunk_split(base64_encode($body));
+        // Опционален attachment по URL (напр. Drive снимка). SSRF-guard-нато сваляне.
+        $attachment = null;
+        if (! empty($params['attachment_url'])) {
+            try {
+                $attachment = SsrfGuard::download((string) $params['attachment_url']);
+            } catch (\Throwable) {
+                $attachment = null;
+            }
+        }
+
+        if ($attachment === null) {
+            $headers = array_merge($baseHeaders, ['Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64']);
+            $mime = implode("\r\n", $headers)."\r\n\r\n".chunk_split(base64_encode($body));
+        } else {
+            [$mimeType, $binary] = $attachment;
+            $filename = basename((string) (parse_url((string) $params['attachment_url'], PHP_URL_PATH) ?: 'attachment')) ?: 'attachment';
+            $boundary = 'mcp'.bin2hex(random_bytes(8));
+            $headers = array_merge($baseHeaders, ['Content-Type: multipart/mixed; boundary="'.$boundary.'"']);
+            $mime = implode("\r\n", $headers)."\r\n\r\n"
+                ."--{$boundary}\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($body))."\r\n"
+                ."--{$boundary}\r\nContent-Type: {$mimeType}\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"{$filename}\"\r\n\r\n".chunk_split(base64_encode($binary))."\r\n"
+                ."--{$boundary}--";
+        }
 
         return rtrim(strtr(base64_encode($mime), '+/', '-_'), '=');
     }

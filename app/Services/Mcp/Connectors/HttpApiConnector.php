@@ -3,8 +3,8 @@
 namespace App\Services\Mcp\Connectors;
 
 use App\Services\Mcp\McpToolResult;
+use App\Services\Mcp\SsrfGuard;
 use Illuminate\Support\Facades\Http;
-use InvalidArgumentException;
 
 /**
  * Generic HTTP API конектор (Bearer/API-key/Basic). SSRF guard от
@@ -16,17 +16,18 @@ class HttpApiConnector extends AbstractConnector
 {
     public function listTools(): array
     {
-        $urlParam = ['url' => ['type' => 'string', 'description' => 'Пълен https URL']];
+        $url = ['url' => ['label' => 'URL (https)', 'widget' => 'text']];
+        $body = ['body' => ['label' => 'Body (JSON или текст)', 'widget' => 'textarea'], 'headers' => ['label' => 'Headers (JSON)', 'widget' => 'text']];
 
         return [
             ['name' => 'http_api.get', 'description' => 'GET заявка към външен endpoint', 'writes' => false,
-                'parameters' => $urlParam + ['query' => ['type' => 'object', 'description' => 'query параметри']]],
+                'parameters' => $url + ['query' => ['label' => 'Query (JSON)', 'widget' => 'text']]],
             ['name' => 'http_api.post', 'description' => 'POST заявка с JSON body', 'writes' => true,
-                'parameters' => $urlParam + ['body' => ['type' => 'object'], 'headers' => ['type' => 'object']]],
+                'parameters' => $url + $body],
             ['name' => 'http_api.put', 'description' => 'PUT заявка с JSON body', 'writes' => true,
-                'parameters' => $urlParam + ['body' => ['type' => 'object'], 'headers' => ['type' => 'object']]],
+                'parameters' => $url + $body],
             ['name' => 'http_api.patch', 'description' => 'PATCH заявка с JSON body', 'writes' => true,
-                'parameters' => $urlParam + ['body' => ['type' => 'object'], 'headers' => ['type' => 'object']]],
+                'parameters' => $url + $body],
         ];
     }
 
@@ -58,7 +59,7 @@ class HttpApiConnector extends AbstractConnector
 
         $url = trim((string) ($params['url'] ?? ''));
         try {
-            $this->guardUrl($url);
+            SsrfGuard::assert($url);
         } catch (\Throwable $e) {
             return McpToolResult::fail($e->getMessage());
         }
@@ -116,100 +117,5 @@ class HttpApiConnector extends AbstractConnector
             'api_key' => ! empty($c['header']) ? [$c['header'] => (string) ($c['value'] ?? $c['token'] ?? '')] : [],
             default => [],
         };
-    }
-
-    /** @throws InvalidArgumentException при нарушение на SSRF политиката */
-    private function guardUrl(string $url): void
-    {
-        $cfg = config('mcp.http_api');
-        $parts = parse_url($url);
-        if ($parts === false || empty($parts['scheme']) || empty($parts['host'])) {
-            throw new InvalidArgumentException("Невалиден URL: {$url}");
-        }
-
-        $scheme = strtolower($parts['scheme']);
-        if (! in_array($scheme, $cfg['allowed_schemes'], true)) {
-            throw new InvalidArgumentException("Забранена схема ({$scheme}) — позволени: ".implode(', ', $cfg['allowed_schemes']));
-        }
-
-        $host = strtolower(trim($parts['host'], '[]'));
-        if (in_array($host, array_map('strtolower', (array) $cfg['blocked_hosts']), true)) {
-            throw new InvalidArgumentException("Блокиран host: {$host}");
-        }
-
-        if (! empty($cfg['allowed_domains'])) {
-            $ok = false;
-            foreach ($cfg['allowed_domains'] as $d) {
-                $d = strtolower($d);
-                if ($host === $d || str_ends_with($host, '.'.$d)) {
-                    $ok = true;
-                    break;
-                }
-            }
-            if (! $ok) {
-                throw new InvalidArgumentException("Домейнът не е в allowed_domains: {$host}");
-            }
-        }
-
-        foreach ($this->resolveIps($host) as $ip) {
-            foreach ((array) $cfg['blocked_cidrs'] as $cidr) {
-                if ($this->ipInCidr($ip, $cidr)) {
-                    throw new InvalidArgumentException("Блокиран вътрешен адрес ({$ip}) за host {$host}");
-                }
-            }
-        }
-    }
-
-    /** @return string[] */
-    private function resolveIps(string $host): array
-    {
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            return [$host];
-        }
-
-        $ips = [];
-        $v4 = @gethostbynamel($host);
-        if (is_array($v4)) {
-            $ips = array_merge($ips, $v4);
-        }
-        $aaaa = @dns_get_record($host, DNS_AAAA);
-        if (is_array($aaaa)) {
-            foreach ($aaaa as $rec) {
-                if (! empty($rec['ipv6'])) {
-                    $ips[] = $rec['ipv6'];
-                }
-            }
-        }
-
-        return $ips;
-    }
-
-    private function ipInCidr(string $ip, string $cidr): bool
-    {
-        if (! str_contains($cidr, '/')) {
-            return $ip === $cidr;
-        }
-
-        [$subnet, $bits] = explode('/', $cidr, 2);
-        $bits = (int) $bits;
-        $ipBin = @inet_pton($ip);
-        $subnetBin = @inet_pton($subnet);
-        if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
-            return false; // различни IP фамилии
-        }
-
-        $bytes = intdiv($bits, 8);
-        $remainder = $bits % 8;
-        if ($bytes > 0 && strncmp($ipBin, $subnetBin, $bytes) !== 0) {
-            return false;
-        }
-        if ($remainder > 0) {
-            $mask = 0xFF << (8 - $remainder) & 0xFF;
-            if ((ord($ipBin[$bytes]) & $mask) !== (ord($subnetBin[$bytes]) & $mask)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

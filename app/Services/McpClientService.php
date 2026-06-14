@@ -96,6 +96,25 @@ class McpClientService
         }
     }
 
+    /** Live опции за select-параметър (Drive папки, Slack канали…) — за builder-а. */
+    public function listOptions(CompanyConnector $connector, string $source, array $context = []): array
+    {
+        if ($connector->needsRefresh()) {
+            try {
+                $this->refreshOAuthToken($connector);
+            } catch (\Throwable) {
+            }
+        }
+
+        try {
+            return $this->resolve($connector)->listOptions($source, $context);
+        } catch (\Throwable $e) {
+            Log::warning("[MCP] listOptions fail ({$connector->connector_type}/{$source}): {$e->getMessage()}");
+
+            return [];
+        }
+    }
+
     /** Тества връзката + ъпдейтва статуса на конектора. */
     public function testConnection(CompanyConnector $connector): bool
     {

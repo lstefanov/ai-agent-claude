@@ -14,16 +14,40 @@ class AirtableConnector extends AbstractConnector
 {
     public function listTools(): array
     {
+        $base = ['label' => 'База', 'widget' => 'select', 'options' => 'airtable_bases'];
+        $table = ['label' => 'Таблица', 'widget' => 'select', 'options' => 'airtable_tables', 'depends_on' => 'base_id'];
+
         return [
             ['name' => 'airtable.list_records', 'description' => 'Записи от таблица (с филтър/изглед)', 'writes' => false,
-                'parameters' => ['base_id' => ['type' => 'string'], 'table' => ['type' => 'string'], 'max_records' => ['type' => 'integer'], 'view' => ['type' => 'string'], 'filter_by_formula' => ['type' => 'string']]],
+                'parameters' => ['base_id' => $base, 'table' => $table, 'max_records' => ['label' => 'Брой', 'widget' => 'text'], 'view' => ['label' => 'Изглед', 'widget' => 'text'], 'filter_by_formula' => ['label' => 'Формула филтър', 'widget' => 'text']]],
             ['name' => 'airtable.find_records', 'description' => 'Търси записи по стойност на поле', 'writes' => false,
-                'parameters' => ['base_id' => ['type' => 'string'], 'table' => ['type' => 'string'], 'field' => ['type' => 'string'], 'value' => ['type' => 'string']]],
+                'parameters' => ['base_id' => $base, 'table' => $table, 'field' => ['label' => 'Поле', 'widget' => 'text'], 'value' => ['label' => 'Стойност', 'widget' => 'text']]],
             ['name' => 'airtable.create_record', 'description' => 'Нов запис', 'writes' => true,
-                'parameters' => ['base_id' => ['type' => 'string'], 'table' => ['type' => 'string'], 'fields' => ['type' => 'object']]],
+                'parameters' => ['base_id' => $base, 'table' => $table, 'fields' => ['label' => 'Полета (JSON)', 'widget' => 'textarea']]],
             ['name' => 'airtable.update_record', 'description' => 'Обновява поле/та на запис', 'writes' => true,
-                'parameters' => ['base_id' => ['type' => 'string'], 'table' => ['type' => 'string'], 'record_id' => ['type' => 'string'], 'fields' => ['type' => 'object']]],
+                'parameters' => ['base_id' => $base, 'table' => $table, 'record_id' => ['label' => 'Record ID', 'widget' => 'text'], 'fields' => ['label' => 'Полета (JSON)', 'widget' => 'textarea']]],
         ];
+    }
+
+    public function listOptions(string $source, array $context = []): array
+    {
+        try {
+            if ($source === 'airtable_bases') {
+                $res = $this->client()->get('https://api.airtable.com/v0/meta/bases');
+
+                return collect((array) $res->json('bases', []))
+                    ->map(fn ($b) => ['value' => (string) ($b['id'] ?? ''), 'label' => (string) ($b['name'] ?? '?')])->values()->all();
+            }
+            if ($source === 'airtable_tables' && ! empty($context['base_id'])) {
+                $res = $this->client()->get('https://api.airtable.com/v0/meta/bases/'.$context['base_id'].'/tables');
+
+                return collect((array) $res->json('tables', []))
+                    ->map(fn ($t) => ['value' => (string) ($t['name'] ?? ''), 'label' => (string) ($t['name'] ?? '?')])->values()->all();
+            }
+        } catch (\Throwable) {
+        }
+
+        return [];
     }
 
     public function testConnection(): bool

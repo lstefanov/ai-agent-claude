@@ -90,8 +90,9 @@ class GraphFlowExecutor
             ->exists();
         // Partial-failure policy: 'fail_fast' (default) cancels the run on the
         // first node error; 'best_effort' lets independent branches continue and
-        // fan-in nodes assemble from whatever predecessors completed.
-        $context['failure_policy'] = ($version->graph_layout['failure_policy'] ?? 'fail_fast') === 'best_effort'
+        // fan-in nodes assemble from whatever predecessors completed. A caller
+        // (напр. eval) може да наложи политиката през context преди dispatch.
+        $context['failure_policy'] = (($context['failure_policy'] ?? $version->graph_layout['failure_policy'] ?? 'fail_fast') === 'best_effort')
             ? 'best_effort'
             : 'fail_fast';
 
