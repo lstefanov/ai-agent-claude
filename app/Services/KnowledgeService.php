@@ -464,6 +464,50 @@ class KnowledgeService
     }
 
     /**
+     * Пълен структуриран профил на СОБСТВЕНАТА фирма — ВСИЧКИ активни факти в
+     * основните категории (без relevance филтър), за синтез/таблица нодове, които
+     * трябва да напълнят собствената колона/ред изцяло (напр. цени по зони).
+     * Без зашумени уеб-чънкове; капва се щедро (cloud модели го понасят).
+     */
+    public function ownProfileBlock(Company $company): string
+    {
+        if ($this->isEmpty($company)) {
+            return '';
+        }
+
+        $facts = $company->knowledgeFacts()
+            ->active()
+            ->whereIn('category', ['prices', 'services', 'about', 'locations', 'contacts'])
+            ->orderByRaw("FIELD(category,'prices','services','about','locations','contacts')")
+            ->orderBy('name')
+            ->get(['category', 'name', 'value', 'location']);
+        if ($facts->isEmpty()) {
+            return '';
+        }
+
+        $name = trim((string) $company->name) ?: 'нашата фирма';
+        $block = "--- ЗНАНИЕ: пълни официални данни за СОБСТВЕНАТА ти фирма «{$name}» ---\n"
+            ."Това са ДОСТОВЕРНИ данни за НАШАТА фирма (цени, услуги, условия) от базата знания.\n"
+            ."В сравнения/таблици попълвай колоната или реда за «{$name}» САМО с тези данни — "
+            ."не пиши «н/д» за нашата фирма, когато информацията е тук.\n"
+            ."ПРЕДПОЧИТАЙ тези структурирани факти пред зашумени уеб-страници.\n"
+            ."Данните за конкурентите идват от проучването (web/crawl), не оттук.\n"
+            ."Не си измисляй фирмени факти, които ги няма тук.\n";
+
+        $cap = (int) config('services.knowledge.profile_max_chars', 12000);
+        foreach ($facts as $fact) {
+            $location = $fact->location ? ' ('.$fact->location.')' : '';
+            $line = '• '.$fact->name.$location.': '.trim((string) $fact->value)."\n";
+            if (mb_strlen($block) + mb_strlen($line) > $cap) {
+                break;
+            }
+            $block .= $line;
+        }
+
+        return rtrim($block);
+    }
+
+    /**
      * Compact KB profile for the planner catalog and the builder chip.
      *
      * @return array{documents: int, pages: int, chunks: int, facts: int, folders: array<int, string>, titles: array<int, string>, by_type: array<string, int>}

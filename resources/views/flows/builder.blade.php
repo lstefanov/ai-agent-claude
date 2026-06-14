@@ -1571,7 +1571,7 @@
 
                                 <div>
                                     <label class="block text-xs font-medium text-gray-500 mb-1">Изпрати ОТ / акаунт</label>
-                                    <select x-model.number="selected.config.connector_id" @change="onMcpConnectorChange()" :disabled="modalReadOnly"
+                                    <select :value="selected.config.connector_id ?? ''" @change="selected.config.connector_id = $event.target.value ? Number($event.target.value) : ''; onMcpConnectorChange()" :disabled="modalReadOnly"
                                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                                         <option value="">— избери акаунт —</option>
                                         <template x-for="c in mcpAccounts()" :key="c.id">
@@ -1582,7 +1582,7 @@
 
                                 <div>
                                     <label class="block text-xs font-medium text-gray-500 mb-1">Действие</label>
-                                    <select x-model="selected.config.tool" @change="onMcpToolChange()" :disabled="modalReadOnly || !selected.config.connector_id"
+                                    <select :value="selected.config.tool ?? ''" @change="selected.config.tool = $event.target.value; onMcpToolChange()" :disabled="modalReadOnly || !selected.config.connector_id"
                                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50">
                                         <option value="">— избери —</option>
                                         <template x-for="t in mcpToolsFor(selected.config.connector_id)" :key="t.name">
@@ -2274,27 +2274,27 @@ function flowBuilder(config) {
             const type = tool.split('.')[0];
             return this.mcpConnectors.filter(c => c.type === type);
         },
-        // Имена на преките предшественици (съдържателни) от Drawflow графа.
-        mcpPredecessorNames() {
-            if (!this.editor || !this.selected?.id) return [];
+        // Имена на ВСИЧКИ съдържателни възли в графа (не само преки предшественици)
+        // — за да може имейл/действие да реферира доклада, дори когато прекият му
+        // предшественик е „Одобрение от човек".
+        mcpContentNodeNames() {
+            if (!this.editor) return [];
             try {
                 const data = this.editor.export()?.drawflow?.Home?.data || {};
-                const node = data[this.selected.id];
-                if (!node) return [];
-                const sources = new Set();
-                Object.values(node.inputs || {}).forEach(inp => (inp.connections || []).forEach(c => sources.add(String(c.node))));
+                const skip = new Set(['flow_start', 'flow_end', 'human_approval', 'mcp_action']);
                 const names = [];
-                sources.forEach(id => {
-                    const n = data[id]?.data || {};
-                    if (n.name && n.type !== 'flow_start' && n.type !== 'flow_end' && n.type !== 'human_approval') names.push(n.name);
+                Object.values(data).forEach(node => {
+                    const n = node?.data || {};
+                    if (n.name && !skip.has(n.type) && String(node.id) !== String(this.selected?.id)) names.push(n.name);
                 });
-                return names;
+                return [...new Set(names)];
             } catch { return []; }
         },
         mcpTagSuggestions() {
             const tags = [];
             const op = '{' + '{', cl = '}' + '}'; // избягва Blade @{{ }} обработката в <script>
-            this.mcpPredecessorNames().forEach(name => tags.push({ label: '⮤ ' + name, value: op + 'agent.' + name + '.output' + cl }));
+            tags.push({ label: '📄 Финален доклад', value: op + 'report' + cl });
+            this.mcpContentNodeNames().forEach(name => tags.push({ label: '⮤ ' + name, value: op + 'agent.' + name + '.output' + cl }));
             const keys = new Set(['topic']);
             (Array.isArray(this.runInputs) ? this.runInputs : []).forEach(i => {
                 const k = (typeof i === 'string') ? i : (i.key || i.placeholder || i.name);

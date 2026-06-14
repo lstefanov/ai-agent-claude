@@ -23,9 +23,9 @@ class McpActionAgent
     ) {}
 
     /**
-     * @param  array<string,string>  $predecessorOutputs  keyed by node_key И име
+     * @param  array<string,string>  $predecessorOutputs  изходите на завършилите възли, keyed by node_key И име
      */
-    public function run(FlowNode $node, FlowRun $run, array $predecessorOutputs, ?int $nodeRunId = null): McpToolResult
+    public function run(FlowNode $node, FlowRun $run, array $predecessorOutputs, ?int $nodeRunId = null, string $reportOutput = ''): McpToolResult
     {
         $config = (array) $node->config;
         $connectorId = (int) ($config['connector_id'] ?? 0);
@@ -52,6 +52,7 @@ class McpActionAgent
                 $predecessorOutputs,
                 (array) $connector->settings,
                 $flowSettings,
+                $reportOutput,
             );
         } catch (\Throwable $e) {
             return McpToolResult::fail("Резолюция на параметри: {$e->getMessage()}");

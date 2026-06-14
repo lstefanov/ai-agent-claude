@@ -96,8 +96,25 @@ class NodeExecutorService
             }
 
             // Human-in-the-loop: the node never executes an agent — it pauses the
-            // run until a person approves/rejects via the run UI.
+            // run until a person approves/rejects via the run UI. Exception: when
+            // every mcp_action it gates is explicitly marked requires_approval=false
+            // (the per-action checkbox unchecked), the gate is waived and the node
+            // auto-passes — so the checkbox actually controls the inserted node.
             if ($node->type === 'human_approval') {
+                if ($this->approvalWaived($node)) {
+                    RunLog::append($flowRun->id, "[MCP] {$node->name}: одобрението е прескочено — действието е маркирано без нужда от потвърждение (requires_approval=false)");
+                    $nodeRun->fill([
+                        'node_key' => $node->node_key,
+                        'status' => 'completed',
+                        'output' => 'Auto-approved: действието не изисква потвърждение.',
+                        'error' => null,
+                        'started_at' => $nodeRun->started_at ?? now(),
+                        'completed_at' => now(),
+                    ])->save();
+
+                    return;
+                }
+
                 $this->pauseForApproval($flowRun, $node, $nodeRun);
 
                 return;
@@ -213,8 +230,8 @@ class NodeExecutorService
             'started_at' => $nodeRun->started_at ?? now(),
         ])->save();
 
-        $predecessors = $this->mcpPredecessorOutputs($flowRun, $node);
-        $result = app(McpActionAgent::class)->run($node, $flowRun, $predecessors, $nodeRun->id);
+        $outputs = $this->mcpRunOutputs($flowRun, $node);
+        $result = app(McpActionAgent::class)->run($node, $flowRun, $outputs, $nodeRun->id, $this->finalReportOutput($flowRun));
         $durationMs = (int) ((microtime(true) - $started) * 1000);
 
         if ($result->success) {
@@ -245,6 +262,40 @@ class NodeExecutorService
         }
     }
 
+    /**
+     * Дали одобрението е waive-нато: всеки mcp_action, който този „Одобрение от
+     * човек" възел гейтва (пряк наследник), е ИЗРИЧНО маркиран
+     * requires_approval=false. Така отметката „изисква потвърждение" в имейл/
+     * action-нода реално управлява авто-вмъкнатия approval възел — без редакция
+     * на графа. Generic approval без mcp_action наследник никога не се waive-ва.
+     */
+    private function approvalWaived(FlowNode $node): bool
+    {
+        $downstreamKeys = FlowEdge::where('flow_version_id', $node->flow_version_id)
+            ->where('from_node_key', $node->node_key)
+            ->pluck('to_node_key')
+            ->all();
+        if (empty($downstreamKeys)) {
+            return false;
+        }
+
+        $actions = FlowNode::where('flow_version_id', $node->flow_version_id)
+            ->whereIn('node_key', $downstreamKeys)
+            ->where('type', 'mcp_action')
+            ->get(['config']);
+        if ($actions->isEmpty()) {
+            return false;
+        }
+
+        foreach ($actions as $action) {
+            if (($action->config['requires_approval'] ?? true) !== false) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /** Дали node-ът има пряк „Одобрение от човек" предшественик в графа. */
     private function hasApprovalPredecessor(FlowNode $node): bool
     {
@@ -263,27 +314,19 @@ class NodeExecutorService
     }
 
     /**
-     * Изходите на ПРЕКИТЕ предшественици, keyed по node_key И по име — за да
-     * работят и {{agent.<node_key>.output}}, и {{agent.<име>.output}}.
+     * Изходите на ВСИЧКИ завършили възли в run-а, keyed по node_key И по име — за
+     * да работят {{agent.<node_key>.output}} и {{agent.<име>.output}} за ЛЮБОЙ
+     * възел, не само пряк предшественик (прекият предшественик на имейла обикн. е
+     * „Одобрение от човек", а потребителят иска да реферира доклада).
      *
      * @return array<string,string>
      */
-    private function mcpPredecessorOutputs(FlowRun $flowRun, FlowNode $node): array
+    private function mcpRunOutputs(FlowRun $flowRun, FlowNode $node): array
     {
-        $predKeys = FlowEdge::where('flow_version_id', $node->flow_version_id)
-            ->where('to_node_key', $node->node_key)
-            ->pluck('from_node_key')
-            ->all();
-        if (empty($predKeys)) {
-            return [];
-        }
-
         $names = FlowNode::where('flow_version_id', $node->flow_version_id)
-            ->whereIn('node_key', $predKeys)
             ->pluck('name', 'node_key');
 
         $outputs = NodeRun::where('flow_run_id', $flowRun->id)
-            ->whereIn('node_key', $predKeys)
             ->where('status', 'completed')
             ->pluck('output', 'node_key');
 
@@ -299,6 +342,39 @@ class NodeExecutorService
         }
 
         return $map;
+    }
+
+    /**
+     * Финалният доклад на run-а за {{report}} / {{flow.output}}: изходът на
+     * последния завършил body-възел (с предимство bg_text_corrector — финално
+     * изгладеният текст). Празно, ако няма body възел.
+     */
+    private function finalReportOutput(FlowRun $flowRun): string
+    {
+        $nodes = FlowNode::where('flow_version_id', $flowRun->flow_version_id)
+            ->where('is_active', true)
+            ->get();
+
+        $bodyKeys = $nodes->filter(fn (FlowNode $n) => $n->effectiveOutputRole() === 'body')
+            ->pluck('node_key')
+            ->all();
+        if ($bodyKeys === []) {
+            return '';
+        }
+
+        $correctorKeys = array_values(array_intersect(
+            $nodes->where('type', 'bg_text_corrector')->pluck('node_key')->all(),
+            $bodyKeys,
+        ));
+
+        $pick = fn (array $keys): ?string => $keys === [] ? null : NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('node_key', $keys)
+            ->where('status', 'completed')
+            ->whereNotNull('output')
+            ->orderByDesc('completed_at')
+            ->value('output');
+
+        return (string) ($pick($correctorKeys) ?? $pick($bodyKeys) ?? '');
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -558,11 +634,18 @@ class NodeExecutorService
         if (KnowledgeService::enabledForFlow($flowRun->flow)
             && ($node->config['knowledge']['enabled'] ?? true) !== false
             && $this->shouldInjectKnowledge($node)) {
-            $knowledgeBlock = $this->knowledge->knowledgeBlock($flowRun->flow->company, $input, [
-                'company_id' => $flowRun->flow->company_id,
-                'flow_id' => $node->flow_id,
-                'flow_run_id' => $flowRun->id,
-            ]);
+            // Таблица/синтез нодове, които пълнят СОБСТВЕНАТА колона/ред, получават
+            // ПЪЛНИЯ структуриран профил (всички цени/услуги) — чисти факти, без
+            // зашумени уеб-чънкове, за да влязат цените по зони. Останалите нодове
+            // получават по-лекия relevance блок (безопасен за локални модели).
+            $tableBuilders = ['data_extractor', 'formatter', 'price_optimizer', 'competitor_profiler', 'swot_builder'];
+            $knowledgeBlock = in_array($node->type, $tableBuilders, true)
+                ? $this->knowledge->ownProfileBlock($flowRun->flow->company)
+                : $this->knowledge->knowledgeBlock($flowRun->flow->company, $input, [
+                    'company_id' => $flowRun->flow->company_id,
+                    'flow_id' => $node->flow_id,
+                    'flow_run_id' => $flowRun->id,
+                ]);
             if ($knowledgeBlock !== '') {
                 $input .= "\n\n".$knowledgeBlock;
             }
