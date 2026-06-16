@@ -54,6 +54,9 @@ return [
         // всички run-ове — те делят един GPU). 1 при 8–16 GB VRAM; вдигни при
         // по-голяма карта. Cloud нодовете (openai/*, anthropic/*) не се броят.
         'max_concurrent' => env('OLLAMA_MAX_CONCURRENT', 1),
+        // Колко дълго Ollama държи модела зареден във VRAM след последната заявка
+        // (минимизира студените зареждания между run-ове). '30m' / '-1' = завинаги.
+        'keep_alive' => env('OLLAMA_KEEP_ALIVE', '30m'),
         // Контекст за локалния planner (design промптът лесно надхвърля 8K токена).
         'planner_num_ctx' => env('OLLAMA_PLANNER_NUM_CTX', 16384),
         // Thinking режим на локалния planner. По подразбиране (null) се изключва
@@ -99,6 +102,18 @@ return [
         'provider' => env('BUILDER_ASSISTANT_PROVIDER'),
         'model' => env('BUILDER_ASSISTANT_MODEL'),
         'max_steps' => (int) env('BUILDER_ASSISTANT_MAX_STEPS', 8),
+        'history_limit' => 20,
+    ],
+
+    // Разговорният създател на Flow в клиентския портал. Структуриран JSON
+    // интервюиращ (radio/checkbox въпроси) → готово за planner-а описание.
+    // Изисква cloud провайдър с tool calling (knowledge_search/web_search).
+    // provider/model празни → fallback като builder_assistant.
+    'client_wizard' => [
+        'provider' => env('CLIENT_WIZARD_PROVIDER'),
+        'model' => env('CLIENT_WIZARD_MODEL'),
+        'max_steps' => (int) env('CLIENT_WIZARD_MAX_STEPS', 3),
+        'max_questions' => (int) env('CLIENT_WIZARD_MAX_QUESTIONS', 8),
         'history_limit' => 20,
     ],
 
@@ -226,6 +241,22 @@ return [
         // Plan-library retrieval switches to embedding cosine similarity once
         // the proven entries reach this count (below it: structural scoring).
         'vector_threshold' => env('PLANNER_VECTOR_THRESHOLD', 100),
+        // B1: при СИЛНО съвпадение с ДОКАЗАН план — design фазата минава на бърз
+        // евтин модел, който само АДАПТИРА готовата топология (вместо пълен
+        // дизайн от нулата). Критиката остава. Празна библиотека → без ефект.
+        'adapt' => [
+            'enabled' => env('PLANNER_ADAPT', true),
+            // Бърз + евтин + ДОСТАТЪЧНО голям output прозорец (≈16K) — gemini-flash
+            // реже verbose плановете на output капа; gpt-4o-mini ги побира.
+            'provider' => env('PLANNER_ADAPT_PROVIDER', 'openai'),
+            'model' => env('PLANNER_ADAPT_MODEL', 'gpt-4o-mini'),
+            'min_structural' => (float) env('PLANNER_ADAPT_MIN_STRUCTURAL', 9), // от ~10
+            'min_vector' => (float) env('PLANNER_ADAPT_MIN_VECTOR', 8.0),       // cosine×10 (≈0.80)
+            // Adapt само за по-малки планове — бърз модел не може да възпроизведе
+            // 12–16-агентна топология с подробни промпти, без да удари output капа.
+            // По-големите доказани планове падат на пълния Claude design.
+            'max_agents' => (int) env('PLANNER_ADAPT_MAX_AGENTS', 10),
+        ],
         // ХИБРИДНО ПЛАНИРАНЕ: per-phase provider/model override. Скъп модел
         // само за дизайна (най-тежката фаза), евтин/безплатен за останалите.
         // Непопълнена фаза → GENERATOR_PROVIDER + default модела на провайдъра.

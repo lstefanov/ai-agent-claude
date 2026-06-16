@@ -46,7 +46,7 @@ class AgentGeneratorService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium): array
+    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false): array
     {
         $planned = $this->planner->plan($flow, $onProgress, $logToken, $level);
 
@@ -60,7 +60,7 @@ class AgentGeneratorService
             $onProgress('Финализиране на pipeline-а');
         }
 
-        return $this->finalizePlannedAgents($planned, $level);
+        return $this->finalizePlannedAgents($planned, $level, $minimalQa);
     }
 
     /**
@@ -126,7 +126,7 @@ class AgentGeneratorService
      * @param  array<int, array<string, mixed>>  $planned
      * @return array<int, array<string, mixed>>
      */
-    public function finalizePlannedAgents(array $planned, ModelLevel $level = ModelLevel::Medium): array
+    public function finalizePlannedAgents(array $planned, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false): array
     {
         $agents = array_values(array_filter(array_map(
             fn ($a, $i) => $this->normalizeAgent($a, $i + 1, $level),
@@ -149,6 +149,13 @@ class AgentGeneratorService
         $agents = $this->dependencyGraphIsDegenerate($agents)
             ? $this->applyRoleBasedDependencies($agents)
             : $this->ensureTailWiring($agents);
+
+        // A4/A5: клиентски flows — само финален QA gate (по-малко verifier извиквания)
+        // + по-нисък crawl таван на site-анализа (по-бързо). minimalQa = клиентски flow.
+        if ($minimalQa) {
+            $agents = $this->disableIntermediateQa($agents);
+            $agents = $this->capClientCrawl($agents, (int) config('client_flows.site_max_pages', 40));
+        }
 
         // uids are now assigned + stable → wire the final step-QA gate.
         $agents = $this->enableFinalQaGate($agents);
@@ -330,6 +337,55 @@ class AgentGeneratorService
 
             $agent['config'] = $config;
             break; // gate only the final corrector
+        }
+        unset($agent);
+
+        return $agents;
+    }
+
+    /**
+     * A4: изключва per-agent QA на ВСИЧКИ възли (извиква се преди
+     * enableFinalQaGate, така че остава само финалният гейт). За клиентски flows —
+     * по-малко verifier извиквания и retry-та; финалното качество се пази от гейта.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function disableIntermediateQa(array $agents): array
+    {
+        foreach ($agents as &$agent) {
+            if (is_array($agent['config']['qa'] ?? null)) {
+                $agent['config']['qa']['enabled'] = false;
+            }
+        }
+        unset($agent);
+
+        return $agents;
+    }
+
+    /**
+     * A5: понижава crawl тавана на deep_researcher възлите за клиентски flows
+     * (site-анализът свършва по-бързо). Само сваля високи/незададени стойности.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function capClientCrawl(array $agents, int $cap): array
+    {
+        if ($cap <= 0) {
+            return $agents;
+        }
+
+        foreach ($agents as &$agent) {
+            if (($agent['type'] ?? '') !== 'deep_researcher') {
+                continue;
+            }
+            $config = is_array($agent['config'] ?? null) ? $agent['config'] : [];
+            $existing = (int) ($config['max_pages_to_scrape'] ?? 0);
+            if ($existing === 0 || $existing > $cap) {
+                $config['max_pages_to_scrape'] = $cap;
+                $agent['config'] = $config;
+            }
         }
         unset($agent);
 

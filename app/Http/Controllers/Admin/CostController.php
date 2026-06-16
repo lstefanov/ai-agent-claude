@@ -7,9 +7,12 @@ use App\Models\AgentGenerationLog;
 use App\Models\AssistantMessage;
 use App\Models\Company;
 use App\Models\Flow;
+use App\Models\FlowDraft;
+use App\Models\FlowDraftMessage;
 use App\Models\FlowRun;
 use App\Models\KnowledgeResource;
 use App\Models\LlmRequest;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -99,6 +102,15 @@ class CostController extends Controller
     {
         $page = $this->chatPage($r);
         $page['summary'] = $this->chatSummary($r);
+
+        return response()->json($page);
+    }
+
+    /** Tab "Клиенти: генериране на Flow": summary + paginated wizard conversations. */
+    public function clientWizard(Request $r): JsonResponse
+    {
+        $page = $this->clientWizardPage($r);
+        $page['summary'] = $this->clientWizardSummary($r);
 
         return response()->json($page);
     }
@@ -430,6 +442,73 @@ class CostController extends Controller
         return ['rows' => $mapped, 'total' => $total];
     }
 
+    /**
+     * Клиентският визард: групира llm_requests (purpose=client_wizard) по
+     * session_id (= flow_drafts.session), обогатени с draft статус/заглавие/
+     * потребител/flow + брой съобщения. По модел на chatPage().
+     *
+     * @return array{rows: array<int, mixed>, total: int}
+     */
+    private function clientWizardPage(Request $r): array
+    {
+        $limit = min(max((int) $r->query('limit', 25), 1), 200);
+        $page = max((int) $r->query('page', 1), 1);
+        $search = trim((string) $r->query('search', ''));
+
+        $sub = $this->clientWizardBase($r)
+            ->whereNotNull('session_id')
+            ->selectRaw('session_id, MAX(company_id) as company_id, '
+                ."GROUP_CONCAT(DISTINCT provider ORDER BY provider SEPARATOR ', ') as provider, "
+                ."GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR ', ') as model, "
+                .'COUNT(*) as call_count, COALESCE(SUM(total_tokens),0) as total_tokens, '
+                .'ROUND(SUM(cost_usd),4) as cost_usd, MAX(created_at) as last_at')
+            ->groupBy('session_id');
+
+        $outer = DB::query()->fromSub($sub, 's');
+        if ($search !== '') {
+            $like = '%'.$search.'%';
+            $outer->where(fn ($q) => $q->where('provider', 'like', $like)->orWhere('model', 'like', $like)->orWhere('session_id', 'like', $like));
+        }
+
+        $total = (int) (clone $outer)->count();
+
+        [$col, $dir] = $this->resolveSort($r, 'last_at');
+        $col = in_array($col, ['last_at', 'cost_usd', 'total_tokens'], true) ? $col : 'last_at';
+
+        $rows = collect($outer->orderBy($col, $dir)->limit($limit)->offset(($page - 1) * $limit)->get());
+
+        $sessions = $rows->pluck('session_id')->filter()->all();
+        $drafts = $sessions
+            ? FlowDraft::whereIn('session', $sessions)->get(['id', 'session', 'company_id', 'user_id', 'status', 'title', 'flow_id'])->keyBy('session')
+            : collect();
+        $companyNames = Company::whereIn('id', $rows->pluck('company_id')->filter()->unique())->pluck('name', 'id');
+        $userNames = User::whereIn('id', $drafts->pluck('user_id')->filter()->unique())->pluck('name', 'id');
+        $flowNames = Flow::whereIn('id', $drafts->pluck('flow_id')->filter()->unique())->pluck('name', 'id');
+        $msgCounts = $drafts->isNotEmpty()
+            ? FlowDraftMessage::whereIn('flow_draft_id', $drafts->pluck('id'))->where('status', '!=', 'pending')
+                ->selectRaw('flow_draft_id, COUNT(*) as cnt')->groupBy('flow_draft_id')->pluck('cnt', 'flow_draft_id')
+            : collect();
+
+        $mapped = $rows->map(function ($row) use ($drafts, $companyNames, $userNames, $flowNames, $msgCounts) {
+            $d = $drafts[$row->session_id] ?? null;
+
+            return [
+                'session_id' => $row->session_id,
+                'created_at' => $row->last_at ? Carbon::parse($row->last_at)->format('Y-m-d H:i:s') : null,
+                'company' => $companyNames[$row->company_id] ?? '—',
+                'user' => $d && $d->user_id ? ($userNames[$d->user_id] ?? '—') : '—',
+                'status' => $d?->status ?? '—',
+                'title' => $d?->title ?: '—',
+                'flow' => $d && $d->flow_id ? ($flowNames[$d->flow_id] ?? '—') : '—',
+                'msg_count' => $d ? (int) ($msgCounts[$d->id] ?? 0) : 0,
+                'total_tokens' => (int) $row->total_tokens,
+                'cost_usd' => (float) $row->cost_usd,
+            ];
+        })->values()->all();
+
+        return ['rows' => $mapped, 'total' => $total];
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Drill-down popups (unchanged — already AJAX)
     // ──────────────────────────────────────────────────────────────────────
@@ -611,6 +690,82 @@ class CostController extends Controller
                 'status' => $m->status,
                 'error' => $m->error,
                 'has_ops' => ! empty($m->ops),
+                'created_at' => $m->created_at?->format('Y-m-d H:i:s'),
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * Пълен чат на един визард разговор: транскрипт от flow_draft_messages
+     * (въпрос + възможни опции + избраното от клиента) + токени/цена от
+     * llm_requests. По модел на chatDetail().
+     */
+    public function clientWizardDetail(Request $r): JsonResponse
+    {
+        $session = (string) $r->query('session', '');
+        if ($session === '') {
+            return response()->json(['error' => 'session required'], 400);
+        }
+
+        $draft = FlowDraft::where('session', $session)->first();
+
+        $metaRow = LlmRequest::where('session_id', $session)
+            ->where('purpose', 'client_wizard')
+            ->selectRaw('
+                MAX(company_id) as company_id,
+                GROUP_CONCAT(DISTINCT model ORDER BY model SEPARATOR \', \') as models,
+                GROUP_CONCAT(DISTINCT provider ORDER BY provider SEPARATOR \', \') as providers,
+                COALESCE(SUM(total_tokens), 0) as total_tokens,
+                COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                ROUND(SUM(cost_usd), 4) as cost_usd,
+                COUNT(*) as call_count,
+                MIN(created_at) as first_at,
+                MAX(created_at) as last_at
+            ')
+            ->first();
+
+        $companyId = $draft?->company_id ?? $metaRow?->company_id;
+        $company = $companyId ? Company::find($companyId, ['id', 'name']) : null;
+        $user = $draft?->user_id ? User::find($draft->user_id, ['id', 'name']) : null;
+        $flow = $draft?->flow_id ? Flow::find($draft->flow_id, ['id', 'name']) : null;
+
+        $messages = $draft
+            ? FlowDraftMessage::where('flow_draft_id', $draft->id)
+                ->where('status', '!=', 'pending')
+                ->orderBy('id')
+                ->get(['id', 'role', 'content', 'payload', 'cost_usd', 'status', 'error', 'created_at'])
+            : collect();
+
+        return response()->json([
+            'session' => $session,
+            'meta' => [
+                'company' => $company?->name,
+                'user' => $user?->name,
+                'status' => $draft?->status,
+                'title' => $draft?->title,
+                'description' => $draft?->description,
+                'domain' => data_get($draft?->script, 'domain'),
+                'flow' => $flow?->name,
+                'flow_id' => $flow?->id,
+                'models' => $metaRow?->models ?: '—',
+                'providers' => $metaRow?->providers ?: '—',
+                'total_tokens' => (int) ($metaRow?->total_tokens ?? 0),
+                'prompt_tokens' => (int) ($metaRow?->prompt_tokens ?? 0),
+                'completion_tokens' => (int) ($metaRow?->completion_tokens ?? 0),
+                'cost_usd' => (float) ($metaRow?->cost_usd ?? 0),
+                'call_count' => (int) ($metaRow?->call_count ?? 0),
+                'first_at' => $metaRow?->first_at ? Carbon::parse($metaRow->first_at)->format('Y-m-d H:i:s') : null,
+                'last_at' => $metaRow?->last_at ? Carbon::parse($metaRow->last_at)->format('Y-m-d H:i:s') : null,
+            ],
+            'messages' => $messages->map(fn (FlowDraftMessage $m) => [
+                'id' => $m->id,
+                'role' => $m->role,
+                'content' => $m->content,
+                'payload' => $m->payload,
+                'cost_usd' => $m->cost_usd,
+                'status' => $m->status,
+                'error' => $m->error,
                 'created_at' => $m->created_at?->format('Y-m-d H:i:s'),
             ])->values(),
         ]);
@@ -915,6 +1070,38 @@ class CostController extends Controller
             'total_cost' => round($totalCost, 4),
             'avg_cost' => $sessions > 0 ? round($totalCost / $sessions, 4) : 0.0,
             'top_model' => $topModel,
+        ];
+    }
+
+    /** llm_requests на клиентския визард (purpose=client_wizard). */
+    private function clientWizardBase(Request $r): Builder
+    {
+        return $this->filtered($r)->where('purpose', 'client_wizard');
+    }
+
+    /** Summary stat cards for the "Клиенти: генериране на Flow" section. */
+    private function clientWizardSummary(Request $r): array
+    {
+        $agg = $this->clientWizardBase($r)
+            ->selectRaw('
+                COUNT(DISTINCT session_id) as sessions,
+                COUNT(*) as calls,
+                COALESCE(SUM(total_tokens), 0) as total_tokens,
+                ROUND(SUM(cost_usd), 4) as total_cost
+            ')
+            ->first();
+
+        $sessionIds = $this->clientWizardBase($r)->whereNotNull('session_id')->distinct()->pluck('session_id');
+        $draftIds = $sessionIds->isNotEmpty() ? FlowDraft::whereIn('session', $sessionIds)->pluck('id') : collect();
+        $msgCount = $draftIds->isNotEmpty()
+            ? FlowDraftMessage::whereIn('flow_draft_id', $draftIds)->where('status', '!=', 'pending')->count()
+            : 0;
+
+        return [
+            'sessions' => (int) ($agg->sessions ?? 0),
+            'messages' => $msgCount,
+            'total_tokens' => (int) ($agg->total_tokens ?? 0),
+            'total_cost' => round((float) ($agg->total_cost ?? 0), 4),
         ];
     }
 

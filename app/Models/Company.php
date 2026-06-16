@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Company extends Model
 {
@@ -16,6 +17,17 @@ class Company extends Model
     public function flows(): HasMany
     {
         return $this->hasMany(Flow::class);
+    }
+
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class);
+    }
+
+    /** Служебният „owner" потребител на фирмата (за клиентския вход). */
+    public function owner(): HasOne
+    {
+        return $this->hasOne(User::class)->where('role', 'owner');
     }
 
     public function connectors(): HasMany

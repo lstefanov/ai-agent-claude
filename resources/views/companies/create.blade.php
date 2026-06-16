@@ -30,6 +30,15 @@
                 </x-select>
             </x-field>
 
+            <x-field label="Ниво на модела за клиентски flows" name="model_level"
+                     help="Колко „скъпи“ модели ползват автоматично генерираните Flows на клиента (качество ↔ цена). Клиентът не вижда тази настройка.">
+                <x-select name="model_level">
+                    @foreach(\App\Support\ModelLevel::cases() as $lvl)
+                        <option value="{{ $lvl->value }}" @selected(old('model_level', 'medium') === $lvl->value)>{{ $lvl->label() }}</option>
+                    @endforeach
+                </x-select>
+            </x-field>
+
             <x-field label="Уебсайт" name="website_url" help="Ползва се от „База знания“ за автоматично извличане на съдържанието на сайта.">
                 <x-input type="url" name="website_url" :value="old('website_url')" placeholder="https://example.bg" />
             </x-field>

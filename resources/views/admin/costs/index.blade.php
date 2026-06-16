@@ -80,6 +80,7 @@
     <button class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted hover:text-ink -mb-px transition" data-tab="overview">📊 Преглед</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted hover:text-ink -mb-px transition" data-tab="grid">▶ Изпълнения и създаване</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted hover:text-ink -mb-px transition" data-tab="chat">🤖 Copilot чат</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted hover:text-ink -mb-px transition" data-tab="client_wizard">👤 Клиенти: Flow</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted hover:text-ink -mb-px transition" data-tab="external">🔎 Външни API</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted hover:text-ink -mb-px transition" data-tab="knowledge">🧠 Знания и Разни</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted hover:text-ink -mb-px transition" data-tab="ocr">📄 OCR</button>
@@ -159,6 +160,23 @@
     <div class="bg-surface border border-line rounded-xl p-4 overflow-x-auto">
         <p class="text-xs text-subtle mb-3">Кликни ред за да видиш пълния разговор (въпрос и отговор).</p>
         <div id="chatGrid"></div>
+    </div>
+</div>
+
+{{-- ══ Tab: Клиенти: генериране на Flow ══════════════════════════════════ --}}
+<div class="tab-panel hidden" data-panel="client_wizard">
+    <div class="flex items-center flex-wrap gap-3 mb-4">
+        <h2 class="text-lg font-bold text-ink">Клиенти: генериране на Flow (разговорен създател)</h2>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div class="bg-surface border border-sky-200 rounded-xl p-4"><p class="text-xs text-sky-600 uppercase tracking-wide">Разговори</p><p id="cw-sessions" class="text-2xl font-bold text-ink mt-1">—</p></div>
+        <div class="bg-surface border border-sky-200 rounded-xl p-4"><p class="text-xs text-sky-600 uppercase tracking-wide">Съобщения</p><p id="cw-messages" class="text-2xl font-bold text-ink mt-1">—</p></div>
+        <div class="bg-surface border border-sky-200 rounded-xl p-4"><p class="text-xs text-sky-600 uppercase tracking-wide">Токени (общо)</p><p id="cw-tokens" class="text-2xl font-bold text-ink mt-1">—</p></div>
+        <div class="bg-surface border border-sky-200 rounded-xl p-4"><p class="text-xs text-sky-600 uppercase tracking-wide">Разход</p><p id="cw-cost" class="text-2xl font-bold text-ink mt-1">—</p></div>
+    </div>
+    <div class="bg-surface border border-line rounded-xl p-4 overflow-x-auto">
+        <p class="text-xs text-subtle mb-3">Кликни ред за пълния чат — въпросите, възможните отговори и какво е избрал клиентът.</p>
+        <div id="clientWizardGrid"></div>
     </div>
 </div>
 
@@ -359,6 +377,33 @@
     </div>
 </div>
 
+{{-- Клиентски визард — пълен чат модал --}}
+<div id="cwModal" class="fixed inset-0 z-[70] hidden">
+    <div class="absolute inset-0 bg-ink/50" id="cwModalOverlay"></div>
+    <div class="absolute inset-0 flex items-start justify-center p-4 overflow-y-auto">
+        <div class="bg-surface rounded-2xl shadow-xl w-full max-w-3xl my-8 relative">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-line">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span style="background:#e0f2fe;color:#075985;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;white-space:nowrap;">👤 Клиент</span>
+                    <span id="cwm-title" class="font-semibold text-ink text-sm truncate"></span>
+                </div>
+                <button id="cwModalClose" class="text-subtle hover:text-ink text-xl leading-none ml-4 shrink-0">&times;</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div id="cwm-meta" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
+                <div>
+                    <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Разговор</p>
+                    <div id="cwm-messages" class="space-y-3 max-h-[58vh] overflow-y-auto pr-1"></div>
+                </div>
+                <div id="cwm-desc-wrap" class="hidden">
+                    <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Финално описание</p>
+                    <div id="cwm-desc" class="bg-surface-subtle rounded-lg p-3 text-sm text-ink whitespace-pre-wrap"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <link href="https://cdn.jsdelivr.net/npm/gridjs@6.0.6/dist/theme/mermaid.min.css" rel="stylesheet">
 <style>
 .gridjs-th, .gridjs-td { padding: 10px 12px !important; }
@@ -371,6 +416,7 @@ const DATA_BASE        = "{{ url('admin/costs/data') }}";
 const DETAIL_URL       = "{{ url('admin/costs/detail') }}";
 const GROUP_DETAIL_URL = "{{ url('admin/costs/group-detail') }}";
 const CHAT_DETAIL_URL  = "{{ url('admin/costs/chat-detail') }}";
+const CW_DETAIL_URL    = "{{ url('admin/costs/client-wizard-detail') }}";
 const OCR_DETAIL_URL   = "{{ url('admin/costs/ocr-detail') }}";
 const MODELS_BY_PROVIDER = @json($filterOptions['modelsByProvider']);
 
@@ -537,6 +583,7 @@ const LOADERS = {
     overview: loadOverview,
     grid: mountMain,
     chat: mountChat,
+    client_wizard: mountClientWizard,
     external: mountExternal,
     knowledge: () => { mountKnowledge(); mountOther(); },
     ocr: mountOcr,
@@ -716,6 +763,35 @@ function paintChatSummary(s) {
     setVal('chat-cost', fmtUsdSmart(s.total_cost));
     setVal('chat-avg', fmtUsdSmart(s.avg_cost));
     setVal('chat-topmodel', s.top_model !== '—' ? s.top_model : '');
+}
+
+// ── Клиенти: генериране на Flow ───────────────────────────────────────
+function mountClientWizard() {
+    gridInst.client_wizard = buildServerGrid({
+        el: 'clientWizardGrid', section: 'client-wizard', results: 'разговора',
+        columns: [
+            { name: 'Сесия', hidden: true },
+            { name: 'Последна активност', width: '160px' },
+            { name: 'Фирма', width: '150px', sort: false, formatter: c => c || '—' },
+            { name: 'Потребител', width: '120px', sort: false, formatter: c => c || '—' },
+            { name: 'Статус', width: '120px', sort: false, formatter: c => gridjs.html(statusBadge(c)) },
+            { name: 'Заглавие', width: '200px', sort: false, formatter: c => c || '—' },
+            { name: 'Съобщения', width: '112px', sort: false },
+            { name: 'Токени', width: '100px', formatter: c => c ? Number(c).toLocaleString() : '—' },
+            { name: 'Цена', width: '84px', formatter: c => '$' + Number(c || 0).toFixed(4) },
+        ],
+        sortNames: [null, 'last_at', null, null, null, null, null, 'total_tokens', 'cost_usd'],
+        map: r => [r.session_id, r.created_at, r.company, r.user, r.status, r.title, r.msg_count, r.total_tokens, r.cost_usd],
+        onData: d => paintClientWizardSummary(d.summary),
+    });
+    gridInst.client_wizard.on('rowClick', (event, row) => openClientWizard(row.cells[0].data, row.cells[5].data || row.cells[2].data));
+}
+function paintClientWizardSummary(s) {
+    if (!s) return;
+    setVal('cw-sessions', fmtInt(s.sessions));
+    setVal('cw-messages', fmtInt(s.messages));
+    setVal('cw-tokens', fmtInt(s.total_tokens));
+    setVal('cw-cost', fmtUsdSmart(s.total_cost));
 }
 
 // ── External APIs ─────────────────────────────────────────────────────
@@ -1014,10 +1090,81 @@ function closeChatModal() { document.getElementById('chatModal').classList.add('
 document.getElementById('chatModalClose').addEventListener('click', closeChatModal);
 document.getElementById('chatModalOverlay').addEventListener('click', closeChatModal);
 
+// Клиентски визард — пълен чат (въпрос + възможни отговори + избраното)
+async function openClientWizard(sessionId, title) {
+    const modal = document.getElementById('cwModal');
+    const messagesEl = document.getElementById('cwm-messages');
+    const metaEl = document.getElementById('cwm-meta');
+    const titleEl = document.getElementById('cwm-title');
+    const descWrap = document.getElementById('cwm-desc-wrap');
+    const descEl = document.getElementById('cwm-desc');
+    messagesEl.innerHTML = '<p class="text-center text-subtle text-sm py-8">Зареждане…</p>';
+    metaEl.innerHTML = ''; descWrap.classList.add('hidden');
+    titleEl.textContent = title || sessionId;
+    modal.classList.remove('hidden');
+    try {
+        const resp = await fetch(`${CW_DETAIL_URL}?session=${encodeURIComponent(sessionId)}`, { headers: { Accept: 'application/json' } });
+        if (!resp.ok) { messagesEl.innerHTML = '<p class="text-red-500 text-sm text-center py-4">Грешка при зареждане.</p>'; return; }
+        const data = await resp.json();
+        const m = data.meta || {};
+        const card = (label, value) => `<div class="bg-surface-subtle rounded-lg p-3"><p class="text-xs text-subtle">${label}</p><p class="font-semibold text-ink text-sm">${value ?? '—'}</p></div>`;
+        metaEl.innerHTML = card('Фирма', m.company) + card('Потребител', m.user) + card('Статус', m.status) +
+            card('Flow', m.flow || '—') + card('Токени', Number(m.total_tokens || 0).toLocaleString()) +
+            card('Цена', '$' + Number(m.cost_usd || 0).toFixed(4));
+        titleEl.textContent = m.title || title || sessionId;
+        if (m.description) { descEl.textContent = m.description; descWrap.classList.remove('hidden'); }
+
+        const msgs = data.messages || [];
+        if (!msgs.length) { messagesEl.innerHTML = '<p class="text-center text-subtle text-sm py-4">Няма съобщения.</p>'; return; }
+
+        // Какво е избрал клиентът — по ключ на въпроса (от user съобщенията).
+        const chosenByKey = {};
+        msgs.forEach(mm => { if (mm.role === 'user' && mm.payload && mm.payload.key) chosenByKey[mm.payload.key] = (mm.payload.values || []); });
+
+        messagesEl.innerHTML = msgs.map(mm => {
+            const isUser = mm.role === 'user';
+            const bg = isUser ? 'background:#f0f9ff;border:1px solid #bae6fd;' : 'background:#f9fafb;border:1px solid #e5e7eb;';
+            const roleBadge = isUser
+                ? '<span style="background:#0ea5e9;color:#fff;padding:1px 8px;border-radius:9999px;font-size:11px;font-weight:600;">Клиент</span>'
+                : '<span style="background:#e0f2fe;color:#075985;padding:1px 8px;border-radius:9999px;font-size:11px;font-weight:600;">Асистент</span>';
+            const costStr = (!isUser && mm.cost_usd != null && Number(mm.cost_usd) > 0) ? `<span style="font-size:11px;color:#9ca3af;margin-left:6px;">$${Number(mm.cost_usd).toFixed(4)}</span>` : '';
+            const timeStr = mm.created_at ? `<span style="font-size:11px;color:#9ca3af;margin-left:6px;">${mm.created_at}</span>` : '';
+
+            let body = mm.content ? esc(mm.content) : '';
+            if (isUser && mm.payload && Array.isArray(mm.payload.values) && mm.payload.values.length) {
+                body = '<strong>Избра:</strong> ' + esc(mm.payload.values.join(', '));
+            }
+
+            // Asistent въпрос → покажи възможните отговори и маркирай избраното.
+            const q = (!isUser && mm.payload) ? mm.payload.question : null;
+            let optsHtml = '';
+            if (q && Array.isArray(q.options) && q.options.length) {
+                const chosen = chosenByKey[q.key] || [];
+                const items = q.options.map(o => {
+                    const sel = chosen.includes(o.value);
+                    return `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:9999px;font-size:12px;${sel ? 'background:#16a34a;color:#fff;font-weight:600;' : 'background:#eef2f7;color:#475569;'}">${sel ? '✓ ' : ''}${esc(o.label)}</span>`;
+                }).join('');
+                const other = q.allow_other ? '<span style="display:inline-block;margin:2px 0;padding:2px 8px;border-radius:9999px;font-size:12px;background:#eef2f7;color:#475569;">Друго…</span>' : '';
+                optsHtml = `<div style="margin-top:8px;"><p style="font-size:11px;color:#9ca3af;margin:0 0 4px;">Възможни отговори:</p>${items}${other}</div>`;
+            }
+
+            return `<div style="${bg}border-radius:10px;padding:12px 14px;">
+                        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin-bottom:8px;">${roleBadge}${costStr}${timeStr}</div>
+                        <p style="font-size:13px;color:#1f2937;white-space:pre-wrap;word-break:break-word;margin:0;">${body || '<em style="color:#9ca3af">—</em>'}</p>${optsHtml}
+                    </div>`;
+        }).join('');
+    } catch (e) { console.error(e); messagesEl.innerHTML = '<p class="text-red-500 text-sm text-center py-4">Мрежова грешка.</p>'; }
+}
+function closeCwModal() { document.getElementById('cwModal').classList.add('hidden'); }
+document.getElementById('cwModalClose').addEventListener('click', closeCwModal);
+document.getElementById('cwModalOverlay').addEventListener('click', closeCwModal);
+
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     const chatMod = document.getElementById('chatModal');
+    const cwMod = document.getElementById('cwModal');
     if (!ocrModal.classList.contains('hidden')) { ocrModal.classList.add('hidden'); }
+    else if (!cwMod.classList.contains('hidden')) { closeCwModal(); }
     else if (!chatMod.classList.contains('hidden')) { closeChatModal(); }
     else if (!costModal.classList.contains('hidden')) { costModal.classList.add('hidden'); }
     else { closeGroupModal(); }

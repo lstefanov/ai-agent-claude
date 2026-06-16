@@ -36,7 +36,7 @@ class OllamaService
         }
 
         $options = $this->withThinkingDefault($model, $options);
-        $keepAlive = $options['keep_alive'] ?? '10m';
+        $keepAlive = $options['keep_alive'] ?? config('services.ollama.keep_alive', '30m');
         $httpTimeout = $options['http_timeout'] ?? 600; // caller can set a shorter timeout
         unset($options['keep_alive'], $options['http_timeout']);
 
@@ -233,7 +233,7 @@ class OllamaService
                             ['role' => 'user',   'content' => $req['user'] ?? ''],
                         ],
                         'stream' => false,
-                        'keep_alive' => '10m',
+                        'keep_alive' => config('services.ollama.keep_alive', '30m'),
                         'options' => array_merge(['temperature' => 0.7], $options),
                     ];
 

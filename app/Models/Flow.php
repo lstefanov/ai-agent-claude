@@ -34,6 +34,11 @@ class Flow extends Model
         return $this->hasMany(FlowRun::class);
     }
 
+    public function latestRun(): HasOne
+    {
+        return $this->hasOne(FlowRun::class)->latestOfMany();
+    }
+
     public function nodeRuns(): HasManyThrough
     {
         return $this->hasManyThrough(NodeRun::class, FlowRun::class);
@@ -67,5 +72,16 @@ class Flow extends Model
     public function activeVersion(): HasOne
     {
         return $this->hasOne(FlowVersion::class)->where('is_active', true);
+    }
+
+    /**
+     * „Готови за изпълнение" flows: неархивирани, с активна версия, която има
+     * поне един активен възел. Скрива node-less/провалени генерации от клиента.
+     */
+    public function scopeRunnable($query)
+    {
+        return $query
+            ->where('is_archived', false)
+            ->whereHas('activeVersion.nodes', fn ($n) => $n->where('is_active', true));
     }
 }

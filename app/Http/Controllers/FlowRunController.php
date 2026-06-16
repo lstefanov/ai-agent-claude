@@ -8,6 +8,7 @@ use App\Models\FlowRun;
 use App\Models\FlowVersion;
 use App\Services\GraphFlowExecutor;
 use App\Support\PaidModel;
+use App\Support\QueueHeartbeat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -16,8 +17,6 @@ use Illuminate\Support\Str;
 
 class FlowRunController extends Controller
 {
-    private const FLOWS_QUEUE_HEARTBEAT_KEY = 'queue.heartbeat.flows';
-
     public function store(Request $request, Flow $flow, GraphFlowExecutor $executor)
     {
         // The run is PINNED to a template (run-popup dropdown, defaulting to the
@@ -273,7 +272,7 @@ class FlowRunController extends Controller
 
     private function flowsWorkerAlive(): bool
     {
-        return Cache::has(self::FLOWS_QUEUE_HEARTBEAT_KEY);
+        return QueueHeartbeat::flowsAlive();
     }
 
     /**

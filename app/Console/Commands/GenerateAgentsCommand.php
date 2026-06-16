@@ -5,7 +5,9 @@ namespace App\Console\Commands;
 use App\Models\AgentGenerationLog;
 use App\Models\Company;
 use App\Models\Flow;
+use App\Models\FlowDraft;
 use App\Services\AgentGeneratorService;
+use App\Services\FlowVersionService;
 use App\Services\GeneratorService;
 use App\Support\ModelLevel;
 use App\Support\PlannerPhases;
@@ -20,7 +22,7 @@ class GenerateAgentsCommand extends Command
 
     protected $description = 'Run agent generation in the background and store result in cache';
 
-    public function handle(AgentGeneratorService $generator): int
+    public function handle(AgentGeneratorService $generator, FlowVersionService $versions): int
     {
         $token = $this->argument('token');
         $cacheKey = "agent_gen_{$token}";
@@ -89,7 +91,7 @@ class GenerateAgentsCommand extends Command
             $onProgress('Подготовка на заявката');
 
             $startMs = (int) (microtime(true) * 1000);
-            $agents = $generator->generate($flow, $onProgress, $token, $level);
+            $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false));
 
             if (empty($agents)) {
                 Cache::put($cacheKey, [
@@ -103,25 +105,63 @@ class GenerateAgentsCommand extends Command
                 return Command::FAILURE;
             }
 
+            $generatorMeta = [
+                'label' => PlannerPhases::label($effectivePhases),
+                'phases' => $effectivePhases,
+            ];
+            $costUsd = round((float) AgentGenerationLog::where('token', $token)->sum('cost_usd'), 4);
+            $durationMs = (int) (microtime(true) * 1000) - $startMs;
+
+            // Клиентският wizard няма builder — там фоновата команда сама записва
+            // активната версия (иначе flow-ът остава без агенти/шаблон). Записваме
+            // ПРЕДИ 'completed' кеша, за да не редиректне поллерът към празен flow.
+            if ((bool) ($request['persist'] ?? false)) {
+                try {
+                    $versions->createFromAgents($flow, $agents, 'Основен план', isActive: true, meta: [
+                        'intent' => $generator->lastIntent(),
+                        'generator' => $generatorMeta,
+                        'model_level' => $level->value,
+                        'cost_usd' => $costUsd,
+                        'duration_ms' => $durationMs,
+                    ]);
+
+                    // Scoped update — не записва in-memory description override-а.
+                    Flow::whereKey($flow->id)->update(['status' => 'active']);
+
+                    if (! empty($request['draft_id'])) {
+                        FlowDraft::whereKey((int) $request['draft_id'])->update(['status' => 'completed']);
+                    }
+                } catch (\Throwable $e) {
+                    Log::error("[GenerateAgents] Persist failed {$token}: ".$e->getMessage(), ['exception' => $e]);
+
+                    Cache::put($cacheKey, [
+                        'status' => 'failed',
+                        'error' => 'Планът се генерира, но записът се провали. Опитай отново.',
+                        'agents' => [],
+                        'stage' => 'Записът се провали',
+                        'updated_at' => now()->timestamp,
+                    ], now()->addMinutes(10));
+
+                    return Command::FAILURE;
+                }
+            }
+
             // The builder's save-as-template dialog needs the generation meta:
             // intent (plan library pairing), generator label/phases, cost, time.
             Cache::put($cacheKey, [
                 'status' => 'completed',
                 'agents' => $agents,
                 'intent' => $generator->lastIntent(),
-                'generator' => [
-                    'label' => PlannerPhases::label($effectivePhases),
-                    'phases' => $effectivePhases,
-                ],
+                'generator' => $generatorMeta,
                 'level' => $level->value,
-                'cost_usd' => round((float) AgentGenerationLog::where('token', $token)->sum('cost_usd'), 4),
-                'duration_ms' => (int) (microtime(true) * 1000) - $startMs,
+                'cost_usd' => $costUsd,
+                'duration_ms' => $durationMs,
                 'error' => null,
                 'stage' => 'Готово',
                 'updated_at' => now()->timestamp,
             ], now()->addMinutes(10));
 
-            Log::info("[GenerateAgents] Done — {$token}: ".count($agents).' agents');
+            Log::info("[GenerateAgents] Done — {$token}: ".count($agents).' agents'.((bool) ($request['persist'] ?? false) ? ' (persisted)' : ''));
 
             return Command::SUCCESS;
 

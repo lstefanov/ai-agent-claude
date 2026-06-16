@@ -10,6 +10,7 @@ use App\Models\FlowNode;
 use App\Models\NodeRun;
 use App\Services\EvalRunnerService;
 use App\Support\ModelLevel;
+use App\Support\QueueHeartbeat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -27,8 +28,6 @@ use Illuminate\Validation\ValidationException;
  */
 class FlowEvalController extends Controller
 {
-    private const HEARTBEAT_KEY = 'queue.heartbeat.flows';
-
     private const LEVELS = ['low', 'medium', 'high', 'ultra', 'god'];
 
     public function __construct(private EvalRunnerService $runner) {}
@@ -98,7 +97,7 @@ class FlowEvalController extends Controller
             'case_ids.*' => 'integer',
         ]);
 
-        if (! Cache::has(self::HEARTBEAT_KEY)) {
+        if (! QueueHeartbeat::flowsAlive()) {
             return response()->json(['error' => 'Няма активен queue worker (flows). Стартирай composer dev или php artisan horizon.'], 422);
         }
 

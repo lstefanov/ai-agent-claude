@@ -151,6 +151,64 @@ class PlanLibraryService
      */
     public function findSimilar(array $intent, int $limit = 2)
     {
+        $scored = $this->scoreSimilar($intent);
+
+        if ($scored->isEmpty()) {
+            return collect();
+        }
+
+        // Relevance floor: ≥5 structural (deliverable match + overlap) or
+        // cosine ≥ 0.55 (×10) — random examples hurt more than they help.
+        return $scored
+            ->filter(fn ($e) => $e->getAttribute('similarity') >= ($e->getAttribute('similarity_kind') === 'vector' ? 5.5 : 5))
+            // Quality FIRST: the few-shot is a BENCHMARK, so among relevant plans
+            // prefer the strongest (most agents / paid-provider) over a weak local
+            // one that merely matches the deliverable label.
+            ->sortByDesc(fn ($e) => [
+                $this->planQuality($e),
+                $e->getAttribute('similarity'),
+                $e->avg_qa_score ?? 0,
+                $e->runs_count,
+            ])
+            ->take($limit)
+            ->values();
+    }
+
+    /**
+     * B1: топ-1 ДОКАЗАН план, който е достатъчно близък, за да се АДАПТИРА
+     * вместо да се проектира от нулата. По-висок праг от few-shot floor-а и
+     * само 'proven' (рискът от грешно преизползване трябва да е минимален —
+     * критиката пак минава след това). null = няма достатъчно силно съвпадение.
+     */
+    public function bestReusable(array $intent): ?PlanLibraryEntry
+    {
+        $minStructural = (float) config('services.planner.adapt.min_structural', 9);
+        $minVector = (float) config('services.planner.adapt.min_vector', 8.0);
+        $maxAgents = (int) config('services.planner.adapt.max_agents', 10);
+
+        return $this->scoreSimilar($intent)
+            ->filter(fn (PlanLibraryEntry $e) => $e->status === 'proven')
+            // Само планове, които бърз модел може да възпроизведе без да удари output капа.
+            ->filter(fn (PlanLibraryEntry $e) => count((array) $e->agents) <= $maxAgents)
+            ->filter(fn ($e) => $e->getAttribute('similarity') >= ($e->getAttribute('similarity_kind') === 'vector' ? $minVector : $minStructural))
+            ->sortByDesc(fn ($e) => [
+                $e->getAttribute('similarity'),
+                $e->avg_qa_score ?? 0,
+                $e->runs_count,
+            ])
+            ->first();
+    }
+
+    /**
+     * Кандидатите от библиотеката с пресметнат `similarity` (+`similarity_kind`).
+     * Малка библиотека → структурно сходство; над vector_threshold доказани
+     * записи → cosine върху intent embedding-ите (без embedding падат структурно).
+     * Без floor/sort — извикващият решава прага (few-shot vs reuse).
+     *
+     * @return Collection<int, PlanLibraryEntry>
+     */
+    private function scoreSimilar(array $intent): Collection
+    {
         $entries = PlanLibraryEntry::whereIn('status', ['proven', 'candidate'])
             ->get()
             // Proven plans are always usable; an UNPROVEN plan is only a good
@@ -181,7 +239,7 @@ class PlanLibraryService
 
         $sources = array_values((array) ($intent['information_sources'] ?? []));
 
-        $scored = $entries->map(function (PlanLibraryEntry $e) use ($intent, $sources, $queryVector) {
+        return $entries->map(function (PlanLibraryEntry $e) use ($intent, $sources, $queryVector) {
             // Structural score: 0–10-ish.
             $structural = 0;
             $structural += $this->deliverableAffinity($e->deliverable, $intent['deliverable'] ?? null);
@@ -203,22 +261,6 @@ class PlanLibraryService
 
             return $e;
         });
-
-        // Relevance floor: ≥5 structural (deliverable match + overlap) or
-        // cosine ≥ 0.55 (×10) — random examples hurt more than they help.
-        return $scored
-            ->filter(fn ($e) => $e->getAttribute('similarity') >= ($e->getAttribute('similarity_kind') === 'vector' ? 5.5 : 5))
-            // Quality FIRST: the few-shot is a BENCHMARK, so among relevant plans
-            // prefer the strongest (most agents / paid-provider) over a weak local
-            // one that merely matches the deliverable label.
-            ->sortByDesc(fn ($e) => [
-                $this->planQuality($e),
-                $e->getAttribute('similarity'),
-                $e->avg_qa_score ?? 0,
-                $e->runs_count,
-            ])
-            ->take($limit)
-            ->values();
     }
 
     /**

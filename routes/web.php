@@ -23,6 +23,13 @@ use App\Http\Controllers\OAuthController;
 use App\Http\Controllers\PlanAbController;
 use Illuminate\Support\Facades\Route;
 
+// Цялото админ приложение се ограничава до основния домейн, КОГАТО е зададен
+// APP_DOMAIN (иначе config('app.domain') е null → Route::domain(null) е no-op и
+// маршрутите остават глобални — днешното поведение). Изолацията е нужна само в
+// поддомейн режим, за да не „засенчват" тези routes клиентския портал на
+// clients.<domain> (напр. `/` да не отваря админ home-а на клиентския поддомейн).
+Route::domain(config('app.domain'))->group(function () {
+
 // Companies
 Route::resource('companies', CompanyController::class);
 
@@ -225,6 +232,7 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     Route::get('costs/data/overview', [AdminCostController::class, 'overview'])->name('costs.data.overview');
     Route::get('costs/data/grid', [AdminCostController::class, 'grid'])->name('costs.data.grid');
     Route::get('costs/data/chat', [AdminCostController::class, 'chat'])->name('costs.data.chat');
+    Route::get('costs/data/client-wizard', [AdminCostController::class, 'clientWizard'])->name('costs.data.client-wizard');
     Route::get('costs/data/external', [AdminCostController::class, 'external'])->name('costs.data.external');
     Route::get('costs/data/knowledge', [AdminCostController::class, 'knowledge'])->name('costs.data.knowledge');
     Route::get('costs/data/other', [AdminCostController::class, 'other'])->name('costs.data.other');
@@ -233,8 +241,11 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
     Route::get('costs/detail', [AdminCostController::class, 'show'])->name('costs.show');
     Route::get('costs/group-detail', [AdminCostController::class, 'groupDetail'])->name('costs.group-detail');
     Route::get('costs/chat-detail', [AdminCostController::class, 'chatDetail'])->name('costs.chat-detail');
+    Route::get('costs/client-wizard-detail', [AdminCostController::class, 'clientWizardDetail'])->name('costs.client-wizard-detail');
     Route::get('costs/ocr-detail', [AdminCostController::class, 'ocrDetail'])->name('costs.ocr-detail');
 });
 
 // Home
 Route::get('/', [CompanyController::class, 'index'])->name('home');
+
+}); // край на основния домейн (APP_DOMAIN) group

@@ -3,7 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Models\User;
+use App\Support\ModelLevel;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class CompanyController extends Controller
 {
@@ -27,12 +31,34 @@ class CompanyController extends Controller
             'industry' => 'required|string|max:255',
             'language' => 'required|in:bg,en',
             'website_url' => 'nullable|url|max:2048',
+            'model_level' => ['nullable', Rule::enum(ModelLevel::class)],
         ]);
 
         $company = Company::create($validated);
+        $this->persistModelLevel($company, $request->input('model_level'));
+
+        // Клиентският портал: всяка нова фирма получава служебен `owner` за вход.
+        $this->ensureOwner($company);
 
         return redirect()->route('companies.show', $company)
             ->with('success', 'Фирмата е добавена успешно.');
+    }
+
+    /** Създава `owner` потребител за фирмата, ако още няма (идемпотентно). */
+    private function ensureOwner(Company $company): void
+    {
+        if ($company->users()->where('role', 'owner')->exists()) {
+            return;
+        }
+
+        User::create([
+            'name' => 'Owner',
+            'email' => "owner+{$company->id}@flowai.local",
+            'password' => bcrypt(Str::random(32)),
+            'company_id' => $company->id,
+            'role' => 'owner',
+            'is_active' => true,
+        ]);
     }
 
     public function show(Company $company)
@@ -74,12 +100,23 @@ class CompanyController extends Controller
             'industry' => 'required|string|max:255',
             'language' => 'required|in:bg,en',
             'website_url' => 'nullable|url|max:2048',
+            'model_level' => ['nullable', Rule::enum(ModelLevel::class)],
         ]);
 
         $company->update($validated);
+        $this->persistModelLevel($company, $request->input('model_level'));
 
         return redirect()->route('companies.show', $company)
             ->with('success', 'Фирмата е обновена.');
+    }
+
+    /** Запазва избраното ниво на модела за клиентските flows в settings. */
+    private function persistModelLevel(Company $company, ?string $value): void
+    {
+        $settings = $company->settings ?? [];
+        $settings['model_level'] = ModelLevel::fromRequest($value)->value;
+        $company->settings = $settings;
+        $company->save();
     }
 
     public function destroy(Company $company)

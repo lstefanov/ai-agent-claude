@@ -6,12 +6,14 @@ use App\Models\AgentGenerationLog;
 use App\Models\AgentTemplate;
 use App\Models\Flow;
 use App\Models\LlmModel;
+use App\Models\PlanLibraryEntry;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use App\Support\ModelLevel;
 use App\Support\PaidModel;
 use App\Support\TypographicQuotes;
 use App\Support\UrlExtractor;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -87,15 +89,37 @@ class FlowPlannerService
         $intent = $this->analyzeIntent($flow, $onProgress, $logToken);
         $this->lastIntent = $intent;
 
-        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken);
+        // B1: при силно съвпадение с малък ДОКАЗАН план — adapt на бърз модел
+        // вместо пълен design от нулата. Празна/слаба библиотека → null → старото
+        // поведение. Adapt НИКОГА не бива да влошава: всяка грешка (truncation/
+        // изключение/твърде малко агенти) пада меко на пълния Claude design.
+        $reuse = config('services.planner.adapt.enabled', true)
+            ? $this->planLibrary->bestReusable($intent)
+            : null;
+
+        $plan = null;
+        if ($reuse !== null) {
+            try {
+                $plan = $this->adaptPipeline($flow, $intent, $level, $reuse, $onProgress, $logToken);
+                if (count(is_array($plan['agents'] ?? null) ? $plan['agents'] : []) < 3) {
+                    $plan = null; // твърде кратко → пълен дизайн по-долу
+                }
+            } catch (Throwable $e) {
+                Log::warning('[FlowPlanner] Adapt се провали — пълен design fallback: '.$e->getMessage());
+                $plan = null;
+            }
+        }
+
+        $plan ??= $this->designPipeline($flow, $intent, $level, $onProgress, $logToken);
         $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
 
         // A strong planner rarely under-produces; a single transient short plan
-        // should not abort the whole run — retry the design phase once. The
-        // retry must not repeat the request verbatim (a low-temperature model
-        // fails identically), so it carries explicit corrective feedback.
+        // should not abort the whole run — retry the design phase once (adapt
+        // under-producing falls back to a FULL from-scratch design). The retry
+        // must not repeat the request verbatim (a low-temperature model fails
+        // identically), so it carries explicit corrective feedback.
         if (count($agents) < 3) {
-            Log::warning('[FlowPlanner] Pipeline design returned '.count($agents).' agents — retrying once.');
+            Log::warning('[FlowPlanner] Pipeline design returned '.count($agents).' agents — retrying once'.($reuse !== null ? ' (full design fallback)' : '').'.');
             $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken,
                 'ВНИМАНИЕ: предишният опит върна само '.count($agents).' агента вместо пълен pipeline. '
                 .'Върни ПЪЛНИЯ DAG с ВСИЧКИ агенти (обикновено 7+), без съкращаване и без да '
@@ -307,6 +331,66 @@ PROMPT;
             'temperature' => 0.3,
             'num_predict' => $this->numPredictFor($intent, simple: 8000, medium: 12000, complex: 16000),
         ], $flow, $logToken);
+    }
+
+    /**
+     * B1 — adapt вместо проектиране от нулата. Дава ДОКАЗАНАТА топология на бърз
+     * евтин модел и иска само да адаптира промптите към новия intent (същата
+     * структура). Логва се пак като фаза `pipeline_design`, но провайдърът/
+     * моделът са скоупнати към `services.planner.adapt`. Резултатът минава през
+     * същата критика + хардване (`AgentGeneratorService`), така че рискът е нисък.
+     *
+     * @return array<string, mixed>
+     */
+    private function adaptPipeline(Flow $flow, array $intent, ModelLevel $level, PlanLibraryEntry $match, ?callable $onProgress, ?string $logToken): array
+    {
+        if ($onProgress) {
+            $onProgress('Адаптиране на доказан план');
+        }
+
+        $system = <<<'PROMPT'
+Ти си архитект на multi-agent AI pipelines. Имаш ДОКАЗАНА топология (агенти + връзки) за
+почти същото задание. АДАПТИРАЙ я към НОВИЯ intent — не проектирай от нулата.
+
+ЗЛАТНИ ПРАВИЛА:
+⚠️ ЕЗИК: name, role, system_prompt, prompt_template, qa_custom_prompt, rationale, plan_rationale
+на БЪЛГАРСКИ. Само type е технически идентификатор. КАВИЧКИ: вътре в текста само «…», НИКОГА ".
+1. ЗАПАЗИ агентите, техните type, depends_on и tools — същата структура и брой агенти.
+2. Напиши ПЪЛНИ system_prompt (3–5 подробни изречения) и prompt_template (400+ символа, с правилните
+   входове {{url}}, {{node:Име}}, {{input}}), адаптирани към НОВИЯ intent — нови теми/специфики, НЕ
+   копирай старите от примера.
+3. Точно един bg_text_corrector (предпоследен) и точно един qa_verifier с uid "qa_main" (последен,
+   is_verifier=true). Без цикли.
+4. Добавяй/махай агент САМО ако новите key_tasks го налагат; иначе пази топологията 1:1.
+{{provider_rule}}
+PROMPT;
+
+        $system = strtr($system, ['{{provider_rule}}' => $level->promptRule()]);
+
+        $intentJson = json_encode($intent, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $provenJson = json_encode($match->agents, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+        $user = "INTENT (НОВОТО задание):\n{$intentJson}\n\n"
+            ."ОРИГИНАЛНО ОПИСАНИЕ НА FLOW:\n\"{$flow->description}\"\n\n"
+            ."ДОКАЗАНА ТОПОЛОГИЯ ЗА АДАПТИРАНЕ (запази структурата, напиши ПЪЛНИ промпти):\n{$provenJson}\n\n"
+            .$this->capabilityCatalog($flow)
+            ."\n\nВърни agents + plan_rationale (кратко защо тази топология пасва на новия intent).";
+
+        // Скоупни design фаза-конфига към бързия adapt модел само за това извикване.
+        $prev = config('services.planner.phases.pipeline_design');
+        Config::set('services.planner.phases.pipeline_design', [
+            'provider' => (string) config('services.planner.adapt.provider', 'gemini'),
+            'model' => config('services.planner.adapt.model') ?: null,
+        ]);
+
+        try {
+            return $this->runPhase('pipeline_design', $system, $user, $this->planSchema($flow), [
+                'temperature' => 0.2,
+                'num_predict' => $this->numPredictFor($intent, simple: 8000, medium: 12000, complex: 16000),
+            ], $flow, $logToken);
+        } finally {
+            Config::set('services.planner.phases.pipeline_design', $prev);
+        }
     }
 
     /** @return array<string, mixed> */

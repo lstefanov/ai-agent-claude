@@ -2,19 +2,15 @@
 
 namespace App\Providers;
 
+use App\Support\QueueHeartbeat;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Horizon\Events\SupervisorLooped;
 
 class AppServiceProvider extends ServiceProvider
 {
-    private const FLOWS_QUEUE_HEARTBEAT_KEY = 'queue.heartbeat.flows';
-
-    private const FLOWS_QUEUE_HEARTBEAT_TTL = 180;
-
     /**
      * Register any application services.
      */
@@ -59,6 +55,6 @@ class AppServiceProvider extends ServiceProvider
 
     private function markFlowsWorkerAlive(): void
     {
-        Cache::put(self::FLOWS_QUEUE_HEARTBEAT_KEY, now()->timestamp, self::FLOWS_QUEUE_HEARTBEAT_TTL);
+        QueueHeartbeat::markFlowsAlive();
     }
 }
