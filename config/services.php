@@ -241,22 +241,6 @@ return [
         // Plan-library retrieval switches to embedding cosine similarity once
         // the proven entries reach this count (below it: structural scoring).
         'vector_threshold' => env('PLANNER_VECTOR_THRESHOLD', 100),
-        // B1: при СИЛНО съвпадение с ДОКАЗАН план — design фазата минава на бърз
-        // евтин модел, който само АДАПТИРА готовата топология (вместо пълен
-        // дизайн от нулата). Критиката остава. Празна библиотека → без ефект.
-        'adapt' => [
-            'enabled' => env('PLANNER_ADAPT', true),
-            // Бърз + евтин + ДОСТАТЪЧНО голям output прозорец (≈16K) — gemini-flash
-            // реже verbose плановете на output капа; gpt-4o-mini ги побира.
-            'provider' => env('PLANNER_ADAPT_PROVIDER', 'openai'),
-            'model' => env('PLANNER_ADAPT_MODEL', 'gpt-4o-mini'),
-            'min_structural' => (float) env('PLANNER_ADAPT_MIN_STRUCTURAL', 9), // от ~10
-            'min_vector' => (float) env('PLANNER_ADAPT_MIN_VECTOR', 8.0),       // cosine×10 (≈0.80)
-            // Adapt само за по-малки планове — бърз модел не може да възпроизведе
-            // 12–16-агентна топология с подробни промпти, без да удари output капа.
-            // По-големите доказани планове падат на пълния Claude design.
-            'max_agents' => (int) env('PLANNER_ADAPT_MAX_AGENTS', 10),
-        ],
         // ХИБРИДНО ПЛАНИРАНЕ: per-phase provider/model override. Скъп модел
         // само за дизайна (най-тежката фаза), евтин/безплатен за останалите.
         // Непопълнена фаза → GENERATOR_PROVIDER + default модела на провайдъра.

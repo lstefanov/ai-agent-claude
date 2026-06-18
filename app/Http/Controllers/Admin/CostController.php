@@ -745,7 +745,6 @@ class CostController extends Controller
                 'status' => $draft?->status,
                 'title' => $draft?->title,
                 'description' => $draft?->description,
-                'domain' => data_get($draft?->script, 'domain'),
                 'flow' => $flow?->name,
                 'flow_id' => $flow?->id,
                 'models' => $metaRow?->models ?: '—',

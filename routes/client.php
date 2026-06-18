@@ -41,7 +41,6 @@ Route::middleware('client_auth')->group(function () {
     Route::get('wizard/status/{token}', [Client\FlowWizardController::class, 'status'])->name('client.wizard.status');
     Route::get('wizard/{draft}/history', [Client\FlowWizardController::class, 'history'])->name('client.wizard.history');
     Route::post('wizard/{draft}/build', [Client\FlowWizardController::class, 'build'])->name('client.wizard.build');
-    Route::post('wizard/{draft}/revise', [Client\FlowWizardController::class, 'revise'])->name('client.wizard.revise');
     // „Подобри с AI" преди генерация — пренаписва описанието през assist модела.
     Route::post('wizard/improve-description', [Client\FlowWizardController::class, 'improveDescription'])->name('client.wizard.improve-description');
     // Same-origin поллинг на генерацията (чете същия глобален cache като админа).

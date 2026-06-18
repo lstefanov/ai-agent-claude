@@ -175,31 +175,6 @@ class PlanLibraryService
     }
 
     /**
-     * B1: топ-1 ДОКАЗАН план, който е достатъчно близък, за да се АДАПТИРА
-     * вместо да се проектира от нулата. По-висок праг от few-shot floor-а и
-     * само 'proven' (рискът от грешно преизползване трябва да е минимален —
-     * критиката пак минава след това). null = няма достатъчно силно съвпадение.
-     */
-    public function bestReusable(array $intent): ?PlanLibraryEntry
-    {
-        $minStructural = (float) config('services.planner.adapt.min_structural', 9);
-        $minVector = (float) config('services.planner.adapt.min_vector', 8.0);
-        $maxAgents = (int) config('services.planner.adapt.max_agents', 10);
-
-        return $this->scoreSimilar($intent)
-            ->filter(fn (PlanLibraryEntry $e) => $e->status === 'proven')
-            // Само планове, които бърз модел може да възпроизведе без да удари output капа.
-            ->filter(fn (PlanLibraryEntry $e) => count((array) $e->agents) <= $maxAgents)
-            ->filter(fn ($e) => $e->getAttribute('similarity') >= ($e->getAttribute('similarity_kind') === 'vector' ? $minVector : $minStructural))
-            ->sortByDesc(fn ($e) => [
-                $e->getAttribute('similarity'),
-                $e->avg_qa_score ?? 0,
-                $e->runs_count,
-            ])
-            ->first();
-    }
-
-    /**
      * Кандидатите от библиотеката с пресметнат `similarity` (+`similarity_kind`).
      * Малка библиотека → структурно сходство; над vector_threshold доказани
      * записи → cosine върху intent embedding-ите (без embedding падат структурно).
