@@ -2,6 +2,17 @@
 
 @section('title', 'Създай нов Flow')
 
+@push('head')
+<style>
+    /* Typing индикатор — три анимирани точки */
+    @keyframes wizTypingBlink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+    .wiz-typing { display: inline-flex; align-items: center; gap: 3px; }
+    .wiz-typing span { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; animation: wizTypingBlink 1.2s infinite both; }
+    .wiz-typing span:nth-child(2) { animation-delay: .2s; }
+    .wiz-typing span:nth-child(3) { animation-delay: .4s; }
+</style>
+@endpush
+
 @section('content')
 <div class="max-w-6xl mx-auto"
      x-data="wizard({
@@ -11,7 +22,6 @@
         statusUrl: '{{ route('client.wizard.status', 'TOKEN') }}',
         historyUrl: '{{ route('client.wizard.history', $draft) }}',
         buildUrl: '{{ route('client.wizard.build', $draft) }}',
-        reviseUrl: '{{ route('client.wizard.revise', $draft) }}',
         improveUrl: '{{ route('client.wizard.improve-description') }}',
      })"
      x-init="init()">
@@ -32,7 +42,6 @@
                 <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-info-soft text-primary"><x-icon name="sparkles" size="4" /></span>
                 <span class="text-sm font-semibold text-ink">Асистент</span>
                 <div class="ml-auto flex items-center gap-3">
-                    <span x-show="progress" x-cloak class="text-xs font-medium text-primary" x-text="progress ? ('Стъпка ' + progress.index + '/' + progress.total) : ''"></span>
                     <form method="POST" action="{{ route('client.wizard.new') }}"
                           onsubmit="return confirm('Да започнем нов чат? Текущият разговор ще се изчисти.');">
                         @csrf
@@ -44,8 +53,8 @@
                 </div>
             </div>
 
-            {{-- Съобщения --}}
-            <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4" x-ref="scroll">
+            {{-- Съобщения (min-height:0 е задължително, за да скролира flex-детето) --}}
+            <div class="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4" x-ref="scroll" style="min-height:0">
                 {{-- Стартови чипове --}}
                 <template x-if="messages.length === 0 && !thinking">
                     <div class="space-y-3">
@@ -102,22 +111,15 @@
                                           x-bind:disabled="msg.selected.length === 0 && !(msg.otherChecked && msg.other.trim())">Изпрати отговор</x-button>
                             </div>
                         </template>
-
-                        {{-- C5: редакция на отговорен въпрос --}}
-                        <template x-if="msg.question && msg.answered">
-                            <div class="mt-1 ml-1">
-                                <button type="button" @click="revise(msg)" class="text-xs text-primary hover:underline">Промени отговора</button>
-                            </div>
-                        </template>
                     </div>
                 </template>
 
-                {{-- „Пише…" --}}
+                {{-- „Пише…" — анимирани точки --}}
                 <template x-if="thinking">
                     <div class="flex justify-start">
                         <div class="bg-surface-subtle text-muted rounded-2xl rounded-bl-sm px-4 py-2 text-sm inline-flex items-center gap-2">
-                            <x-icon name="ellipsis-horizontal" size="4" class="animate-pulse" />
-                            <span x-text="stage || 'Мисля…'"></span>
+                            <span x-text="(stage || 'Мисля').replace(/[.…\s]+$/, '')"></span>
+                            <span class="wiz-typing"><span></span><span></span><span></span></span>
                         </div>
                     </div>
                 </template>
@@ -245,7 +247,6 @@
             stage: '',
             phase: 'interviewing',
             recap: [],
-            progress: null,
             building: false,
             buildStage: '',
             buildError: '',
@@ -304,34 +305,6 @@
                 this.dispatch({ answer: { key: msg.question.key, values, other } });
             },
 
-            async revise(msg) {
-                if (this.thinking || !msg.question) return;
-                const key = msg.question.key;
-                this.thinking = true; this.stage = 'Връщам въпроса…';
-                try {
-                    const res = await fetch(cfg.reviseUrl, {
-                        method: 'POST',
-                        headers: { 'X-CSRF-TOKEN': this.csrf, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({ key }),
-                    });
-                    const d = await res.json().catch(() => ({}));
-                    this.thinking = false;
-                    if (!res.ok) { this.pushBot(d.message || 'Не може да се редактира.', null, true); return; }
-                    // Премахни съобщенията СЛЕД този въпрос (пренареждаме).
-                    const idx = this.messages.findIndex(m => m.uid === msg.uid);
-                    if (idx !== -1) this.messages.splice(idx + 1);
-                    // Отвори въпроса наново (с евентуално прегенерирани опции за тема).
-                    msg.question = d.question || msg.question;
-                    msg.answered = false;
-                    msg.selected = []; msg.otherChecked = false; msg.other = '';
-                    if (d.description_draft && !this.descDirty) this.description = d.description_draft;
-                    this.recap = d.recap || [];
-                    this.progress = d.progress || null;
-                    this.phase = 'interviewing';
-                    this.scrollDown();
-                } catch (e) { this.thinking = false; }
-            },
-
             dispatch(body) {
                 if (!this.available) return;
                 this.thinking = true;
@@ -365,7 +338,6 @@
                         if (d.description_draft && !this.descDirty) this.description = d.description_draft;
                         if (d.suggested_title && !this.titleDirty) this.title = d.suggested_title;
                         this.recap = d.recap || [];
-                        this.progress = d.progress || null;
                         this.phase = d.phase === 'ready' ? 'ready' : 'interviewing';
                         // Асистентът е готов → подобри описанието с AI веднъж, преди
                         // клиентът да генерира (текстът в полето става вече подобрен).
@@ -445,7 +417,11 @@
             },
 
             scrollDown() {
-                this.$nextTick(() => { const el = this.$refs.scroll; if (el) el.scrollTop = el.scrollHeight; });
+                const go = () => { const el = this.$refs.scroll; if (el) el.scrollTop = el.scrollHeight; };
+                // веднъж след DOM ъпдейта и втори път след рендване на формата-въпрос
+                // (нести x-for/x-if опции), за да стигне реално до дъното всеки път.
+                this.$nextTick(go);
+                setTimeout(go, 120);
             },
         };
     }

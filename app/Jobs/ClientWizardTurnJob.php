@@ -84,7 +84,6 @@ class ClientWizardTurnJob implements ShouldQueue
                 'description_draft' => $result['description_draft'],
                 'recap' => $result['recap'],
                 'suggested_title' => $result['suggested_title'],
-                'progress' => $result['progress'] ?? null,
                 'cost_usd' => $result['cost_usd'],
             ], now()->addMinutes(15));
         } catch (Throwable $e) {

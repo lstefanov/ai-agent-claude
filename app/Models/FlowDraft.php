@@ -13,12 +13,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class FlowDraft extends Model
 {
     protected $fillable = [
-        'company_id', 'user_id', 'session', 'status', 'title', 'description', 'answers', 'script', 'flow_id',
+        'company_id', 'user_id', 'session', 'status', 'title', 'description', 'answers', 'flow_id',
     ];
 
     protected $casts = [
         'answers' => 'array',
-        'script' => 'array',
     ];
 
     public function company(): BelongsTo

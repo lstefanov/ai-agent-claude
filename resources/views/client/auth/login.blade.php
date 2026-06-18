@@ -63,12 +63,35 @@
     </div>
 
     <script>
+        // TomSelect ships from a CDN as a global. Alpine's deferred init() can fire
+        // before that global exists (slow / redirected / blocked CDN), which threw
+        // "TomSelect is not defined". Wait for it instead of referencing it
+        // synchronously, and fall back to the native <select>s if it never loads so
+        // login still works.
+        function whenTomSelect(timeout = 5000) {
+            return new Promise((resolve, reject) => {
+                const start = Date.now();
+                (function tick() {
+                    if (window.TomSelect) return resolve(window.TomSelect);
+                    if (Date.now() - start > timeout) return reject(new Error('TomSelect failed to load'));
+                    requestAnimationFrame(tick);
+                })();
+            });
+        }
+
         function clientLogin(usersUrlTemplate) {
+            const userLabel = (u) => u.role === 'owner' ? `${u.name} (собственик)` : u.name;
+
             return {
                 ready: false,
                 companyTs: null,
                 userTs: null,
                 init() {
+                    whenTomSelect()
+                        .then((TomSelect) => this.enhance(TomSelect))
+                        .catch(() => this.fallback());
+                },
+                enhance(TomSelect) {
                     this.companyTs = new TomSelect(this.$refs.company, {
                         maxItems: 1, create: false, searchField: ['text'],
                         onChange: (value) => this.loadUsers(value),
@@ -79,14 +102,16 @@
                     });
                     this.userTs.disable();
                 },
+                fallback() {
+                    // No TomSelect — keep the bare <select> elements usable.
+                    this.$refs.company.addEventListener('change', (e) => this.loadUsers(e.target.value));
+                    this.$refs.user.addEventListener('change', (e) => { this.ready = !!e.target.value; });
+                },
                 async loadUsers(companyId) {
                     this.ready = false;
-                    this.userTs.clear();
-                    this.userTs.clearOptions();
-                    this.userTs.disable();
+                    this.resetUsers('Зареждане…');
                     if (!companyId) {
-                        this.userTs.settings.placeholder = 'Първо избери фирма…';
-                        this.userTs.sync();
+                        this.resetUsers('Първо избери фирма…');
                         return;
                     }
                     try {
@@ -94,18 +119,44 @@
                         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                         const data = await res.json();
                         const users = data.users || [];
-                        users.forEach((u) => this.userTs.addOption({
-                            value: String(u.id),
-                            text: u.role === 'owner' ? `${u.name} (собственик)` : u.name,
-                        }));
-                        this.userTs.enable();
-                        this.userTs.settings.placeholder = users.length ? 'Избери потребител…' : 'Няма активни потребители';
-                        this.userTs.sync();
-                        if (users.length === 1) this.userTs.setValue(String(users[0].id));
+                        this.setUsers(users);
+                        if (users.length === 1) this.selectUser(String(users[0].id));
                     } catch (e) {
-                        this.userTs.settings.placeholder = 'Грешка при зареждане';
-                        this.userTs.sync();
+                        this.resetUsers('Грешка при зареждане');
                     }
+                },
+                // --- helpers that work with or without TomSelect ---
+                resetUsers(placeholder) {
+                    if (this.userTs) {
+                        this.userTs.clear();
+                        this.userTs.clearOptions();
+                        this.userTs.disable();
+                        this.userTs.settings.placeholder = placeholder;
+                        this.userTs.sync();
+                        return;
+                    }
+                    const sel = this.$refs.user;
+                    sel.replaceChildren(new Option(placeholder, ''));
+                    sel.disabled = true;
+                },
+                setUsers(users) {
+                    const placeholder = users.length ? 'Избери потребител…' : 'Няма активни потребители';
+                    if (this.userTs) {
+                        users.forEach((u) => this.userTs.addOption({ value: String(u.id), text: userLabel(u) }));
+                        this.userTs.enable();
+                        this.userTs.settings.placeholder = placeholder;
+                        this.userTs.sync();
+                        return;
+                    }
+                    const sel = this.$refs.user;
+                    sel.replaceChildren(new Option(placeholder, ''));
+                    users.forEach((u) => sel.add(new Option(userLabel(u), String(u.id))));
+                    sel.disabled = users.length === 0;
+                },
+                selectUser(id) {
+                    if (this.userTs) { this.userTs.setValue(id); return; }
+                    this.$refs.user.value = id;
+                    this.ready = !!id;
                 },
             };
         }

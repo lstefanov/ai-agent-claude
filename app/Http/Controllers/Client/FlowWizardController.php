@@ -214,24 +214,6 @@ class FlowWizardController extends Controller
         ]);
     }
 
-    /** C5: редактирай минал отговор (само script режим) — върни въпроса наново. */
-    public function revise(Request $request, FlowDraft $draft, ClientFlowWizardService $wizard): JsonResponse
-    {
-        $this->authorizeCompany($draft->company_id);
-        $request->validate(['key' => ['required', 'string', 'max:60']]);
-
-        if (data_get($draft->script, 'mode') !== 'script') {
-            return response()->json(['message' => 'Редакция е възможна само в режим със стъпки.'], 422);
-        }
-
-        $result = $wizard->reviseTo($draft, (string) $request->input('key'));
-        if ($result === null) {
-            return response()->json(['message' => 'Въпросът не е намерен.'], 404);
-        }
-
-        return response()->json($result);
-    }
-
     /** „Подобри с AI" — пренаписва описанието преди генерация (auto-on-Generate). */
     public function improveDescription(Request $request, ClientFlowWizardService $wizard, FlowDescriptionImprover $improver): JsonResponse
     {
