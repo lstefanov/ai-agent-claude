@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Company extends Model
 {
-    protected $fillable = ['name', 'description', 'industry', 'language', 'settings', 'website_url'];
+    protected $fillable = ['name', 'description', 'industry', 'language', 'settings', 'website_url', 'active_org_version_id'];
 
     protected $casts = [
         'settings' => 'array',
@@ -63,5 +64,50 @@ class Company extends Model
     public function knowledgeEvents(): HasMany
     {
         return $this->hasMany(KnowledgeEvent::class);
+    }
+
+    // --- AI Организация (org слой) ---
+
+    /** Всички org членове на фирмата (стабилната идентичност). */
+    public function members(): HasMany
+    {
+        return $this->hasMany(OrgMember::class);
+    }
+
+    /** Управителят (един на фирма). */
+    public function manager(): HasOne
+    {
+        return $this->hasOne(OrgMember::class)->where('kind', 'manager');
+    }
+
+    public function businessProfile(): HasOne
+    {
+        return $this->hasOne(BusinessProfile::class);
+    }
+
+    public function orgVersions(): HasMany
+    {
+        return $this->hasMany(OrgVersion::class);
+    }
+
+    /** Активната (одобрена) org версия на фирмата. */
+    public function activeOrgVersion(): BelongsTo
+    {
+        return $this->belongsTo(OrgVersion::class, 'active_org_version_id');
+    }
+
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class);
+    }
+
+    public function creditWallet(): HasOne
+    {
+        return $this->hasOne(CreditWallet::class);
+    }
+
+    public function orgEvents(): HasMany
+    {
+        return $this->hasMany(OrgEvent::class);
     }
 }

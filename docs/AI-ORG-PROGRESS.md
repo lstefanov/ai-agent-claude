@@ -6,7 +6,7 @@
 
 ## Фази (изпълни в този ред)
 
-- [ ] **Фаза 0** — Домейн модел + seed библиотеки (org-blueprints / persona-archetypes / plans) + билинг скелет
+- [x] **Фаза 0** ✅ — Домейн модел + seed библиотеки (org-blueprints / persona-archetypes / plans) + билинг скелет
 - [ ] **Фаза 0.5** — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
 - [ ] **Фаза 1** — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
 - [ ] **Фаза 2** — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
@@ -22,8 +22,16 @@
 
 ## Решения / бележки (Claude Code пише тук)
 
-- …
+**Фаза 0 (2026-06-24):**
+- 19 миграции `2026_06_24_100001..100019` (18 нови таблици + колона `companies.active_org_version_id`). FK ред: `credit_reservations` ПРЕДИ `credit_ledger` (ledger.reservation_id сочи натам).
+- `credit_ledger` + `org_events` са append-only (`const UPDATED_AT = null`, само `created_at`).
+- `OrgMember::allocateKey` = детерминистичен slug + суфикс `-2,-3…`; manager → фиксиран ключ `manager`. Никога LLM.
+- `AssistantTask::effectiveStarTier()` = `star_tier ?? member.default_star_tier`, после cap по `Plan::max_star_tier`. Добавени `ModelLevel::rank()/cappedAt()` (additive, non-breaking).
+- Планове: Starter=medium(1000кр/$29), Professional=high(5000/$99), Business=ultra(20000/$299), Enterprise=god(100000/$999). Стойностите са разумен default — подлежат на бизнес-настройка.
+- `.env`: `COMFYUI_PORTRAIT_*` са **коментирани** (празен env var презаписва config default-а с '' → коментар = важи face-friendly default-ът).
+- Проверка зелена: `migrate:fresh --seed` чисто; `Plan::count()=4`, fitness blueprint + 8 архетипа + 3 blueprints; tinker smoke (персона/плейсмънти/наследяване+cap/повишение→event/cascade) минава; `pint` чисто; `about`/`route:list` OK; логове чисти. (UI/`npm build` неприложимо — Фаза 0 е само схема.)
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 
-- …
+- **Уеб проучване (Фаза 1):** `BRAVE_API_KEY` и `CRAWL_SERVICE_URL` са празни в `.env`. Bizнес-проучването ще деградира меко (Google Places + интервю + база знания, без жив сърч/крал). Добави `BRAVE_API_KEY` преди Фаза 1 за пълно проучване.
+- **Stripe (Фаза 6):** `STRIPE_*` празни — по план; ползва се `AdminSimulatedPaymentProvider`. Реален (парола) auth = задача на собственика, предусловие за Фаза 6.
