@@ -9,7 +9,7 @@
 - [x] **Фаза 0** ✅ — Домейн модел + seed библиотеки (org-blueprints / persona-archetypes / plans) + билинг скелет
 - [x] **Фаза 0.5** ✅ — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
 - [x] **Фаза 1** ✅ — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
-- [ ] **Фаза 2** — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
+- [x] **Фаза 2** ✅ — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
 - [ ] **Фаза 3** — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)**
 - [ ] **Фаза 4** — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
 - [ ] **Фаза 5** — `act` задачи през конектори + интеграции рейл + политики на одобрение
@@ -50,6 +50,13 @@
 - **Runtime verify:** реален `ResearchBusinessJob` мина end-to-end през `supervisor-org` (Ollama) → анализ 894 знака, 6 болки, sources=website,web_search,google_reviews.
 - **Решение (§15 ambiguity — кой плаща онбординга):** онбордингът (research/interview) е **best-effort billable** — таксува при наличен баланс, иначе продължава безплатно (нова фирма се онбордва без top-up); само task runs + generation са hard-gated.
 - Браузър click-through изисква MAMP поддомейна `clients.flowai.local.com` + Ollama — проверено е чрез server-side render + реален job, не през хедлес браузър.
+
+**Фаза 2 (2026-06-24):**
+- `OrgPlannerService` (ПЛАНЕРЪТ ПРЕДЛАГА, КОДЪТ ГАРАНТИРА): `proposeOrganization` (закотвен на blueprint скелет + LLM персони/куестове, fallback при слаб модел), `finalizeOrganization` (валиден директор→асистент граф без сираци, legal act_mode/trigger, deriveKnobs, тавани), `materialize` (by-id реконсилация, нов OrgVersion + плейсмънти + персони upsert + задачи + org_events + active_org_version_id; retire на липсващите).
+- `OrgBlueprintLibraryService` (`bestMatch` по вертикал/proven, `snapshot`, `markProven`).
+- `ProposeOrganizationJob` (`org` queue, best-effort org_planning билинг). UI: `design-review` (auto-propose→poll→редактируем екип→одобри), `roster`, `skill-tree`, `member` (Карта на героя: ниво/повиши отдел/регенерирай аватар/per-task tier), `_persona-card` + `_lens-tabs`; контролери `Design/OrgGraph/Member/Persona/AssistantTask`.
+- **Char палитра safelist** в `app.css` (`@source inline(...)` за 7-те тона × bg/soft/strong/ring) — иначе динамичните `bg-char-{{ $c }}` се purge-ват. `npm build`=84KB OK.
+- **Runtime verify:** реален `proposeOrganization` (Ollama) → 6 директори/4 асистенти/3 задачи/2 куеста с LLM персони; `materialize` → version+плейсмънти+персони+задачи+4 hire events+active; **re-materialize пази члена по immutable id** (kept reused, dropped→retired); 3 лещи + design-review рендерват валиден HTML (звездите отразяват tier). pint/view:cache чисти.
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 

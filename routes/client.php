@@ -58,5 +58,25 @@ Route::middleware('client_auth')->group(function () {
         Route::get('interview', [Client\Org\InterviewController::class, 'show'])->name('client.org.interview');
         Route::post('interview/send', [Client\Org\InterviewController::class, 'send'])->name('client.org.interview.send');
         Route::get('interview/status/{token}', [Client\Org\InterviewController::class, 'status'])->name('client.org.interview.status');
+
+        // Дизайн на екипа (Фаза 2): предложи → ревю → одобри (материализация).
+        Route::post('design/propose', [Client\Org\DesignController::class, 'propose'])->name('client.org.design.propose');
+        Route::get('design/status/{token}', [Client\Org\DesignController::class, 'status'])->name('client.org.design.status');
+        Route::get('design/review', [Client\Org\DesignController::class, 'review'])->name('client.org.design.review');
+        Route::post('design/approve', [Client\Org\DesignController::class, 'approve'])->name('client.org.design.approve');
+
+        // Персони (доуточняване/редакция).
+        Route::post('personas/{persona}/refine', [Client\Org\PersonaController::class, 'refine'])->name('client.org.personas.refine');
+        Route::put('personas/{persona}', [Client\Org\PersonaController::class, 'update'])->name('client.org.personas.update');
+
+        // Изгледи на графа (Roster / Skill Tree / Карта на героя) + контроли.
+        Route::get('roster', [Client\Org\OrgGraphController::class, 'roster'])->name('client.org.roster');
+        Route::get('skill-tree', [Client\Org\OrgGraphController::class, 'skillTree'])->name('client.org.skill-tree');
+        Route::get('graph.json', [Client\Org\OrgGraphController::class, 'graph'])->name('client.org.graph');
+        Route::get('members/{member}', [Client\Org\MemberController::class, 'show'])->name('client.org.member');
+        Route::post('members/{member}/avatar/regenerate', [Client\Org\MemberController::class, 'regenerateAvatar'])->name('client.org.member.avatar');
+        Route::post('members/{member}/tier', [Client\Org\MemberController::class, 'setTier'])->name('client.org.member.tier');
+        Route::post('members/{member}/promote-department', [Client\Org\MemberController::class, 'promoteDepartment'])->name('client.org.member.promote-dept');
+        Route::post('tasks/{task}/tier', [Client\Org\AssistantTaskController::class, 'setTier'])->name('client.org.tasks.tier');
     });
 });

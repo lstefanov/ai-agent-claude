@@ -84,7 +84,7 @@
         <template x-if="ready">
             <div class="border-t border-line p-4 flex items-center justify-between gap-3" x-cloak>
                 <p class="text-sm text-success-strong">✓ Управителят има ясна представа.</p>
-                <x-button :href="route('client.dashboard')">Готово — продължи</x-button>
+                <x-button :href="route('client.org.design.review')">Проектирай екипа →</x-button>
             </div>
         </template>
 

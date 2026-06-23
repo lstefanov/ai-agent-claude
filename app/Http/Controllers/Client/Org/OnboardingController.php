@@ -31,12 +31,16 @@ class OnboardingController extends Controller
         }
 
         $profile = $company->businessProfile;
-        if (! $profile || $profile->status !== 'ready') {
+        if (! $profile || ! in_array($profile->status, ['interviewing', 'ready'], true)) {
             return redirect()->route('client.org.research');
         }
 
-        // Готов профил → следва дизайн на екипа (Фаза 2).
-        return redirect()->route('client.org.interview');
+        // Има активна организация → екипа; иначе → дизайн/ревю (Фаза 2).
+        if ($company->active_org_version_id) {
+            return redirect()->route('client.org.roster');
+        }
+
+        return redirect()->route($profile->status === 'ready' ? 'client.org.design.review' : 'client.org.interview');
     }
 
     /** Casting на Управителя — кандидати-архетипи + „създай свой". */

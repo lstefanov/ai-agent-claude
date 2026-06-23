@@ -5,6 +5,14 @@
 @source '../**/*.blade.php';
 @source '../**/*.js';
 
+/* Safelist: character-палитрата (RPG персона карти) се избира ДИНАМИЧНО по член
+   (bg-char-{{ $c }}-soft в Blade / bg-${color} в JS) → Tailwind не я вижда като
+   литерал и я purge-ва. Форсираме всичките 7 тона тук (§DESIGN „Components — RPG слой"). */
+@source inline("bg-char-{purple,teal,coral,blue,amber,pink,green}");
+@source inline("bg-char-{purple,teal,coral,blue,amber,pink,green}-soft");
+@source inline("text-char-{purple,teal,coral,blue,amber,pink,green}-strong");
+@source inline("ring-char-{purple,teal,coral,blue,amber,pink,green}-soft");
+
 /* ============================================================
    FlowAI — Design System tokens (Modern SaaS / Linear·Vercel)
    Light theme. Single source of truth — no hardcoded hex in Blade.
