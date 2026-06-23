@@ -8,7 +8,7 @@
 
 - [x] **Фаза 0** ✅ — Домейн модел + seed библиотеки (org-blueprints / persona-archetypes / plans) + билинг скелет
 - [x] **Фаза 0.5** ✅ — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
-- [ ] **Фаза 1** — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
+- [x] **Фаза 1** ✅ — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
 - [ ] **Фаза 2** — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
 - [ ] **Фаза 3** — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)**
 - [ ] **Фаза 4** — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
@@ -41,7 +41,17 @@
 - `ApprovalService::settle` = единният resume-after-approval boundary; `FlowRunController::approval` → тънка обвивка. `DecisionBoxService` агрегира `org_proposals(pending)` + паузирани runs; optimistic concurrency (остаряла `base_org_version_id` → `superseded`). Тествано.
 - Queue: `supervisor-org` (queue `org`, timeout 1200, tries 1) + `redis:org` wait; `QueueHeartbeat::orgAlive()` писан от `SupervisorLooped`. Потвърдено: трите супервайзора вървят, `orgAlive`=YES.
 
+**Фаза 1 (2026-06-24):**
+- `PersonaService` разширен: `seedTraitsFromDemographics` (24г→+риск/+креативност; 59г→+прецизност), `deriveKnobs` (temperature/star_tier-hint/approval), `attachTo` (upsert + regen на портрета само при смяна на gender/age/ethnicity), `archetypes`. Тествано: 20-vs-60 различни черти; regen-guard.
+- `AvatarService` (преизползва `ComfyUIService`): `portraitPrompt` (детерминистичен, само демография — без role/tone), `seedFor` (стабилен demography-hash), `generateFor` (overrides workflow → стабилен файл `avatars/member_{id}.png`; спрян ComfyUI → pending+инициали), `redispatchPending`. `ComfyUIService::buildWorkflow(+$overrides)` — обратно-съвместимо (image-агентите непокътнати).
+- `BusinessProfilerService` (services, не директни HTTP): `research` (сайт/Brave/Places, мек деградейшън) + `analyze` (Ollama синтез → анализ+pain_points). `OrgInterviewService` (по модела на wizard-а: chatJson + normalize + forceReady).
+- Jobs (`org` queue): `ResearchBusinessJob`, `OrgInterviewTurnJob`, `GenerateMemberAvatarJob` — best-effort билинг за онбординга.
+- UI: routes `org/*` в `routes/client.php`; nav „Моята организация"; контролери `Client\Org\{Onboarding,Interview}`; views `casting/research/interview` (token-poll чат като wizard-а). Всички рендерват валиден HTML; `npm build` минава.
+- **Runtime verify:** реален `ResearchBusinessJob` мина end-to-end през `supervisor-org` (Ollama) → анализ 894 знака, 6 болки, sources=website,web_search,google_reviews.
+- **Решение (§15 ambiguity — кой плаща онбординга):** онбордингът (research/interview) е **best-effort billable** — таксува при наличен баланс, иначе продължава безплатно (нова фирма се онбордва без top-up); само task runs + generation са hard-gated.
+- Браузър click-through изисква MAMP поддомейна `clients.flowai.local.com` + Ollama — проверено е чрез server-side render + реален job, не през хедлес браузър.
+
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 
-- **Уеб проучване (Фаза 1):** `BRAVE_API_KEY` и `CRAWL_SERVICE_URL` са празни в `.env`. Bizнес-проучването ще деградира меко (Google Places + интервю + база знания, без жив сърч/крал). Добави `BRAVE_API_KEY` преди Фаза 1 за пълно проучване.
+- ~~Уеб проучване (Фаза 1) деградира~~ → **ОТМЕНЕНО (2026-06-24):** грешен env var в pre-flight. Истинският ключ е `BRAVE_SEARCH_API_KEY` (set) + Crawl4AI върви на :8189 + Google Places set. Реалният research job ползва и трите източника — пълно проучване работи, без деградация.
 - **Stripe (Фаза 6):** `STRIPE_*` празни — по план; ползва се `AdminSimulatedPaymentProvider`. Реален (парола) auth = задача на собственика, предусловие за Фаза 6.

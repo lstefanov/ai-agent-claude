@@ -1,0 +1,88 @@
+@extends('layouts.client')
+
+@section('title', 'Проучване на бизнеса')
+
+@section('content')
+@php($persona = $manager->persona)
+<div class="max-w-3xl mx-auto px-6 py-8"
+     x-data="research({
+        startUrl: '{{ route('client.org.research.start') }}',
+        statusTpl: '{{ route('client.org.research.status', ['token' => 'TOKEN']) }}',
+        interviewUrl: '{{ route('client.org.interview') }}',
+        done: {{ $profile && $profile->status === 'ready' ? 'true' : 'false' }},
+     })">
+    <header class="mb-8">
+        <p class="text-xs font-mono uppercase tracking-wider text-muted mb-1">Стъпка 2 от 3 · Проучване</p>
+        <h1 class="text-2xl font-semibold text-ink">{{ $manager->persona?->name ?? 'Управителят' }} проучва бизнеса</h1>
+        <p class="text-muted mt-1">Сайт, отзиви и добри практики в бранша — за да си състави ясна представа преди дизайна.</p>
+    </header>
+
+    <div class="rounded-xl border border-line bg-surface p-6">
+        <div class="flex items-center gap-4 mb-5">
+            @if ($persona?->hasReadyAvatar())
+                <img src="{{ $persona->avatar_url }}" alt="{{ $persona->name }}" class="h-14 w-14 rounded-full object-cover ring-1 ring-line">
+            @else
+                <span class="flex h-14 w-14 items-center justify-center rounded-full bg-char-blue-soft text-char-blue-strong text-lg font-semibold">
+                    {{ mb_substr($manager->persona?->name ?? 'У', 0, 1) }}</span>
+            @endif
+            <div>
+                <p class="font-medium text-ink">{{ $manager->persona?->name ?? 'Управител' }}</p>
+                <p class="text-sm text-muted">{{ $manager->persona?->tone }}</p>
+            </div>
+        </div>
+
+        {{-- Старт / прогрес --}}
+        <div x-show="!done">
+            <template x-if="!running">
+                <x-button x-on:click="start()">Стартирай проучването</x-button>
+            </template>
+            <template x-if="running">
+                <div class="flex items-center gap-3 text-sm text-muted">
+                    <span class="h-2 w-2 rounded-full bg-accent animate-pulse"></span>
+                    <span x-text="stage || 'Проучвам…'"></span>
+                </div>
+            </template>
+            <p x-show="error" x-text="error" class="text-sm text-danger mt-3"></p>
+        </div>
+
+        {{-- Резултат --}}
+        <div x-show="done" x-cloak>
+            <div class="rounded-lg bg-surface-subtle p-4 text-sm text-ink whitespace-pre-line leading-relaxed"
+                 x-text="analysis || @js(optional($profile)->situational_analysis) || 'Анализът е готов.'"></div>
+            <div class="flex justify-end mt-5">
+                <x-button :href="route('client.org.interview')">Към интервюто →</x-button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@push('scripts')
+<script>
+function research(cfg) {
+    return {
+        running: false, done: cfg.done, stage: '', error: '', analysis: '', timer: null,
+        start() {
+            this.running = true; this.error = '';
+            fetch(cfg.startUrl, { method: 'POST', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' } })
+                .then(r => r.json()).then(d => { if (d.token) this.poll(d.token); else this.fail(); })
+                .catch(() => this.fail());
+        },
+        poll(token) {
+            const url = cfg.statusTpl.replace('TOKEN', token);
+            const tick = async () => {
+                try {
+                    const d = await (await fetch(url, { headers: { 'Accept': 'application/json' } })).json();
+                    if (d.status === 'pending') { this.stage = d.stage || 'Проучвам…'; return; }
+                    clearInterval(this.timer); this.running = false;
+                    if (d.status === 'completed') { this.analysis = d.analysis || ''; this.done = true; }
+                    else { this.fail(d.error); }
+                } catch (e) { /* retry */ }
+            };
+            tick(); this.timer = setInterval(tick, 2000);
+        },
+        fail(msg) { this.running = false; this.error = msg || 'Проучването се провали. Опитай пак.'; },
+    };
+}
+</script>
+@endpush
+@endsection

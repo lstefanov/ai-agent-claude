@@ -29,8 +29,9 @@
     {{-- Navigation --}}
     @php
         $navItems = [
-            'Табло'       => ['route' => 'client.dashboard',   'match' => 'client.dashboard'],
-            'Моите Flows' => ['route' => 'client.flows.index', 'match' => 'client.flows.*'],
+            'Табло'              => ['route' => 'client.dashboard',   'match' => 'client.dashboard'],
+            'Моите Flows'        => ['route' => 'client.flows.index', 'match' => 'client.flows.*'],
+            'Моята организация'  => ['route' => 'client.org.start',   'match' => 'client.org.*'],
         ];
     @endphp
     <nav class="bg-surface border-b border-line sticky top-0 z-40" x-data="{ open: false, menu: false }">

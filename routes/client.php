@@ -45,4 +45,18 @@ Route::middleware('client_auth')->group(function () {
     Route::post('wizard/improve-description', [Client\FlowWizardController::class, 'improveDescription'])->name('client.wizard.improve-description');
     // Same-origin поллинг на генерацията (чете същия глобален cache като админа).
     Route::get('wizard/generation-status/{token}', [Client\FlowWizardController::class, 'generationStatus'])->name('client.wizard.generation-status');
+
+    // AI Организация (org слой) — casting на Управителя → проучване → интервю (Фаза 1).
+    Route::prefix('org')->group(function () {
+        Route::get('start', [Client\Org\OnboardingController::class, 'start'])->name('client.org.start');
+        Route::get('casting', [Client\Org\OnboardingController::class, 'casting'])->name('client.org.casting');
+        Route::post('casting', [Client\Org\OnboardingController::class, 'hireManager'])->name('client.org.casting.hire');
+        Route::get('research', [Client\Org\OnboardingController::class, 'research'])->name('client.org.research');
+        Route::post('research/start', [Client\Org\OnboardingController::class, 'startResearch'])->name('client.org.research.start');
+        Route::get('research/status/{token}', [Client\Org\OnboardingController::class, 'researchStatus'])->name('client.org.research.status');
+
+        Route::get('interview', [Client\Org\InterviewController::class, 'show'])->name('client.org.interview');
+        Route::post('interview/send', [Client\Org\InterviewController::class, 'send'])->name('client.org.interview.send');
+        Route::get('interview/status/{token}', [Client\Org\InterviewController::class, 'status'])->name('client.org.interview.status');
+    });
 });

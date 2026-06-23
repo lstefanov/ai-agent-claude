@@ -9,13 +9,15 @@ use Illuminate\Support\Facades\Storage;
 class ComfyUIService
 {
     private string $baseUrl;
+
     private string $checkpoint;
+
     private string $negativePrompt;
 
     public function __construct()
     {
-        $this->baseUrl       = config('services.comfyui.url',      'http://localhost:8188');
-        $this->checkpoint    = config('services.comfyui.checkpoint', 'sd_xl_base_1.0.safetensors');
+        $this->baseUrl = config('services.comfyui.url', 'http://localhost:8188');
+        $this->checkpoint = config('services.comfyui.checkpoint', 'sd_xl_base_1.0.safetensors');
         $this->negativePrompt = config(
             'services.comfyui.negative_prompt',
             'ugly, deformed, noisy, blurry, distorted, low quality, watermark, text, signature'
@@ -24,9 +26,15 @@ class ComfyUIService
 
     /**
      * Build a ComfyUI workflow by injecting the text prompt into the SDXL template.
-     * Randomises the seed on every call.
+     *
+     * Празни $overrides → пълна обратна съвместимост (рандом seed, конструкторни
+     * checkpoint/negative — текущото поведение на image-агентите). Org портретите
+     * подават детерминистични overrides ($overrides['seed'|'checkpoint'|'negative'])
+     * → стабилен портрет per член, който се сменя само при смяна на демографията (§1.1).
+     *
+     * @param  array{seed?: int, checkpoint?: string, negative?: string}  $overrides
      */
-    public function buildWorkflow(string $positivePrompt): array
+    public function buildWorkflow(string $positivePrompt, array $overrides = []): array
     {
         $templatePath = resource_path('comfyui/workflow_sdxl.json');
 
@@ -38,14 +46,18 @@ class ComfyUIService
 
         // json_encode() produces a properly-escaped JSON string (with outer quotes).
         // Strip the outer quotes to get a bare value safe for insertion into JSON.
-        $jsonStr  = fn (string $s): string => substr(json_encode($s, JSON_UNESCAPED_UNICODE), 1, -1);
+        $jsonStr = fn (string $s): string => substr(json_encode($s, JSON_UNESCAPED_UNICODE), 1, -1);
+
+        // Overrides → иначе конструкторните стойности (image-агенти).
+        $checkpoint = (string) ($overrides['checkpoint'] ?? '') !== '' ? $overrides['checkpoint'] : $this->checkpoint;
+        $negative = (string) ($overrides['negative'] ?? '') !== '' ? $overrides['negative'] : $this->negativePrompt;
 
         $workflow = str_replace(
             ['__CHECKPOINT__', '__POSITIVE__', '__NEGATIVE__'],
             [
-                $jsonStr($this->checkpoint),
+                $jsonStr($checkpoint),
                 $jsonStr($positivePrompt),
-                $jsonStr($this->negativePrompt),
+                $jsonStr($negative),
             ],
             $template
         );
@@ -53,13 +65,14 @@ class ComfyUIService
         $decoded = json_decode($workflow, true);
 
         if ($decoded === null) {
-            throw new \RuntimeException('Failed to parse ComfyUI workflow JSON after substitution: ' . json_last_error_msg());
+            throw new \RuntimeException('Failed to parse ComfyUI workflow JSON after substitution: '.json_last_error_msg());
         }
 
-        // Randomise seed so every run is unique
+        // Детерминистичен seed при подаден override; иначе рандом (уникален на всяко повикване).
+        $seed = isset($overrides['seed']) ? (int) $overrides['seed'] : null;
         foreach ($decoded as &$node) {
             if (isset($node['inputs']['seed'])) {
-                $node['inputs']['seed'] = rand(1, 999_999_999);
+                $node['inputs']['seed'] = $seed ?? rand(1, 999_999_999);
             }
         }
 
@@ -71,7 +84,7 @@ class ComfyUIService
      */
     public function generate(array $workflow): string
     {
-        $response = Http::timeout(30)->post($this->baseUrl . '/prompt', [
+        $response = Http::timeout(30)->post($this->baseUrl.'/prompt', [
             'prompt' => $workflow,
         ]);
 
@@ -79,8 +92,8 @@ class ComfyUIService
 
         $promptId = $response->json('prompt_id');
 
-        if (!$promptId) {
-            throw new \RuntimeException('ComfyUI did not return a prompt_id. Response: ' . $response->body());
+        if (! $promptId) {
+            throw new \RuntimeException('ComfyUI did not return a prompt_id. Response: '.$response->body());
         }
 
         return $promptId;
@@ -109,19 +122,22 @@ class ComfyUIService
         }
 
         Log::warning("[ComfyUI] Timeout waiting for prompt {$promptId}");
+
         return null;
     }
 
     private function downloadAndSaveImage(array $historyData, string $promptId): ?string
     {
         foreach ($historyData['outputs'] ?? [] as $nodeOutput) {
-            if (!isset($nodeOutput['images'])) continue;
+            if (! isset($nodeOutput['images'])) {
+                continue;
+            }
 
-            $image     = $nodeOutput['images'][0];
-            $filename  = $image['filename'];
+            $image = $nodeOutput['images'][0];
+            $filename = $image['filename'];
             $subfolder = $image['subfolder'] ?? '';
 
-            $imageUrl  = "{$this->baseUrl}/view?filename={$filename}&subfolder={$subfolder}&type=output";
+            $imageUrl = "{$this->baseUrl}/view?filename={$filename}&subfolder={$subfolder}&type=output";
             $imageData = Http::timeout(120)->get($imageUrl)->body();
 
             $path = "generated/{$promptId}.png";
@@ -151,6 +167,7 @@ class ComfyUIService
     {
         try {
             $response = Http::timeout(5)->get("{$this->baseUrl}/object_info/CheckpointLoaderSimple");
+
             return $response->json('CheckpointLoaderSimple.input.required.ckpt_name.0') ?? [];
         } catch (\Exception) {
             return [];
