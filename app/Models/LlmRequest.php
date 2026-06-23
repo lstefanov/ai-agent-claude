@@ -14,6 +14,8 @@ class LlmRequest extends Model
     protected $fillable = [
         'provider', 'model', 'kind', 'purpose', 'session_id',
         'company_id', 'flow_id', 'flow_run_id', 'node_run_id', 'agent_name', 'agent_type',
+        // Билинг-атрибуция (§0.5.1).
+        'context_type', 'subject_type', 'subject_id', 'reservation_id',
         'system_prompt', 'user_message', 'response_text', 'options',
         'prompt_tokens', 'completion_tokens', 'total_tokens', 'cost_usd', 'duration_ms',
         'status', 'error',
@@ -42,5 +44,11 @@ class LlmRequest extends Model
     public function nodeRun(): BelongsTo
     {
         return $this->belongsTo(NodeRun::class);
+    }
+
+    /** Билинг резервацията, под която е направен този request (§0.5.1). */
+    public function reservation(): BelongsTo
+    {
+        return $this->belongsTo(CreditReservation::class, 'reservation_id');
     }
 }

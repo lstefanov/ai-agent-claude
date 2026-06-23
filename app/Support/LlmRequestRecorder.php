@@ -50,6 +50,13 @@ class LlmRequestRecorder
                 'agent_name' => $ctx['agent_name'] ?? null,
                 'agent_type' => $ctx['agent_type'] ?? null,
 
+                // Билинг-атрибуция (§0.5.1) — стампваме от ambient контекста, за да
+                // сумира actualFor() точно requests-ите под текущата резервация.
+                'context_type' => $ctx['context_type'] ?? null,
+                'subject_type' => $ctx['subject_type'] ?? null,
+                'subject_id' => $ctx['subject_id'] ?? null,
+                'reservation_id' => $ctx['reservation_id'] ?? null,
+
                 'system_prompt' => $system,
                 'user_message' => $user,
                 'response_text' => $response,

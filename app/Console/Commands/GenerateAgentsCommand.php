@@ -3,12 +3,17 @@
 namespace App\Console\Commands;
 
 use App\Models\AgentGenerationLog;
+use App\Models\AssistantTask;
 use App\Models\Company;
+use App\Models\CreditReservation;
 use App\Models\Flow;
 use App\Models\FlowDraft;
 use App\Services\AgentGeneratorService;
 use App\Services\FlowVersionService;
 use App\Services\GeneratorService;
+use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\TaskRunService;
+use App\Support\LlmContext;
 use App\Support\ModelLevel;
 use App\Support\PlannerPhases;
 use Illuminate\Console\Command;
@@ -36,6 +41,13 @@ class GenerateAgentsCommand extends Command
         }
 
         Log::info("[GenerateAgents] Starting for token {$token}, company {$request['company_id']}");
+
+        // Org задача (§0.5.6): резервацията за generation е създадена от TaskRunService
+        // по детерминистичен субект — намираме я тук за атрибуция + settle/refund.
+        $assistantTaskId = $request['assistant_task_id'] ?? null;
+        $genReservation = $assistantTaskId
+            ? $this->generationReservation((int) $assistantTaskId)
+            : null;
 
         try {
             $company = Company::findOrFail($request['company_id']);
@@ -91,7 +103,27 @@ class GenerateAgentsCommand extends Command
             $onProgress('Подготовка на заявката');
 
             $startMs = (int) (microtime(true) * 1000);
-            $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false));
+            // Обвиваме генерацията в LlmContext с generation резервацията → planner
+            // редовете влизат под нея (§0.5.6). Планерът наследява reservation_id от
+            // тази рамка (FlowPlannerService::runPhase merge-ва билинг полетата).
+            if ($genReservation) {
+                LlmContext::set([
+                    'purpose' => 'org_generation',
+                    'company_id' => $company->id,
+                    'flow_id' => $flow->id,
+                    'context_type' => 'generation',
+                    'subject_type' => $genReservation->subject_type,
+                    'subject_id' => $genReservation->subject_id,
+                    'reservation_id' => $genReservation->id,
+                ]);
+            }
+            try {
+                $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false));
+            } finally {
+                if ($genReservation) {
+                    LlmContext::clear();
+                }
+            }
 
             if (empty($agents)) {
                 Cache::put($cacheKey, [
@@ -101,6 +133,9 @@ class GenerateAgentsCommand extends Command
                     'stage' => 'Генерацията се провали',
                     'updated_at' => now()->timestamp,
                 ], now()->addMinutes(10));
+
+                // Org задача: маркирай failed + refund резервацията (нищо не се харчи).
+                $this->failAssistantTask($assistantTaskId, $genReservation);
 
                 return Command::FAILURE;
             }
@@ -131,6 +166,13 @@ class GenerateAgentsCommand extends Command
                     if (! empty($request['draft_id'])) {
                         FlowDraft::whereKey((int) $request['draft_id'])->update(['status' => 'completed']);
                     }
+
+                    // Org задача (§0.5.6): връзваме flow_id + status='ready', settle-ваме
+                    // generation резервацията по реалните planner редове, и авто-пускаме
+                    // run-а, ако намерението е durable И има баланс.
+                    if (! empty($request['assistant_task_id'])) {
+                        $this->finishAssistantTask((int) $request['assistant_task_id'], $flow, $genReservation);
+                    }
                 } catch (\Throwable $e) {
                     Log::error("[GenerateAgents] Persist failed {$token}: ".$e->getMessage(), ['exception' => $e]);
 
@@ -141,6 +183,8 @@ class GenerateAgentsCommand extends Command
                         'stage' => 'Записът се провали',
                         'updated_at' => now()->timestamp,
                     ], now()->addMinutes(10));
+
+                    $this->failAssistantTask($assistantTaskId, $genReservation);
 
                     return Command::FAILURE;
                 }
@@ -176,7 +220,50 @@ class GenerateAgentsCommand extends Command
                 'updated_at' => now()->timestamp,
             ], now()->addMinutes(10));
 
+            $this->failAssistantTask($assistantTaskId, $genReservation);
+
             return Command::FAILURE;
+        }
+    }
+
+    /** Отворената generation резервация за задачата (детерминистичен субект, §0.5.6). */
+    private function generationReservation(int $taskId): ?CreditReservation
+    {
+        return CreditReservation::where('context_type', 'generation')
+            ->where('subject_type', (new AssistantTask)->getMorphClass())
+            ->where('subject_id', $taskId)
+            ->where('status', 'reserved')
+            ->latest('id')
+            ->first();
+    }
+
+    /** Успешна генерация на org задача: ready + flow_id, settle резервацията, авто-run. */
+    private function finishAssistantTask(int $taskId, Flow $flow, ?CreditReservation $reservation): void
+    {
+        $task = AssistantTask::find($taskId);
+        if (! $task) {
+            return;
+        }
+
+        $task->update(['flow_id' => $flow->id, 'status' => 'ready']);
+
+        if ($reservation) {
+            $meter = app(CreditMeterService::class);
+            $meter->settle($reservation, $meter->actualFor($reservation));
+        }
+
+        app(TaskRunService::class)->autoRunAfterGenerate($task->fresh());
+    }
+
+    /** Провал на генерация на org задача: status='failed' + пълен refund на резервацията. */
+    private function failAssistantTask(?int $taskId, ?CreditReservation $reservation): void
+    {
+        if ($taskId && ($task = AssistantTask::find($taskId))) {
+            $task->update(['status' => 'failed']);
+        }
+
+        if ($reservation) {
+            app(CreditMeterService::class)->refund($reservation);
         }
     }
 }

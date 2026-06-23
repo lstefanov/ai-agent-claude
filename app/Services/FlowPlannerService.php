@@ -1135,6 +1135,12 @@ PROMPT;
             'session_id' => $logToken,
             'company_id' => $flow->company_id ?? $flow->company?->id,
             'flow_id' => $flow->id,
+            // Билинг-атрибуция: наследяваме резервацията от обгръщащата рамка (org
+            // генерация), за да влязат planner редовете под нея (§0.5.6).
+            'context_type' => $prevCtx['context_type'] ?? null,
+            'subject_type' => $prevCtx['subject_type'] ?? null,
+            'subject_id' => $prevCtx['subject_id'] ?? null,
+            'reservation_id' => $prevCtx['reservation_id'] ?? null,
         ]);
 
         try {

@@ -15,6 +15,12 @@ return [
     'credit_markup' => (float) env('BILLING_CREDIT_MARKUP', 3.0),  // надценка над реален inference
     'work_per_token' => (float) env('BILLING_WORK_PER_KTOKEN', 1.0), // кредити / 1k predict tokens
     'overage_enabled' => (bool) env('BILLING_OVERAGE', true),
+    // Груби оценки на predict tokens (в хиляди) ПРЕДИ старт — резервацията е
+    // консервативна; settle винаги реконсилира срещу реалните токени (§0.5.2).
+    'estimate_ktokens' => [
+        'task_run' => 10, 'generation' => 12, 'org_planning' => 15,
+        'interview' => 3, 'research' => 8, 'member_chat' => 2, 'director_tick' => 6,
+    ],
     // Stripe — ПО-КЪСНА фаза (Фаза 6); зад PaymentProvider. Сега зареждането е
     // админ-симулирано (AdminSimulatedPaymentProvider), тези остават празни.
     'stripe' => [

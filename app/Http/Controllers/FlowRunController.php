@@ -7,6 +7,7 @@ use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\FlowVersion;
 use App\Services\GraphFlowExecutor;
+use App\Services\Org\ApprovalService;
 use App\Support\PaidModel;
 use App\Support\QueueHeartbeat;
 use Illuminate\Http\JsonResponse;
@@ -217,57 +218,22 @@ class FlowRunController extends Controller
      * NodeRun completed (output = решението + коментар, consumable by downstream
      * nodes) and resumes the run; reject fails the run cleanly.
      */
-    public function approval(Request $request, FlowRun $flowRun, string $nodeKey, GraphFlowExecutor $executor): JsonResponse
+    public function approval(Request $request, FlowRun $flowRun, string $nodeKey, ApprovalService $approvals): JsonResponse
     {
         $validated = $request->validate([
             'decision' => ['required', 'in:approve,reject'],
             'comment' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        if ($flowRun->status !== 'waiting_approval') {
-            return response()->json(['ok' => false, 'error' => 'Изпълнението не чака одобрение.'], 422);
-        }
+        // Тънка обвивка над единния boundary (§0.5.7) — resume-логиката е в ApprovalService.
+        $result = $approvals->settle(
+            $flowRun,
+            $nodeKey,
+            $validated['decision'] === 'approve',
+            $validated['comment'] ?? null,
+        );
 
-        $nodeRun = $flowRun->nodeRuns()->where('node_key', $nodeKey)->where('status', 'paused')->first();
-
-        if (! $nodeRun) {
-            return response()->json(['ok' => false, 'error' => 'Този възел не чака одобрение.'], 404);
-        }
-
-        $comment = trim((string) ($validated['comment'] ?? ''));
-        $approved = $validated['decision'] === 'approve';
-
-        // Audit trail in the run context (the poll ships it to the UI).
-        $context = $flowRun->fresh()->context ?? [];
-        $context['approvals'][$nodeKey] = array_merge($context['approvals'][$nodeKey] ?? [], [
-            'status' => $approved ? 'approved' : 'rejected',
-            'comment' => $comment !== '' ? $comment : null,
-            'decided_at' => now()->toISOString(),
-        ]);
-        $flowRun->update(['context' => $context]);
-
-        if ($approved) {
-            $nodeRun->update([
-                'status' => 'completed',
-                'output' => 'Одобрено от потребителя.'.($comment !== '' ? "\nКоментар: {$comment}" : ''),
-                'completed_at' => now(),
-            ]);
-
-            $executor->resumeAfterApproval($flowRun, $nodeKey);
-        } else {
-            $message = "Отхвърлено от потребителя на стъпка „{$nodeRun->flowNode?->name}“."
-                .($comment !== '' ? " Причина: {$comment}" : '');
-
-            $nodeRun->update([
-                'status' => 'failed',
-                'error' => $message,
-                'completed_at' => now(),
-            ]);
-
-            $executor->fail($flowRun->fresh(), $message);
-        }
-
-        return response()->json(['ok' => true, 'status' => $flowRun->fresh()->status]);
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
     }
 
     private function flowsWorkerAlive(): bool

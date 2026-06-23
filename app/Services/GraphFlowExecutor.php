@@ -6,6 +6,7 @@ use App\Jobs\DistillFlowMemoryJob;
 use App\Jobs\ExecuteNodeJob;
 use App\Jobs\HarvestRunKnowledgeJob;
 use App\Jobs\JudgeEvalRunJob;
+use App\Models\CreditReservation;
 use App\Models\Flow;
 use App\Models\FlowEdge;
 use App\Models\FlowEvalRun;
@@ -13,7 +14,9 @@ use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\FlowVersion;
 use App\Models\NodeRun;
+use App\Services\Org\Billing\CreditMeterService;
 use App\Support\GraphTopology;
+use App\Support\LlmContext;
 use App\Support\RunLog;
 use App\Support\UrlExtractor;
 use Illuminate\Bus\Batch;
@@ -241,8 +244,10 @@ class GraphFlowExecutor
         }
 
         // Deterministic, role-aware assembly from node_runs (body/appendix),
-        // with an optional guarded LLM formatting pass.
-        $composed = app(FinalComposerService::class)->compose($flowRun);
+        // with an optional guarded LLM formatting pass. За org-flow обвиваме композа
+        // в LlmContext с резервацията на run-а, за да НЕ изтече FinalComposer разходът
+        // (§A6) — иначе се записва без reservation_id и settle го пропуска.
+        $composed = $this->withRunReservationContext($flowRun, fn () => app(FinalComposerService::class)->compose($flowRun));
 
         // Fallback to terminal node outputs if no body/appendix nodes exist.
         $output = $composed['output'] !== '' ? $composed['output'] : $this->terminalAssembly($flowRun);
@@ -303,6 +308,60 @@ class GraphFlowExecutor
             app(DeliveryService::class)->deliver($flowRun);
         } catch (Throwable $e) {
             report($e);
+        }
+
+        // Билинг (§0.5.3): реконсилиация на task_run резервацията — реалното похарчено
+        // (вече вижда и FinalComposer реда) + refund на остатъка. No-op за не-org flow.
+        $this->settleRunReservation($flowRun);
+    }
+
+    /**
+     * Закрива task_run резервацията на run-а (settle реалното + refund на остатъка).
+     * Симетрично за success (finalize) и терминал провал (fail). Идемпотентно — settle
+     * е no-op, ако резервацията вече не е `reserved`. No-op за не-org flow (без резервация).
+     */
+    private function settleRunReservation(FlowRun $flowRun): void
+    {
+        $reservationId = $flowRun->context['credit_reservation_id'] ?? null;
+        if (! $reservationId) {
+            return;
+        }
+
+        $reservation = CreditReservation::find($reservationId);
+        if (! $reservation || $reservation->status !== 'reserved') {
+            return;
+        }
+
+        $meter = app(CreditMeterService::class);
+        $meter->settle($reservation, $meter->actualFor($reservation));
+    }
+
+    /**
+     * Изпълнява $fn с ambient LlmContext, носещ резервацията на run-а (§A6), за да се
+     * атрибутират направените LLM повиквания към task_run резервацията. Не-org flow → без рамка.
+     */
+    private function withRunReservationContext(FlowRun $flowRun, callable $fn): mixed
+    {
+        $reservationId = $flowRun->context['credit_reservation_id'] ?? null;
+        if (! $reservationId) {
+            return $fn();
+        }
+
+        LlmContext::push([
+            'purpose' => 'runtime',
+            'company_id' => $flowRun->flow?->company_id,
+            'flow_id' => $flowRun->flow_id,
+            'flow_run_id' => $flowRun->id,
+            'context_type' => $flowRun->context['credit_context_type'] ?? 'task_run',
+            'subject_type' => $flowRun->context['credit_subject_type'] ?? null,
+            'subject_id' => $flowRun->context['credit_subject_id'] ?? null,
+            'reservation_id' => $reservationId,
+        ]);
+
+        try {
+            return $fn();
+        } finally {
+            LlmContext::pop();
         }
     }
 
@@ -548,6 +607,11 @@ class GraphFlowExecutor
                 ->whereIn('status', ['pending', 'running'])
                 ->update(['status' => 'failed', 'error' => $message]);
         }
+
+        // Билинг (§A4): терминалният провал (вкл. human-approval REJECT, който минава
+        // оттук) settle-ва реално похарченото до провала + refund-ва резервирания остатък
+        // → failed/rejected/cancelled run НИКОГА не задържа резервирани кредити.
+        $this->settleRunReservation($flowRun->fresh());
 
         RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} FAILED — {$message}");
     }

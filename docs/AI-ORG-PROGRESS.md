@@ -7,7 +7,7 @@
 ## Фази (изпълни в този ред)
 
 - [x] **Фаза 0** ✅ — Домейн модел + seed библиотеки (org-blueprints / persona-archetypes / plans) + билинг скелет
-- [ ] **Фаза 0.5** — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
+- [x] **Фаза 0.5** ✅ — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
 - [ ] **Фаза 1** — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
 - [ ] **Фаза 2** — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
 - [ ] **Фаза 3** — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)**
@@ -30,6 +30,16 @@
 - Планове: Starter=medium(1000кр/$29), Professional=high(5000/$99), Business=ultra(20000/$299), Enterprise=god(100000/$999). Стойностите са разумен default — подлежат на бизнес-настройка.
 - `.env`: `COMFYUI_PORTRAIT_*` са **коментирани** (празен env var презаписва config default-а с '' → коментар = важи face-friendly default-ът).
 - Проверка зелена: `migrate:fresh --seed` чисто; `Plan::count()=4`, fitness blueprint + 8 архетипа + 3 blueprints; tinker smoke (персона/плейсмънти/наследяване+cap/повишение→event/cascade) минава; `pint` чисто; `about`/`route:list` OK; логове чисти. (UI/`npm build` неприложимо — Фаза 0 е само схема.)
+
+**Фаза 0.5 (2026-06-24):**
+- Метеринг: миграция `100020` добавя `context_type/subject/reservation_id` към `llm_requests`; `LlmRequestRecorder` ги стампва от ambient `LlmContext`. `BillableUnit` = token формула (`base(level)×ceil(completion/1k)`) + flat config цени.
+- `CreditMeterService` (reserve→settle/refund/topup): атомарен conditional UPDATE (`balance >= ?`), идемпотентност по unique RESERVE ключ + operation-scoped ledger ключове (`{res}:settle/refund`). Тествано: atomic decrement, double-reserve no-op, settle+refund остатъка, double-settle no-op, full refund, topup, insufficient→`InsufficientCreditsException`.
+- `PaymentProvider` (binding → `AdminSimulatedPaymentProvider` в AppServiceProvider) + `BillingService::adminTopUp/grantMonthly`. Без Stripe.
+- Persona injection в `NodeExecutorService::runOnce` (след знание): `PersonaService::compileSystemPrompt`, кеширан per run; `shouldInjectPersona` изключва `qa_verifier/bg_text_corrector/translator/human_approval/mcp_action/decision` (под на компетентност). Не-org flow → no-op.
+- Билинг-атрибуция в изпълнението: node LLM повикванията четат `credit_*` от `flowRun.context`; `GraphFlowExecutor::finalize()` обвива FinalComposer в резервацията + `settleRunReservation` (success); `fail()` settle+refund (терминал, вкл. reject). `FlowPlannerService::runPhase` наследява `reservation_id` (generation атрибуция).
+- Generation state machine: `AgentGenerationLauncher::launch(+assistantTaskId)`; `GenerateAgentsCommand` callback връзва `flow_id`+`ready`/`failed` + settle/refund generation резервацията. `TaskRunService` (споделен от Фаза 3/4): `requestRun` (ready→reserve task_run+пусни; иначе reserve generation+generating+run_after_generate), `launchReadyRun`, `autoRunAfterGenerate`.
+- `ApprovalService::settle` = единният resume-after-approval boundary; `FlowRunController::approval` → тънка обвивка. `DecisionBoxService` агрегира `org_proposals(pending)` + паузирани runs; optimistic concurrency (остаряла `base_org_version_id` → `superseded`). Тествано.
+- Queue: `supervisor-org` (queue `org`, timeout 1200, tries 1) + `redis:org` wait; `QueueHeartbeat::orgAlive()` писан от `SupervisorLooped`. Потвърдено: трите супервайзора вървят, `orgAlive`=YES.
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 

@@ -99,6 +99,7 @@ return [
     'waits' => [
         'redis:flows' => 60,
         'redis:default' => 60,
+        'redis:org' => 60,
     ],
 
     /*
@@ -232,6 +233,23 @@ return [
             'timeout' => 900,
             'nice' => 0,
         ],
+        // Дългите org LLM jobs (planning/interview/research/tick/review/avatar/chat/
+        // scheduled task) — отделно от flows (само node execution) и default (1 проц,
+        // 900s) (§0.5.8). tries=1: org services правят собствени retry-та.
+        'supervisor-org' => [
+            'connection' => 'redis',
+            'queue' => ['org'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'minProcesses' => 1,
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 1200,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -243,6 +261,10 @@ return [
             'supervisor-default' => [
                 'maxProcesses' => 1,
             ],
+            'supervisor-org' => [
+                'minProcesses' => 1,
+                'maxProcesses' => 2,
+            ],
         ],
 
         'local' => [
@@ -251,6 +273,10 @@ return [
                 'maxProcesses' => 3,
             ],
             'supervisor-default' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-org' => [
+                'minProcesses' => 1,
                 'maxProcesses' => 1,
             ],
         ],

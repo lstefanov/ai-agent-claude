@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\Org\Billing\AdminSimulatedPaymentProvider;
+use App\Services\Org\Billing\PaymentProvider;
 use App\Support\QueueHeartbeat;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
@@ -16,7 +18,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Платежният слой е зад интерфейс от старта (§0.5.4). Сега: админ-симулиран;
+        // Stripe е по-късен drop-in (Фаза 6) — сменя се само този binding.
+        $this->app->singleton(PaymentProvider::class, AdminSimulatedPaymentProvider::class);
     }
 
     /**
@@ -27,34 +31,31 @@ class AppServiceProvider extends ServiceProvider
         // Worker-ите стрелят Looping само МЕЖДУ jobs — при един зает worker с
         // дълъг node (crawl/LLM) heartbeat-ът би изтекъл. Supervisor процесът
         // на Horizon обаче се върти непрекъснато, независимо от заетостта.
+        // Опресняваме heartbeat за flows И за org (§0.5.8) от същия hook.
         Event::listen(SupervisorLooped::class, function (SupervisorLooped $event): void {
-            if ($this->queueIncludesFlows((string) $event->supervisor->options->queue)) {
-                $this->markFlowsWorkerAlive();
-            }
+            $this->refreshHeartbeats((string) $event->supervisor->options->queue);
         });
 
         Event::listen(Looping::class, function (Looping $event): void {
-            if ($this->queueIncludesFlows((string) $event->queue)) {
-                $this->markFlowsWorkerAlive();
-            }
+            $this->refreshHeartbeats((string) $event->queue);
         });
 
         Event::listen(JobProcessing::class, function (JobProcessing $event): void {
             $queue = method_exists($event->job, 'getQueue') ? (string) $event->job->getQueue() : '';
-
-            if ($queue === 'flows') {
-                $this->markFlowsWorkerAlive();
-            }
+            $this->refreshHeartbeats($queue);
         });
     }
 
-    private function queueIncludesFlows(string $queue): bool
+    /** Опреснява heartbeat-ите за опашките, които този супервайзор/worker обслужва. */
+    private function refreshHeartbeats(string $queue): void
     {
-        return in_array('flows', array_map('trim', explode(',', $queue)), true);
-    }
+        $queues = array_map('trim', explode(',', $queue));
 
-    private function markFlowsWorkerAlive(): void
-    {
-        QueueHeartbeat::markFlowsAlive();
+        if (in_array('flows', $queues, true)) {
+            QueueHeartbeat::markFlowsAlive();
+        }
+        if (in_array('org', $queues, true)) {
+            QueueHeartbeat::markOrgAlive();
+        }
     }
 }
