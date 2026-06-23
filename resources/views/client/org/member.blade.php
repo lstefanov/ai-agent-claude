@@ -15,6 +15,10 @@
         deptUrl: '{{ route('client.org.member.promote-dept', $member->id) }}',
         avatarUrl: '{{ route('client.org.member.avatar', $member->id) }}',
         taskTierTpl: '{{ route('client.org.tasks.tier', ['task' => '__TASK__']) }}',
+        genTpl: '{{ route('client.org.tasks.generate', ['task' => '__TASK__']) }}',
+        genStatusTpl: '{{ route('client.org.tasks.gen-status', ['task' => '__TASK__', 'token' => '__TOKEN__']) }}',
+        runTpl: '{{ route('client.org.tasks.run', ['task' => '__TASK__']) }}',
+        resultTpl: '{{ route('client.runs.result', ['run' => '__RUN__']) }}',
         isDirector: {{ $member->kind === 'director' ? 'true' : 'false' }},
      })">
     <a href="{{ route('client.org.roster') }}" class="text-sm text-muted hover:text-ink">← Към екипа</a>
@@ -80,21 +84,31 @@
                 <div class="rounded-xl border border-line bg-surface p-5">
                     <h2 class="text-sm font-semibold text-ink mb-3">Задачи</h2>
                     @forelse ($member->tasks as $task)
-                        <div class="flex items-center justify-between gap-3 py-2 border-b border-line last:border-0">
+                        <div class="flex items-center justify-between gap-3 py-2 border-b border-line last:border-0"
+                             x-data="{ st: '{{ $task->status }}', stage: '', running: false }">
                             <div class="min-w-0">
                                 <p class="text-sm text-ink truncate">{{ $task->title }}</p>
-                                <p class="text-xs text-subtle">{{ $task->act_mode }} · {{ $task->status }}
+                                <p class="text-xs text-subtle">{{ $task->act_mode }} · <span x-text="st"></span>
                                     · <span class="tabular-nums">{{ $levels[$task->effectiveStarTier()->value] ?? '★' }}</span>
                                     @if ($task->inheritsTier())<span class="text-subtle">(наследява)</span>@else<span class="text-primary">(override)</span>@endif
+                                    <span x-show="stage" x-text="'· ' + stage" class="text-accent"></span>
                                 </p>
                             </div>
-                            <select class="text-xs rounded-md border border-line bg-surface px-2 py-1"
-                                    @change="setTaskTier({{ $task->id }}, $event.target.value)">
-                                <option value="inherit" @selected($task->inheritsTier())>наследява</option>
-                                @foreach ($levels as $val => $stars)
-                                    <option value="{{ $val }}" @selected(! $task->inheritsTier() && $task->star_tier === $val)>{{ $val }}</option>
-                                @endforeach
-                            </select>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <select class="text-xs rounded-md border border-line bg-surface px-2 py-1"
+                                        @change="setTaskTier({{ $task->id }}, $event.target.value)">
+                                    <option value="inherit" @selected($task->inheritsTier())>наследява</option>
+                                    @foreach ($levels as $val => $stars)
+                                        <option value="{{ $val }}" @selected(! $task->inheritsTier() && $task->star_tier === $val)>{{ $val }}</option>
+                                    @endforeach
+                                </select>
+                                <template x-if="st !== 'ready' && st !== 'running'">
+                                    <x-button size="sm" variant="secondary" x-on:click="generateTask({{ $task->id }}, $el => st = $el)" x-bind:disabled="running">Генерирай</x-button>
+                                </template>
+                                <template x-if="st === 'ready'">
+                                    <x-button size="sm" x-on:click="runTask({{ $task->id }}, s => stage = s, s => st = s)" x-bind:disabled="running">Изпълни</x-button>
+                                </template>
+                            </div>
                         </div>
                     @empty
                         <p class="text-sm text-subtle">Няма задачи още.</p>
@@ -119,6 +133,50 @@ function memberCard(cfg) {
         promoteDept() { this.post(cfg.deptUrl, { tier: this.tier }).then(d => { if (d.ok) this.msg = 'Отделът е повишен.'; }); },
         regenAvatar() { this.post(cfg.avatarUrl).then(d => { if (d.ok) this.msg = 'Аватарът се регенерира…'; }); },
         setTaskTier(taskId, value) { this.post(cfg.taskTierTpl.replace('__TASK__', taskId), { tier: value }).then(d => { if (d.ok) this.msg = 'Нивото на задачата е обновено.'; }); },
+
+        // „Генерирай" — материализира задачата във Flow (поллинг до ready).
+        generateTask(taskId, setStatus) {
+            this.busy = true;
+            this.post(cfg.genTpl.replace('__TASK__', taskId)).then(d => {
+                if (d.status === 'ready') { setStatus('ready'); this.busy = false; }
+                else if (d.token) { this.pollGen(taskId, d.token, setStatus); }
+                else { this.busy = false; }
+            });
+        },
+        pollGen(taskId, token, setStatus) {
+            const url = cfg.genStatusTpl.replace('__TASK__', taskId).replace('__TOKEN__', token);
+            const t = async () => {
+                try {
+                    const d = await (await fetch(url, { headers: { 'Accept': 'application/json' } })).json();
+                    if (d.task_status === 'ready') { clearInterval(this._g); this.busy = false; setStatus('ready'); }
+                    else if (d.status === 'failed' || d.task_status === 'failed') { clearInterval(this._g); this.busy = false; this.msg = 'Генерацията се провали.'; }
+                } catch (e) {}
+            };
+            t(); this._g = setInterval(t, 2500);
+        },
+
+        // „Изпълни" — wallet гейт + run + поллинг → Резултат екран.
+        runTask(taskId, setStage, setStatus) {
+            this.busy = true; setStatus('running'); setStage('пускам…');
+            this.post(cfg.runTpl.replace('__TASK__', taskId)).then(d => {
+                if (d.status === 'running' && d.poll_url) { this.pollRun(d.run_id, d.poll_url, setStage); }
+                else if (d.status === 'generating') { setStage('генерира се…'); this.pollGen(taskId, d.token, () => setStatus('ready')); this.busy = false; }
+                else { this.busy = false; setStatus('ready'); this.msg = d.message || 'Грешка при пускане.'; }
+            }).catch(() => { this.busy = false; setStatus('ready'); });
+        },
+        pollRun(runId, pollUrl, setStage) {
+            const t = async () => {
+                try {
+                    const d = await (await fetch(pollUrl, { headers: { 'Accept': 'application/json' } })).json();
+                    setStage(d.label || d.step || d.status || 'тече…');
+                    if (['completed', 'failed', 'waiting_approval'].includes(d.status)) {
+                        clearInterval(this._r);
+                        window.location = cfg.resultTpl.replace('__RUN__', runId);
+                    }
+                } catch (e) {}
+            };
+            t(); this._r = setInterval(t, 2000);
+        },
     };
 }
 </script>

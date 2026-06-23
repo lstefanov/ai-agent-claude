@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Client\Org;
 
 use App\Http\Controllers\Controller;
+use App\Models\AssistantTask;
 use App\Models\Company;
+use App\Models\FlowRun;
 use App\Models\OrgMember;
 use App\Support\ModelLevel;
 use Illuminate\Http\JsonResponse;
@@ -31,6 +33,14 @@ class OrgGraphController extends Controller
         $company = $this->company();
 
         return view('client.org.skill-tree', ['graph' => $this->buildGraph($company), 'company' => $company]);
+    }
+
+    /** Текущ поток (Леща 3, §6) — кои асистенти имат активни runs. */
+    public function live()
+    {
+        $company = $this->company();
+
+        return view('client.org.live', ['graph' => $this->buildGraph($company), 'company' => $company]);
     }
 
     /** Сглобява org графа от активната версия. */
@@ -65,6 +75,7 @@ class OrgGraphController extends Controller
                 'inherits' => $t->inheritsTier(),
                 'status' => $t->status,
                 'act_mode' => $t->act_mode,
+                'run' => $this->latestRun($t),
             ])->values(),
         ])->values();
 
@@ -95,6 +106,18 @@ class OrgGraphController extends Controller
             'avatar_status' => $persona->avatar_status ?? 'pending',
             'initial' => mb_substr($persona->name ?? $member->display_name, 0, 1),
         ];
+    }
+
+    /** Последният run на задачата (за „Текущ поток"/статус badge). */
+    private function latestRun(AssistantTask $task): ?array
+    {
+        if (! $task->flow_id) {
+            return null;
+        }
+
+        $run = FlowRun::where('flow_id', $task->flow_id)->latest('id')->first(['id', 'status']);
+
+        return $run ? ['id' => $run->id, 'status' => $run->status] : null;
     }
 
     private function company(): Company

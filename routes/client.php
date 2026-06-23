@@ -78,5 +78,12 @@ Route::middleware('client_auth')->group(function () {
         Route::post('members/{member}/tier', [Client\Org\MemberController::class, 'setTier'])->name('client.org.member.tier');
         Route::post('members/{member}/promote-department', [Client\Org\MemberController::class, 'promoteDepartment'])->name('client.org.member.promote-dept');
         Route::post('tasks/{task}/tier', [Client\Org\AssistantTaskController::class, 'setTier'])->name('client.org.tasks.tier');
+
+        // Задачи = flows (Фаза 3): генерация per асистент + ръчно пускане + Текущ поток.
+        Route::post('tasks/{task}/generate', [Client\Org\AssistantTaskController::class, 'generate'])->name('client.org.tasks.generate');
+        Route::get('tasks/{task}/gen-status/{token}', [Client\Org\AssistantTaskController::class, 'genStatus'])->name('client.org.tasks.gen-status');
+        Route::post('tasks/{task}/run', [Client\Org\AssistantTaskController::class, 'run'])->name('client.org.tasks.run');
+        Route::get('quests', [Client\Org\QuestController::class, 'index'])->name('client.org.quests');
+        Route::get('live', [Client\Org\OrgGraphController::class, 'live'])->name('client.org.live');
     });
 });

@@ -1,0 +1,52 @@
+@extends('layouts.client')
+
+@section('title', 'Текущ поток')
+
+@section('content')
+@php
+    $activeStatuses = ['pending', 'running', 'waiting_approval'];
+    // Асистенти с поне една активна задача отгоре.
+    $rows = collect($graph['assistants'])->map(function ($a) use ($activeStatuses) {
+        $active = collect($a['tasks'])->filter(fn ($t) => in_array($t['run']['status'] ?? null, $activeStatuses, true));
+        $recent = collect($a['tasks'])->filter(fn ($t) => ($t['run']['status'] ?? null) === 'completed');
+        return ['member' => $a['member'], 'title' => $a['title'], 'active' => $active, 'recent' => $recent];
+    })->filter(fn ($r) => $r['active']->isNotEmpty() || $r['recent']->isNotEmpty())->values();
+@endphp
+<div class="max-w-5xl mx-auto px-6 py-8" x-data="{}" x-init="setTimeout(() => location.reload(), 6000)">
+    @include('client.org._lens-tabs', ['active' => 'live'])
+
+    <h1 class="text-2xl font-semibold text-ink mb-1">Текущ поток</h1>
+    <p class="text-muted mb-6">Кои асистенти работят в момента. Обновява се автоматично.</p>
+
+    @if ($rows->isEmpty())
+        <x-empty-state title="Тихо е" description="Няма активни или скорошни изпълнения. Пусни задача от Картата на героя." />
+    @else
+        <div class="space-y-3">
+            @foreach ($rows as $row)
+                <div class="rounded-xl border border-line bg-surface p-4">
+                    <div class="flex items-center gap-3 mb-2">
+                        <a href="{{ route('client.org.member', $row['member']['id']) }}" class="font-medium text-ink hover:text-primary">{{ $row['member']['name'] }}</a>
+                        <span class="text-xs text-muted">{{ $row['title'] }}</span>
+                    </div>
+                    <div class="space-y-1.5">
+                        @foreach ($row['active'] as $t)
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="flex items-center gap-2 text-ink">
+                                    <span class="h-2 w-2 rounded-full bg-accent animate-pulse"></span>{{ $t['title'] }}
+                                </span>
+                                <a href="{{ route('client.runs.result', $t['run']['id']) }}" class="text-xs text-primary">{{ $t['run']['status'] }} →</a>
+                            </div>
+                        @endforeach
+                        @foreach ($row['recent'] as $t)
+                            <div class="flex items-center justify-between text-sm text-muted">
+                                <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-success"></span>{{ $t['title'] }}</span>
+                                <a href="{{ route('client.runs.result', $t['run']['id']) }}" class="text-xs text-primary">Резултат →</a>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    @endif
+</div>
+@endsection

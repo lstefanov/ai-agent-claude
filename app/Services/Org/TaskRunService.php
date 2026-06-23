@@ -47,6 +47,22 @@ class TaskRunService
     }
 
     /**
+     * Само генерация (бутон „Генерирай") — без авто-пускане. Готова задача → no-op.
+     *
+     * @return array{status: string, token?: ?string}
+     */
+    public function generate(AssistantTask $task, bool $runAfterGenerate = false): array
+    {
+        if ($task->status === 'ready' && $task->flow_id) {
+            return ['status' => 'ready'];
+        }
+
+        $this->dispatchGeneration($task, $runAfterGenerate);
+
+        return ['status' => 'generating', 'token' => $task->fresh()->gen_token];
+    }
+
+    /**
      * Пуска готова задача: създава FlowRun с org контекст (org_member_id за персоната +
      * билинг полета), резервира task_run (subject = този run → уникален per run, позволява
      * повторни пускания) и стартира executor-а.

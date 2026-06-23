@@ -10,7 +10,7 @@
 - [x] **Фаза 0.5** ✅ — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
 - [x] **Фаза 1** ✅ — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
 - [x] **Фаза 2** ✅ — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
-- [ ] **Фаза 3** — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)**
+- [x] **Фаза 3** ✅ — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)** 🎉
 - [ ] **Фаза 4** — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
 - [ ] **Фаза 5** — `act` задачи през конектори + интеграции рейл + политики на одобрение
 - [ ] **Фаза 6** — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
@@ -57,6 +57,13 @@
 - `ProposeOrganizationJob` (`org` queue, best-effort org_planning билинг). UI: `design-review` (auto-propose→poll→редактируем екип→одобри), `roster`, `skill-tree`, `member` (Карта на героя: ниво/повиши отдел/регенерирай аватар/per-task tier), `_persona-card` + `_lens-tabs`; контролери `Design/OrgGraph/Member/Persona/AssistantTask`.
 - **Char палитра safelist** в `app.css` (`@source inline(...)` за 7-те тона × bg/soft/strong/ring) — иначе динамичните `bg-char-{{ $c }}` се purge-ват. `npm build`=84KB OK.
 - **Runtime verify:** реален `proposeOrganization` (Ollama) → 6 директори/4 асистенти/3 задачи/2 куеста с LLM персони; `materialize` → version+плейсмънти+персони+задачи+4 hire events+active; **re-materialize пази члена по immutable id** (kept reused, dropped→retired); 3 лещи + design-review рендерват валиден HTML (звездите отразяват tier). pint/view:cache чисти.
+
+**Фаза 3 (2026-06-24) — MVP-демо завършено 🎉:**
+- `TaskRunService::generate` (само генерация, без авто-run) добавен; `requestRun`/`launchReadyRun` (Фаза 0.5) са ядрото. `AssistantTaskController` разширен: `generate` (launcher на **effective** ниво), `genStatus` (поллинг), `run` (wallet гейт → 402 при недостиг; org-контекст FlowRun). Никаква дублирана генерационна логика, никакво синхронно чакане.
+- `OrgGraphController::live` + latest-run в графа; `QuestController` (дневник). UI: `quests`/`live` views + 3-та леща в `_lens-tabs`; Картата на героя получи „Генерирай"/„Изпълни" бутони per задача (поллинг → Резултат екран).
+- tier_stale lazy re-pin е **Фаза 6** (колоната се добавя там); тук effectiveStarTier() се подава на генерацията.
+- **Runtime verify (пълен MVP happy-path):** материализиран екип → задача генерирана през реалния launcher (Ollama, status→ready, flow_id) → `launchReadyRun` (reservation+org_member context) → FlowRun изпълнен през Horizon (Ollama) → **completed, 649 знака output**. **Персона инжекция:** [ПЕРСОНА] блок в 4-те content възела, НЕ в `bg_text_corrector` (под на компетентност ✓). **Билинг:** task_run reservation `settled` (reserve→settle→refund, actual 13 < estimate 30 → refund на остатъка), 12 llm_requests атрибутирани, wallet дебитиран net actual. Всичко реконсилира.
+- **MVP (Фази 0–3) end-to-end:** наеми Управител → проучен → интервюиран → екип с персони/skill tree → одобрен (материализиран) → задача → резултат в браузъра. ✅
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 
