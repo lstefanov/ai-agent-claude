@@ -57,6 +57,20 @@
     --color-neutral-soft: #f4f4f5;
     --color-neutral-strong: #52525b;
 
+    /* Character / category palette (RPG layer) — persona/department/skill-tree identity.
+       Each: -soft (≈50 fill), base (rings/stat-bars), -strong (≈800 text, ≥4.5:1 on its soft bg).
+       Use via static utilities only (PHP match-map), never dynamic class names. */
+    --color-char-purple: #7f77dd;  --color-char-purple-soft: #eeedfe;  --color-char-purple-strong: #3c3489;
+    --color-char-teal:   #1d9e75;  --color-char-teal-soft:   #e1f5ee;  --color-char-teal-strong:   #0f6e56;
+    --color-char-coral:  #d85a30;  --color-char-coral-soft:  #faece7;  --color-char-coral-strong:  #993c1d;
+    --color-char-blue:   #378add;  --color-char-blue-soft:   #e6f1fb;  --color-char-blue-strong:   #0c447c;
+    --color-char-amber:  #ba7517;  --color-char-amber-soft:  #faeeda;  --color-char-amber-strong:  #854f0b;
+    --color-char-pink:   #d4537e;  --color-char-pink-soft:   #fbeaf0;  --color-char-pink-strong:   #993556;
+    --color-char-green:  #639922;  --color-char-green-soft:  #eaf3de;  --color-char-green-strong:  #3b6d11;
+
+    /* RPG accents: star/tier gold. Credits reuse the primary azure meter (no new hue). */
+    --color-star: #c8881a;  --color-star-soft: #faeeda;
+
     /* Layered shadows (ambient + direct) — additive, do not clobber Tailwind defaults */
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
     --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.1);
