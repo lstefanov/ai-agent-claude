@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Services\Org\Billing\AdminSimulatedPaymentProvider;
 use App\Services\Org\Billing\PaymentProvider;
+use App\Services\Org\Billing\StripePaymentProvider;
 use App\Support\QueueHeartbeat;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
@@ -18,9 +19,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Платежният слой е зад интерфейс от старта (§0.5.4). Сега: админ-симулиран;
-        // Stripe е по-късен drop-in (Фаза 6) — сменя се само този binding.
-        $this->app->singleton(PaymentProvider::class, AdminSimulatedPaymentProvider::class);
+        // Платежният слой е зад интерфейс (§0.5.4). Drop-in (§6.2): Stripe когато
+        // STRIPE_SECRET е зададен, иначе админ-симулиран. Останалата кредитна логика не се пипа.
+        $this->app->singleton(PaymentProvider::class, fn ($app) => config('billing.stripe.secret')
+            ? $app->make(StripePaymentProvider::class)
+            : $app->make(AdminSimulatedPaymentProvider::class));
     }
 
     /**

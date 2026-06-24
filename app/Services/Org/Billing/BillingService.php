@@ -3,6 +3,7 @@
 namespace App\Services\Org\Billing;
 
 use App\Models\Company;
+use App\Models\CreditLedgerEntry;
 use App\Models\Plan;
 use App\Models\Subscription;
 use Illuminate\Support\Facades\DB;
@@ -64,5 +65,58 @@ class BillingService
 
             $subscription->update(['current_period_end' => now()->addMonth()]);
         });
+    }
+
+    /**
+     * Абонира фирмата за план (§6.2) — таксува през PaymentProvider (Stripe или симулиран),
+     * записва subscription + зачислява месечните кредити. Неуспешна такса → не активира.
+     */
+    public function subscribe(Company $company, Plan $plan): Subscription
+    {
+        $charged = $this->payments->charge($company, $plan->price_cents, ['plan' => $plan->key]);
+
+        $subscription = Subscription::updateOrCreate(
+            ['company_id' => $company->id],
+            ['plan_id' => $plan->id, 'status' => $charged ? 'active' : 'past_due', 'current_period_end' => now()->addMonth()],
+        );
+
+        if ($charged) {
+            $this->grantMonthly($subscription);
+        }
+
+        return $subscription;
+    }
+
+    /** Еднократна покупка кредити (§6.2) — таксува + зачислява. */
+    public function topUp(Company $company, int $credits, int $priceCents = 0): CreditLedgerEntry
+    {
+        $this->payments->charge($company, $priceCents > 0 ? $priceCents : $credits, ['credits' => $credits]);
+
+        return $this->meter->topup($company, $credits, 'topup', ['source' => 'purchase']);
+    }
+
+    /**
+     * Stripe webhook (§6.2): подновяване → grantMonthly; неуспешно плащане → past_due; отказ.
+     */
+    public function handleWebhook(array $payload): void
+    {
+        $type = (string) ($payload['type'] ?? '');
+        $companyId = $payload['data']['object']['metadata']['company_id'] ?? null;
+        if (! $companyId) {
+            return;
+        }
+
+        $company = Company::find($companyId);
+        $subscription = $company?->subscription;
+        if (! $subscription) {
+            return;
+        }
+
+        match ($type) {
+            'invoice.paid', 'invoice.payment_succeeded' => $this->grantMonthly($subscription),
+            'invoice.payment_failed' => $subscription->update(['status' => 'past_due']),
+            'customer.subscription.deleted' => $subscription->update(['status' => 'canceled']),
+            default => null,
+        };
     }
 }

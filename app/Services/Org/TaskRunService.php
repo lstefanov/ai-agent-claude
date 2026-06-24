@@ -4,9 +4,12 @@ namespace App\Services\Org;
 
 use App\Models\AssistantTask;
 use App\Models\Flow;
+use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Services\AgentGenerationLauncher;
+use App\Services\AgentGeneratorService;
 use App\Services\GraphFlowExecutor;
+use App\Services\GraphNormalizer;
 use App\Services\Org\Billing\CreditMeterService;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Support\BillableUnit;
@@ -75,6 +78,11 @@ class TaskRunService
             throw new RuntimeException('Задачата няма готов flow или член-собственик.');
         }
 
+        // Lazy re-pin (§6.1): stale задача → re-pin server-side към effectiveStarTier() ПРЕДИ старт.
+        if ($task->tier_stale) {
+            $this->repinToEffectiveTier($task);
+        }
+
         $version = $flow->activeVersion;
         $run = FlowRun::create([
             'flow_id' => $flow->id,
@@ -126,6 +134,33 @@ class TaskRunService
         } catch (InsufficientCreditsException) {
             Log::info("[TaskRun] auto-run skipped (no credits) task {$task->id}");
             // остава ready + run_after_generate=true → човек пуска по-късно
+        }
+    }
+
+    /**
+     * Server-side relevel на flow-а на stale задача към effectiveStarTier() (§6.1) —
+     * пинва моделите в flow_nodes (записано), после tier_stale=false. Flow-ът е ексклузивен
+     * за задачата, така че мутацията е безопасна. Грешка → чисти stale, за да не зацикля.
+     */
+    private function repinToEffectiveTier(AssistantTask $task): void
+    {
+        try {
+            $version = $task->flow?->activeVersion;
+            if ($version) {
+                [$nodes, $edges] = app(GraphNormalizer::class)->parse((array) ($version->graph_layout ?? []));
+                $assignments = app(AgentGeneratorService::class)
+                    ->assignModelsForLevel($nodes, $edges, $task->effectiveStarTier());
+                foreach ($assignments as $key => $assignment) {
+                    FlowNode::where('flow_version_id', $version->id)
+                        ->where('node_key', (string) $key)
+                        ->update(['model' => (string) ($assignment['model'] ?? '')]);
+                }
+                $version->update(['model_level' => $task->effectiveStarTier()->value]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[TaskRun] re-pin failed for task '.$task->id.': '.$e->getMessage());
+        } finally {
+            $task->update(['tier_stale' => false]);
         }
     }
 

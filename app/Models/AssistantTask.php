@@ -11,12 +11,13 @@ class AssistantTask extends Model
     protected $fillable = [
         'org_member_id', 'current_director_member_id', 'flow_id',
         'title', 'description', 'trigger', 'schedule', 'act_mode',
-        'approval_policy', 'star_tier', 'kpi', 'status', 'gen_token',
+        'approval_policy', 'star_tier', 'tier_stale', 'kpi', 'status', 'gen_token',
         'run_after_generate',
     ];
 
     protected $casts = [
         'run_after_generate' => 'boolean',
+        'tier_stale' => 'boolean',
     ];
 
     /** Асистент-членът, на когото виси задачата (стабилната идентичност). */

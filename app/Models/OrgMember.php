@@ -129,6 +129,10 @@ class OrgMember extends Model
     {
         $this->update(['default_star_tier' => $tier->value]);
 
+        // Реценообразуване (§6.1): задачите БЕЗ явен override → tier_stale (lazy re-pin при
+        // следващото пускане). Задача с override остава фиксирана. Без изненадваща цена сега.
+        AssistantTask::where('org_member_id', $this->id)->whereNull('star_tier')->update(['tier_stale' => true]);
+
         $this->company->orgEvents()->create([
             'type' => 'mandate_change',
             'org_member_id' => $this->id,

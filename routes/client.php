@@ -98,5 +98,10 @@ Route::middleware('client_auth')->group(function () {
 
         // Фаза 5: интеграции рейл (конектори като инвентар).
         Route::get('integrations', [Client\Org\IntegrationsController::class, 'index'])->name('client.org.integrations');
+
+        // Фаза 6: кредити & планове (Stripe drop-in зад PaymentProvider).
+        Route::get('billing', [Client\Org\BillingController::class, 'index'])->name('client.org.billing');
+        Route::post('billing/subscribe', [Client\Org\BillingController::class, 'subscribe'])->name('client.org.billing.subscribe');
+        Route::post('billing/top-up', [Client\Org\BillingController::class, 'topUp'])->name('client.org.billing.top-up');
     });
 });

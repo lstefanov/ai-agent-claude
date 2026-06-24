@@ -13,7 +13,7 @@
 - [x] **Фаза 3** ✅ — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)** 🎉
 - [x] **Фаза 4** ✅ — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
 - [x] **Фаза 5** ✅ — `act` задачи през конектори + интеграции рейл + политики на одобрение
-- [ ] **Фаза 6** — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
+- [x] **Фаза 6** ✅ — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
 - [ ] **Фаза 7** — Жива организация: периодично ревю, рефлексия/памет per член, динамично наемане/уволнение, хроника
 
 ## Проверка след всяка фаза (без тестове)
@@ -76,6 +76,13 @@
 - Интеграции рейл: `IntegrationsController` + `integrations` view (конектори + статус + act задачи + act-гейт банер); линк в лещите.
 - Преизползва изцяло MCP слоя: `human_approval` пред write tools го вмъква съществуващият планер (`FlowPlannerService` gateWriteMcpActions — НЕ преписан); одобрението от Кутията продължава run-а през `ApprovalService` (Фаза 4). 
 - **Решение:** `approve_first_then_auto` per-connector skip е бъдещо подобрение; засега write действията винаги гейтват (approve_each, най-безопасно под preview без реален auth). Реалните write-ове чакат реален auth (Фаза 6).
+
+**Фаза 6 (2026-06-24):**
+- `tier_stale` колона (#21) + `AssistantTask` cast; `OrgMember::setDefaultStarTier` маркира задачите БЕЗ override като stale (override остава фиксиран). `TaskRunService::repinToEffectiveTier` — lazy server-side re-pin (assignModelsForLevel → flow_nodes.model) при следващо пускане, после `tier_stale=false`.
+- `CreditMeterService::reserve` overage гард: недостиг + активен абонамент + `overage_enabled` → безусловен дебит (реален дълг) + `overage_used`; иначе блок.
+- `StripePaymentProvider` (Http, без SDK) — drop-in; `AppServiceProvider` binding: Stripe при зададен `STRIPE_SECRET`, иначе AdminSimulated. `BillingService::subscribe/topUp/handleWebhook`. `BillingController` + `billing` view (баланс/планове/top-up/ledger) + `stripe/webhook` route (CSRF-exempt, HMAC подпис). Кредити линк в лещите.
+- **Runtime verify:** binding=AdminSimulated (без ключове); promote → само inherited задачи tier_stale; effectiveStarTier отразява новото ниво; subscribe starter → active + 1000 кредита grant; god override + starter cap → effective=medium; topUp 1000→1500; overage без абонамент → blocked, с абонамент → reserved (баланс −40, overage_used 50). pint/views/build чисти; 4 billing/stripe routes.
+- **Бележка:** реалните Stripe write-ове чакат `STRIPE_*` ключове + реален (парола) auth (задача на собственика). Сега всичко работи през AdminSimulated.
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 

@@ -9,6 +9,7 @@ use App\Models\CreditReservation;
 use App\Models\CreditWallet;
 use App\Models\FlowRun;
 use App\Models\LlmRequest;
+use App\Models\Subscription;
 use App\Support\BillableUnit;
 use App\Support\ModelLevel;
 use Illuminate\Database\Eloquent\Model;
@@ -57,7 +58,17 @@ class CreditMeterService
 
             if ($affected === 0) {
                 $available = (int) (CreditWallet::where('company_id', $companyId)->value('balance') ?? 0);
-                throw new InsufficientCreditsException($companyId, $estimate, $available);
+
+                // Overage гард (§6.1): ако планът позволява + overage_enabled → безусловен
+                // decrement (реален дълг) + track overage_used; иначе блок (402 + upsell).
+                if (! $this->overageAllowed($companyId)) {
+                    throw new InsufficientCreditsException($companyId, $estimate, $available);
+                }
+                DB::table('credit_wallets')->where('company_id', $companyId)->update([
+                    'balance' => DB::raw("balance - {$estimate}"),
+                    'overage_used' => DB::raw("overage_used + {$estimate}"),
+                    'updated_at' => now(),
+                ]);
             }
 
             $reservation = CreditReservation::create([
@@ -226,6 +237,16 @@ class CreditMeterService
         DB::table('credit_wallets')->where('company_id', $companyId)
             ->update(['balance' => DB::raw("balance - {$amount}"), 'updated_at' => now()]);
         Log::info("[CreditMeter] overage debit {$amount} for company {$companyId}");
+    }
+
+    /** Overage позволен ли е: глобален флаг + активен абонамент (планът го разрешава). */
+    private function overageAllowed(int $companyId): bool
+    {
+        if (! config('billing.overage_enabled')) {
+            return false;
+        }
+
+        return Subscription::where('company_id', $companyId)->where('status', 'active')->exists();
     }
 
     /** Извежда субект-ключа (тип+id) от полиморфен модел. */
