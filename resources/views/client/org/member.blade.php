@@ -19,6 +19,7 @@
         genStatusTpl: '{{ route('client.org.tasks.gen-status', ['task' => '__TASK__', 'token' => '__TOKEN__']) }}',
         runTpl: '{{ route('client.org.tasks.run', ['task' => '__TASK__']) }}',
         resultTpl: '{{ route('client.runs.result', ['run' => '__RUN__']) }}',
+        tickUrl: '{{ route('client.org.member.tick-now', $member->id) }}',
         isDirector: {{ $member->kind === 'director' ? 'true' : 'false' }},
      })">
     <a href="{{ route('client.org.roster') }}" class="text-sm text-muted hover:text-ink">← Към екипа</a>
@@ -55,7 +56,11 @@
             @endif
 
             <div class="mt-5 flex flex-wrap gap-2">
+                <x-button size="sm" :href="route('client.org.chat', $member->id)">Чат с {{ $persona->name ?? 'члена' }}</x-button>
                 <x-button size="sm" variant="secondary" x-on:click="regenAvatar()" x-bind:disabled="busy">Регенерирай аватар</x-button>
+                @if ($member->kind === 'director')
+                    <x-button size="sm" variant="secondary" x-on:click="tickNow()" x-bind:disabled="busy">Пусни преглед (tick)</x-button>
+                @endif
             </div>
         </div>
 
@@ -132,6 +137,7 @@ function memberCard(cfg) {
         saveTier() { this.post(cfg.tierUrl, { tier: this.tier }).then(d => { if (d.ok) this.msg = 'Нивото е запазено. Задачите без override са реценообразувани.'; }); },
         promoteDept() { this.post(cfg.deptUrl, { tier: this.tier }).then(d => { if (d.ok) this.msg = 'Отделът е повишен.'; }); },
         regenAvatar() { this.post(cfg.avatarUrl).then(d => { if (d.ok) this.msg = 'Аватарът се регенерира…'; }); },
+        tickNow() { this.post(cfg.tickUrl).then(d => { this.msg = d.ok ? (d.message || 'Тикът е пуснат.') : (d.error || 'Грешка.'); }); },
         setTaskTier(taskId, value) { this.post(cfg.taskTierTpl.replace('__TASK__', taskId), { tier: value }).then(d => { if (d.ok) this.msg = 'Нивото на задачата е обновено.'; }); },
 
         // „Генерирай" — материализира задачата във Flow (поллинг до ready).

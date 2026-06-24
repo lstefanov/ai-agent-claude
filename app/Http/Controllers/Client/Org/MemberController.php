@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client\Org;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Org\DirectorTickJob;
 use App\Jobs\Org\GenerateMemberAvatarJob;
 use App\Models\OrgMember;
 use App\Services\Org\AvatarService;
@@ -75,6 +76,24 @@ class MemberController extends Controller
         $member->applyTierToDepartment($tier);
 
         return response()->json(['ok' => true, 'tier' => $tier->value]);
+    }
+
+    /** Ръчен директорски tick (§4.1) — диспечира DirectorTickJob за плейсмънта му. */
+    public function tick(OrgMember $member): JsonResponse
+    {
+        $this->authorizeMember($member);
+        if ($member->kind !== 'director') {
+            return response()->json(['ok' => false, 'error' => 'Само за директор.'], 422);
+        }
+
+        $placement = $member->currentPlacement();
+        if (! $placement) {
+            return response()->json(['ok' => false, 'error' => 'Директорът няма активен плейсмънт.'], 422);
+        }
+
+        DirectorTickJob::dispatch($placement->id, 'manual')->onQueue('org');
+
+        return response()->json(['ok' => true, 'message' => 'Тикът е пуснат — отчетът ще се появи в събитията.']);
     }
 
     private function authorizeMember(OrgMember $member): void

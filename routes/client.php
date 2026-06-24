@@ -85,5 +85,15 @@ Route::middleware('client_auth')->group(function () {
         Route::post('tasks/{task}/run', [Client\Org\AssistantTaskController::class, 'run'])->name('client.org.tasks.run');
         Route::get('quests', [Client\Org\QuestController::class, 'index'])->name('client.org.quests');
         Route::get('live', [Client\Org\OrgGraphController::class, 'live'])->name('client.org.live');
+
+        // Фаза 4: Кутия за решения + чат с членове + ръчен директорски tick.
+        Route::get('decisions', [Client\Org\DecisionController::class, 'index'])->name('client.org.decisions');
+        Route::post('decisions/approve', [Client\Org\DecisionController::class, 'approve'])->name('client.org.decisions.approve');
+        Route::post('decisions/reject', [Client\Org\DecisionController::class, 'reject'])->name('client.org.decisions.reject');
+        Route::post('members/{member}/tick', [Client\Org\MemberController::class, 'tick'])->name('client.org.member.tick-now');
+
+        Route::get('members/{member}/chat', [Client\Org\ChatController::class, 'show'])->name('client.org.chat');
+        Route::post('chat/send', [Client\Org\ChatController::class, 'send'])->name('client.org.chat.send');
+        Route::get('chat/status/{token}', [Client\Org\ChatController::class, 'status'])->name('client.org.chat.status');
     });
 });

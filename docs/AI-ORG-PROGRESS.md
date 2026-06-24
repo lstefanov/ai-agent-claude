@@ -11,7 +11,7 @@
 - [x] **Фаза 1** ✅ — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
 - [x] **Фаза 2** ✅ — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
 - [x] **Фаза 3** ✅ — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)** 🎉
-- [ ] **Фаза 4** — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
+- [x] **Фаза 4** ✅ — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
 - [ ] **Фаза 5** — `act` задачи през конектори + интеграции рейл + политики на одобрение
 - [ ] **Фаза 6** — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
 - [ ] **Фаза 7** — Жива организация: периодично ревю, рефлексия/памет per член, динамично наемане/уволнение, хроника
@@ -64,6 +64,12 @@
 - tier_stale lazy re-pin е **Фаза 6** (колоната се добавя там); тук effectiveStarTier() се подава на генерацията.
 - **Runtime verify (пълен MVP happy-path):** материализиран екип → задача генерирана през реалния launcher (Ollama, status→ready, flow_id) → `launchReadyRun` (reservation+org_member context) → FlowRun изпълнен през Horizon (Ollama) → **completed, 649 знака output**. **Персона инжекция:** [ПЕРСОНА] блок в 4-те content възела, НЕ в `bg_text_corrector` (под на компетентност ✓). **Билинг:** task_run reservation `settled` (reserve→settle→refund, actual 13 < estimate 30 → refund на остатъка), 12 llm_requests атрибутирани, wallet дебитиран net actual. Всичко реконсилира.
 - **MVP (Фази 0–3) end-to-end:** наеми Управител → проучен → интервюиран → екип с персони/skill tree → одобрен (материализиран) → задача → резултат в браузъра. ✅
+
+**Фаза 4 (2026-06-24):**
+- `DirectorAgentService::tick` (чете състояние → пуска одобрени задачи на отдела през `TaskRunService` lazy-gen+wallet → отчет през персоната → `org_event` review) + `proposeDecision` (durable `org_proposal`). Персоната ОБАГРЯ преценката, не компетентността.
+- График: `org:director-ticks` команда (без флаг → due scheduled задачи по cron → `ScheduledTaskJob`; `--ticks` → `DirectorTickJob` за активните директори). Регистрирана: everyMinute + hourly. `ScheduledTaskJob` пази act hard gate (§B2).
+- Кутия за решения: `DecisionController` + `decisions` view над `DecisionBoxService` (агрегатор от 0.5; superseded guard). `MemberChatService` (персона-консистентен, scope по роля, KnowledgeService, може да предложи действие → `org_proposal`) + `MemberChatTurnJob` (`org` queue, best-effort member_chat билинг) + `ChatController` + `chat` view (аватар в хедъра/балончетата). Ръчен tick + „Чат" бутони на Картата на героя; Решения линк в лещите.
+- **Runtime verify:** директорски tick → 181-зн. отчет през персоната + `review` event + инициирана генерация на задача; чат с асистент → 272-зн. персона-консистентен отговор (Ollama); DecisionBox агрегира предложение (count=1) + `approveProposal` → ok + materialize=task + `approval` event. pint/views/build чисти; 35 org routes.
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 
