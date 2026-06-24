@@ -12,7 +12,7 @@
 - [x] **Фаза 2** ✅ — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
 - [x] **Фаза 3** ✅ — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)** 🎉
 - [x] **Фаза 4** ✅ — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
-- [ ] **Фаза 5** — `act` задачи през конектори + интеграции рейл + политики на одобрение
+- [x] **Фаза 5** ✅ — `act` задачи през конектори + интеграции рейл + политики на одобрение
 - [ ] **Фаза 6** — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
 - [ ] **Фаза 7** — Жива организация: периодично ревю, рефлексия/памет per член, динамично наемане/уволнение, хроника
 
@@ -70,6 +70,12 @@
 - График: `org:director-ticks` команда (без флаг → due scheduled задачи по cron → `ScheduledTaskJob`; `--ticks` → `DirectorTickJob` за активните директори). Регистрирана: everyMinute + hourly. `ScheduledTaskJob` пази act hard gate (§B2).
 - Кутия за решения: `DecisionController` + `decisions` view над `DecisionBoxService` (агрегатор от 0.5; superseded guard). `MemberChatService` (персона-консистентен, scope по роля, KnowledgeService, може да предложи действие → `org_proposal`) + `MemberChatTurnJob` (`org` queue, best-effort member_chat билинг) + `ChatController` + `chat` view (аватар в хедъра/балончетата). Ръчен tick + „Чат" бутони на Картата на героя; Решения линк в лещите.
 - **Runtime verify:** директорски tick → 181-зн. отчет през персоната + `review` event + инициирана генерация на задача; чат с асистент → 272-зн. персона-консистентен отговор (Ollama); DecisionBox агрегира предложение (count=1) + `approveProposal` → ok + materialize=task + `approval` event. pint/views/build чисти; 35 org routes.
+
+**Фаза 5 (2026-06-24):**
+- **act HARD GATE (§B2)** в `NodeExecutorService::executeMcpAction`: org flow (има `assistant_task_id`) + `ORG_ACT_ENABLED=false` → „чернова на действието" (tool/аргументи/очакван ефект), без реален ефект и **без `connector_tool_logs` ред**. Не-org admin flows непокътнати. Тествано: false→draft (`mcp:draft`, no log), true→реален път (не draft).
+- Интеграции рейл: `IntegrationsController` + `integrations` view (конектори + статус + act задачи + act-гейт банер); линк в лещите.
+- Преизползва изцяло MCP слоя: `human_approval` пред write tools го вмъква съществуващият планер (`FlowPlannerService` gateWriteMcpActions — НЕ преписан); одобрението от Кутията продължава run-а през `ApprovalService` (Фаза 4). 
+- **Решение:** `approve_first_then_auto` per-connector skip е бъдещо подобрение; засега write действията винаги гейтват (approve_each, най-безопасно под preview без реален auth). Реалните write-ове чакат реален auth (Фаза 6).
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 

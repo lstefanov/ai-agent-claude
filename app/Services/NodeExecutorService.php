@@ -259,6 +259,31 @@ class NodeExecutorService
             return;
         }
 
+        // act HARD GATE под preview (§B2): org flow (има assistant_task_id) + ORG_ACT_ENABLED=false
+        // → произвежда „чернова на действието" (tool/аргументи/очакван ефект), БЕЗ реален
+        // страничен ефект и БЕЗ ред в connector_tool_logs. Реалният act иска реален auth (Фаза 6).
+        if (isset($flowRun->context['assistant_task_id']) && ! config('organization.act.enabled')) {
+            $params = (array) ($node->config['tool_params'] ?? []);
+            $connectorId = (int) ($node->config['connector_id'] ?? 0);
+            $draft = "ЧЕРНОВА НА ДЕЙСТВИЕ (act изключен под preview — без реален ефект)\n"
+                ."Инструмент: {$tool}\nКонектор: #{$connectorId}\n"
+                .'Аргументи: '.json_encode($params, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)."\n"
+                .'Очакван ефект: действието БИ било изпълнено при включен реален auth (ORG_ACT_ENABLED=true).';
+            $nodeRun->fill([
+                'node_key' => $node->node_key,
+                'status' => 'completed',
+                'input' => "MCP draft: {$tool}",
+                'output' => $draft,
+                'model_used' => 'mcp:draft',
+                'error' => null,
+                'started_at' => $nodeRun->started_at ?? now(),
+                'completed_at' => now(),
+            ])->save();
+            RunLog::append($flowRun->id, "[MCP] {$node->name}: act изключен → чернова на действието (без реален страничен ефект)");
+
+            return;
+        }
+
         $nodeRun->fill([
             'node_key' => $node->node_key,
             'status' => 'running',

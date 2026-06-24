@@ -95,5 +95,8 @@ Route::middleware('client_auth')->group(function () {
         Route::get('members/{member}/chat', [Client\Org\ChatController::class, 'show'])->name('client.org.chat');
         Route::post('chat/send', [Client\Org\ChatController::class, 'send'])->name('client.org.chat.send');
         Route::get('chat/status/{token}', [Client\Org\ChatController::class, 'status'])->name('client.org.chat.status');
+
+        // Фаза 5: интеграции рейл (конектори като инвентар).
+        Route::get('integrations', [Client\Org\IntegrationsController::class, 'index'])->name('client.org.integrations');
     });
 });
