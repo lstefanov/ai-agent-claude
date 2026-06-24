@@ -21,6 +21,7 @@
         <a href="{{ route('client.org.decisions') }}" class="text-sm text-muted hover:text-ink">Решения</a>
         <a href="{{ route('client.org.integrations') }}" class="text-sm text-muted hover:text-ink">Интеграции</a>
         <a href="{{ route('client.org.billing') }}" class="text-sm text-muted hover:text-ink">Кредити</a>
+        <a href="{{ route('client.org.chronicle') }}" class="text-sm text-muted hover:text-ink">Хроника</a>
         <a href="{{ route('client.org.design.review') }}" class="text-sm text-primary font-medium hover:text-primary-hover">Препроектирай →</a>
     </div>
 </div>

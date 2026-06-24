@@ -103,5 +103,9 @@ Route::middleware('client_auth')->group(function () {
         Route::get('billing', [Client\Org\BillingController::class, 'index'])->name('client.org.billing');
         Route::post('billing/subscribe', [Client\Org\BillingController::class, 'subscribe'])->name('client.org.billing.subscribe');
         Route::post('billing/top-up', [Client\Org\BillingController::class, 'topUp'])->name('client.org.billing.top-up');
+
+        // Фаза 7: хроника + ръчно ревю на Управителя.
+        Route::get('chronicle', [Client\Org\OrgGraphController::class, 'chronicle'])->name('client.org.chronicle');
+        Route::post('review', [Client\Org\OrgGraphController::class, 'reviewNow'])->name('client.org.review');
     });
 });

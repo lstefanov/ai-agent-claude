@@ -14,7 +14,7 @@
 - [x] **Фаза 4** ✅ — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
 - [x] **Фаза 5** ✅ — `act` задачи през конектори + интеграции рейл + политики на одобрение
 - [x] **Фаза 6** ✅ — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
-- [ ] **Фаза 7** — Жива организация: периодично ревю, рефлексия/памет per член, динамично наемане/уволнение, хроника
+- [x] **Фаза 7** ✅ — Жива организация: периодично ревю, рефлексия/памет per член, динамично наемане/уволнение, хроника
 
 ## Проверка след всяка фаза (без тестове)
 
@@ -83,6 +83,14 @@
 - `StripePaymentProvider` (Http, без SDK) — drop-in; `AppServiceProvider` binding: Stripe при зададен `STRIPE_SECRET`, иначе AdminSimulated. `BillingService::subscribe/topUp/handleWebhook`. `BillingController` + `billing` view (баланс/планове/top-up/ledger) + `stripe/webhook` route (CSRF-exempt, HMAC подпис). Кредити линк в лещите.
 - **Runtime verify:** binding=AdminSimulated (без ключове); promote → само inherited задачи tier_stale; effectiveStarTier отразява новото ниво; subscribe starter → active + 1000 кредита grant; god override + starter cap → effective=medium; topUp 1000→1500; overage без абонамент → blocked, с абонамент → reserved (баланс −40, overage_used 50). pint/views/build чисти; 4 billing/stripe routes.
 - **Бележка:** реалните Stripe write-ове чакат `STRIPE_*` ключове + реален (парола) auth (задача на собственика). Сега всичко работи през AdminSimulated.
+
+**Фаза 7 (2026-06-24) — целият план завършен 🎉:**
+- `OrgReviewService::review` (KPI/памет/болки → предложения през персоната на Управителя → Кутията; детерминистичен под — винаги ≥1 действено предложение при болки) + `OrgReviewJob` (`org` queue) + `org:review` команда (седмично schedule).
+- `MemberMemoryService` — owner-scope памет per ЧЛЕН (през задачите→flows на стабилния член, преживява реорганизация; lessons/runStats/reflectionBlock). Закачена в `MemberChatService` (членовете „помнят").
+- `OrgMutationService` — динамично hire/fire: snapshot на активната версия → +/- член → `materialize` (by-id реконсилация пази персона/чат/памет/задачи на оцелелите). Закачено в `DecisionController` (hire/fire/task материализация при одобрение).
+- Хроника (`OrgGraphController::chronicle` + view) — `org_events` timeline; ръчно „Пусни ревю сега". markProven: успешен org run → `learnFromVersion` (proven blueprint) в `GraphFlowExecutor::finalize`.
+- §7.5 (персона демография→аватар regen, име/тон→не) вече в `PersonaService::attachTo` (Фаза 1, проверено).
+- **Runtime verify:** review → ≥1 предложение в Кутията; hire → нова версия +1 член + hire event; fire → член retired, оцелелите пазят immutable id; chronicle 12 события; memory query OK. pint/views/build чисти.
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 

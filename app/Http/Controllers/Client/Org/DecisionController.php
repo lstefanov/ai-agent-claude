@@ -10,6 +10,7 @@ use App\Models\OrgMember;
 use App\Models\OrgProposal;
 use App\Models\User;
 use App\Services\Org\DecisionBoxService;
+use App\Services\Org\OrgMutationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -43,10 +44,9 @@ class DecisionController extends Controller
         $proposal = $this->companyProposal((int) $request->input('id'));
         $result = $box->approveProposal($proposal, $this->user());
 
-        // Материализация на простите типове (нова задача). Структурните hire/fire/mandate
-        // минават през ре-дизайн (Фаза 2/7) — тук маркираме одобрението.
-        if (($result['ok'] ?? false) && ($result['materialize'] ?? null) === 'task') {
-            $this->materializeTaskProposal($proposal);
+        // Материализация на одобреното предложение (§7.3): задача / наемане / уволнение.
+        if ($result['ok'] ?? false) {
+            $this->materializeProposal($proposal, $result['materialize'] ?? null);
         }
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
@@ -67,6 +67,23 @@ class DecisionController extends Controller
         $result = $box->rejectProposal($proposal, $this->user(), $request->input('comment'));
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+    }
+
+    /** Материализира одобрено предложение според типа (§7.3). */
+    private function materializeProposal(OrgProposal $proposal, ?string $type): void
+    {
+        $company = $proposal->company;
+        $payload = (array) $proposal->payload;
+        $mutator = app(OrgMutationService::class);
+
+        match ($type) {
+            'task' => $this->materializeTaskProposal($proposal),
+            'hire' => $mutator->hireFromProposal($company, $payload, $this->user()),
+            'fire' => filled($payload['target_member_id'] ?? null)
+                ? $mutator->fireMember($company, (int) $payload['target_member_id'], $this->user())
+                : null,
+            default => null,   // mandate и др. — само одобрено + одит (event вече записан)
+        };
     }
 
     /** Одобрено „task" предложение → нова assistant_task (status=proposed). */

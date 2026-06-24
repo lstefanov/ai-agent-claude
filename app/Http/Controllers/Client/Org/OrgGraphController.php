@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client\Org;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Org\OrgReviewJob;
 use App\Models\AssistantTask;
 use App\Models\Company;
 use App\Models\FlowRun;
@@ -41,6 +42,26 @@ class OrgGraphController extends Controller
         $company = $this->company();
 
         return view('client.org.live', ['graph' => $this->buildGraph($company), 'company' => $company]);
+    }
+
+    /** Хроника на фирмата (§7.4) — org_events хронологично. */
+    public function chronicle()
+    {
+        $company = $this->company();
+
+        return view('client.org.chronicle', [
+            'company' => $company,
+            'events' => $company->orgEvents()->latest('id')->take(100)->get(),
+        ]);
+    }
+
+    /** Ръчно „Пусни ревю сега" (§7.1) → OrgReviewJob. */
+    public function reviewNow(): JsonResponse
+    {
+        $company = $this->company();
+        OrgReviewJob::dispatch($company->id)->onQueue('org');
+
+        return response()->json(['ok' => true, 'message' => 'Ревюто е пуснато — предложенията ще се появят в Кутията.']);
     }
 
     /** Сглобява org графа от активната версия. */

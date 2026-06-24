@@ -15,6 +15,7 @@ use App\Models\FlowRun;
 use App\Models\FlowVersion;
 use App\Models\NodeRun;
 use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\OrgBlueprintLibraryService;
 use App\Support\GraphTopology;
 use App\Support\LlmContext;
 use App\Support\RunLog;
@@ -308,6 +309,17 @@ class GraphFlowExecutor
             app(DeliveryService::class)->deliver($flowRun);
         } catch (Throwable $e) {
             report($e);
+        }
+
+        // Org run успех → учи blueprint-а (proven; учеща библиотека, §7.3). Best-effort.
+        if (isset($flowRun->context['assistant_task_id'])
+            && ($company = $flowRun->flow?->company)
+            && ($activeVersion = $company->activeOrgVersion)) {
+            try {
+                app(OrgBlueprintLibraryService::class)->learnFromVersion($activeVersion);
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         // Билинг (§0.5.3): реконсилиация на task_run резервацията — реалното похарчено

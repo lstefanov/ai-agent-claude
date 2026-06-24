@@ -61,6 +61,16 @@ class OrgBlueprintLibraryService
             ->update(['proven' => true]);
     }
 
+    /** Идемпотентно: snapshot на версията (ако липсва) + proven=true. Викано от успешен run (§7.3). */
+    public function learnFromVersion(OrgVersion $version): void
+    {
+        $name = $version->company->name.' v'.$version->version;
+        $blueprint = OrgBlueprint::where('source_company_id', $version->company_id)->where('name', $name)->first()
+            ?? $this->snapshot($version);
+
+        $blueprint->update(['proven' => true]);
+    }
+
     /** Бранш → seed вертикал. */
     public function verticalFor(Company $company): string
     {

@@ -20,6 +20,7 @@ class MemberChatService
         private PersonaService $personas,
         private GeneratorService $generator,
         private KnowledgeService $knowledge,
+        private MemberMemoryService $memberMemory,
     ) {}
 
     /**
@@ -39,10 +40,14 @@ class MemberChatService
         } catch (\Throwable) {
         }
 
+        // Памет per член (§7.2): поуки от миналите му runs (owner-scope, преживява реорганизациите).
+        $reflection = $this->memberMemory->reflectionBlock($member);
+
         $system = trim($persona."\n\n".$scope."\n\n"
             .'Отговаряй в своя тон, по същество, на български. Може да ПРЕДЛОЖИШ действие '
             .'(нова задача/кампания/наемане) — то влиза в Кутията за одобрение, не се изпълнява само. '
             .'Връщай САМО валиден JSON по схемата.'
+            .($reflection !== '' ? "\n\n".$reflection : '')
             .($knowledgeBlock !== '' ? "\n\n".$knowledgeBlock : ''));
 
         $history = $this->history($chat, $userMessage);
