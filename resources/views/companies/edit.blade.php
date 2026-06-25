@@ -5,61 +5,55 @@
 @section('content')
 <div class="max-w-2xl mx-auto">
     <div class="mb-6">
-        <a href="{{ route('companies.show', $company) }}" class="text-indigo-600 hover:underline text-sm">← Обратно</a>
-        <h1 class="text-3xl font-bold text-gray-900 mt-2">Редактирай фирма</h1>
+        <a href="{{ route('companies.show', $company) }}" class="inline-flex items-center gap-1 text-sm text-muted hover:text-ink transition">
+            <x-icon name="arrow-left" size="4" /> Обратно
+        </a>
+        <h1 class="text-2xl font-display font-bold text-ink mt-2">Редактирай фирма</h1>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+    <x-card>
         <form action="{{ route('companies.update', $company) }}" method="POST" class="space-y-6">
             @csrf
             @method('PUT')
 
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Наименование</label>
-                <input type="text" name="name" value="{{ old('name', $company->name) }}" required
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
+            <x-field label="Наименование" name="name" required>
+                <x-input name="name" :value="old('name', $company->name)" required />
+            </x-field>
 
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Сектор / Индустрия</label>
-                <input type="text" name="industry" value="{{ old('industry', $company->industry) }}" required
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
+            <x-field label="Сектор / Индустрия" name="industry" required>
+                <x-input name="industry" :value="old('industry', $company->industry)" required />
+            </x-field>
 
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Основен език</label>
-                <select name="language"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option value="bg" {{ old('language', $company->language) === 'bg' ? 'selected' : '' }}>🇧🇬 Български</option>
-                    <option value="en" {{ old('language', $company->language) === 'en' ? 'selected' : '' }}>🇬🇧 English</option>
-                </select>
-            </div>
+            <x-field label="Основен език" name="language">
+                <x-select name="language">
+                    <option value="bg" @selected(old('language', $company->language) === 'bg')>Български</option>
+                    <option value="en" @selected(old('language', $company->language) === 'en')>English</option>
+                </x-select>
+            </x-field>
 
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Уебсайт</label>
-                <input type="url" name="website_url" value="{{ old('website_url', $company->website_url) }}"
-                       placeholder="https://example.bg"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <p class="text-xs text-gray-400 mt-1">Ползва се от „База знания“ за автоматично извличане на съдържанието на сайта.</p>
-            </div>
+            <x-field label="Ниво на модела за клиентски flows" name="model_level"
+                     help="Колко „скъпи“ модели ползват автоматично генерираните Flows на клиента (качество ↔ цена). Клиентът не вижда тази настройка.">
+                @php($currentLevel = old('model_level', $company->settings['model_level'] ?? 'medium'))
+                <x-select name="model_level">
+                    @foreach(\App\Support\ModelLevel::cases() as $lvl)
+                        <option value="{{ $lvl->value }}" @selected($currentLevel === $lvl->value)>{{ $lvl->label() }}</option>
+                    @endforeach
+                </x-select>
+            </x-field>
 
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Описание</label>
-                <textarea name="description" rows="4" required
-                          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('description', $company->description) }}</textarea>
-            </div>
+            <x-field label="Уебсайт" name="website_url" help="Ползва се от „База знания“ за автоматично извличане на съдържанието на сайта.">
+                <x-input type="url" name="website_url" :value="old('website_url', $company->website_url)" placeholder="https://example.bg" />
+            </x-field>
+
+            <x-field label="Описание" name="description" required>
+                <x-textarea name="description" rows="4" required>{{ old('description', $company->description) }}</x-textarea>
+            </x-field>
 
             <div class="flex gap-3 pt-2">
-                <button type="submit"
-                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-medium transition">
-                    Запази промените
-                </button>
-                <a href="{{ route('companies.show', $company) }}"
-                   class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2 rounded-lg font-medium transition">
-                    Откажи
-                </a>
+                <x-button type="submit">Запази промените</x-button>
+                <x-button variant="secondary" :href="route('companies.show', $company)">Откажи</x-button>
             </div>
         </form>
-    </div>
+    </x-card>
 </div>
 @endsection

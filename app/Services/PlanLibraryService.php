@@ -151,6 +151,39 @@ class PlanLibraryService
      */
     public function findSimilar(array $intent, int $limit = 2)
     {
+        $scored = $this->scoreSimilar($intent);
+
+        if ($scored->isEmpty()) {
+            return collect();
+        }
+
+        // Relevance floor: ≥5 structural (deliverable match + overlap) or
+        // cosine ≥ 0.55 (×10) — random examples hurt more than they help.
+        return $scored
+            ->filter(fn ($e) => $e->getAttribute('similarity') >= ($e->getAttribute('similarity_kind') === 'vector' ? 5.5 : 5))
+            // Quality FIRST: the few-shot is a BENCHMARK, so among relevant plans
+            // prefer the strongest (most agents / paid-provider) over a weak local
+            // one that merely matches the deliverable label.
+            ->sortByDesc(fn ($e) => [
+                $this->planQuality($e),
+                $e->getAttribute('similarity'),
+                $e->avg_qa_score ?? 0,
+                $e->runs_count,
+            ])
+            ->take($limit)
+            ->values();
+    }
+
+    /**
+     * Кандидатите от библиотеката с пресметнат `similarity` (+`similarity_kind`).
+     * Малка библиотека → структурно сходство; над vector_threshold доказани
+     * записи → cosine върху intent embedding-ите (без embedding падат структурно).
+     * Без floor/sort — извикващият решава прага (few-shot vs reuse).
+     *
+     * @return Collection<int, PlanLibraryEntry>
+     */
+    private function scoreSimilar(array $intent): Collection
+    {
         $entries = PlanLibraryEntry::whereIn('status', ['proven', 'candidate'])
             ->get()
             // Proven plans are always usable; an UNPROVEN plan is only a good
@@ -169,19 +202,19 @@ class PlanLibraryService
 
         $queryVector = null;
         if ($useVectors) {
-            LlmContext::set(['purpose' => 'embedding']);
+            LlmContext::push(['purpose' => 'embedding']);
             try {
                 $queryVector = app(OpenAiChatService::class)->embed($this->intentText($intent));
             } catch (\Throwable $e) {
                 Log::warning('[PlanLibrary] Query embedding failed, structural scoring used: '.$e->getMessage());
             } finally {
-                LlmContext::clear();
+                LlmContext::pop();
             }
         }
 
         $sources = array_values((array) ($intent['information_sources'] ?? []));
 
-        $scored = $entries->map(function (PlanLibraryEntry $e) use ($intent, $sources, $queryVector) {
+        return $entries->map(function (PlanLibraryEntry $e) use ($intent, $sources, $queryVector) {
             // Structural score: 0–10-ish.
             $structural = 0;
             $structural += $this->deliverableAffinity($e->deliverable, $intent['deliverable'] ?? null);
@@ -203,22 +236,6 @@ class PlanLibraryService
 
             return $e;
         });
-
-        // Relevance floor: ≥5 structural (deliverable match + overlap) or
-        // cosine ≥ 0.55 (×10) — random examples hurt more than they help.
-        return $scored
-            ->filter(fn ($e) => $e->getAttribute('similarity') >= ($e->getAttribute('similarity_kind') === 'vector' ? 5.5 : 5))
-            // Quality FIRST: the few-shot is a BENCHMARK, so among relevant plans
-            // prefer the strongest (most agents / paid-provider) over a weak local
-            // one that merely matches the deliverable label.
-            ->sortByDesc(fn ($e) => [
-                $this->planQuality($e),
-                $e->getAttribute('similarity'),
-                $e->avg_qa_score ?? 0,
-                $e->runs_count,
-            ])
-            ->take($limit)
-            ->values();
     }
 
     /**
@@ -273,7 +290,7 @@ class PlanLibraryService
             return null;
         }
 
-        LlmContext::set(['purpose' => 'embedding']);
+        LlmContext::push(['purpose' => 'embedding']);
 
         try {
             return app(OpenAiChatService::class)->embed($this->intentText($intent));
@@ -282,7 +299,7 @@ class PlanLibraryService
 
             return null;
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
     }
 

@@ -3,64 +3,45 @@
 @section('title', 'Фирми')
 
 @section('content')
-<div class="flex items-center justify-between mb-8">
+<div class="flex items-center justify-between gap-4 mb-8">
     <div>
-        <h1 class="text-3xl font-bold text-gray-900">Фирми</h1>
-        <p class="text-gray-500 mt-1">Управление на фирми и техните AI flows</p>
+        <h1 class="text-2xl font-display font-bold text-ink tracking-tight">Фирми</h1>
+        <p class="text-muted mt-1 text-sm">Управление на фирми и техните AI flows</p>
     </div>
-    <a href="{{ route('companies.create') }}"
-       class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
-        ＋ Добави фирма
-    </a>
+    <x-button :href="route('companies.create')" icon="plus">Добави фирма</x-button>
 </div>
 
 @if($companies->isEmpty())
-    <div class="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
-        <p class="text-4xl mb-4">🏢</p>
-        <p class="text-gray-500 font-medium text-lg mb-2">Все още няма добавени фирми</p>
-        <p class="text-gray-400 text-sm mb-6">Добави фирма и създай първия си AI flow</p>
-        <a href="{{ route('companies.create') }}"
-           class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium transition">
-            ＋ Добави първата фирма
-        </a>
-    </div>
+    <x-card :padding="false">
+        <x-empty-state icon="building-office-2" title="Все още няма добавени фирми"
+            message="Добави фирма и създай първия си AI flow">
+            <x-button :href="route('companies.create')" icon="plus">Добави първата фирма</x-button>
+        </x-empty-state>
+    </x-card>
 @else
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         @foreach($companies as $company)
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition overflow-hidden flex flex-col">
-            {{-- Card header accent --}}
-            <div class="h-1.5 {{ $company->language === 'bg' ? 'bg-gradient-to-r from-indigo-500 to-purple-500' : 'bg-gradient-to-r from-sky-500 to-cyan-500' }}"></div>
-
-            <div class="p-6 flex flex-col flex-1">
-                <div class="flex items-start justify-between mb-3">
-                    <h2 class="text-lg font-semibold text-gray-900 leading-tight">{{ $company->name }}</h2>
-                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-medium uppercase shrink-0 ml-2">
-                        {{ $company->language }}
-                    </span>
+        <a href="{{ route('companies.show', $company) }}"
+           class="group flex flex-col bg-surface border border-line rounded-xl shadow-card hover:border-line-strong hover:shadow-popover transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+            <div class="p-5 flex flex-col flex-1">
+                <div class="flex items-start justify-between gap-2 mb-2">
+                    <h2 class="font-display font-semibold text-ink leading-tight">{{ $company->name }}</h2>
+                    <x-badge color="neutral" class="uppercase shrink-0">{{ $company->language }}</x-badge>
                 </div>
-
                 @if($company->industry)
-                    <p class="text-xs font-medium text-indigo-600 mb-2">{{ $company->industry }}</p>
+                    <p class="text-xs font-medium text-primary mb-2">{{ $company->industry }}</p>
                 @endif
-
-                <p class="text-gray-500 text-sm line-clamp-2 flex-1 mb-4">
-                    {{ $company->description ?: 'Без описание' }}
-                </p>
-
-                <div class="flex items-center justify-between pt-4 border-t border-gray-100">
-                    <div class="flex items-center gap-1.5 text-sm text-gray-400">
-                        <span class="text-base">⚡</span>
-                        <span>{{ $company->flows_count }}
-                            {{ $company->flows_count === 1 ? 'flow' : 'flows' }}
-                        </span>
-                    </div>
-                    <a href="{{ route('companies.show', $company) }}"
-                       class="text-indigo-600 hover:text-indigo-800 text-sm font-medium transition">
-                        Отвори →
-                    </a>
-                </div>
+                <p class="text-sm text-muted line-clamp-2 flex-1">{{ $company->description ?: 'Без описание' }}</p>
             </div>
-        </div>
+            <div class="flex items-center justify-between px-5 py-3 border-t border-line">
+                <span class="inline-flex items-center gap-1.5 text-sm text-subtle">
+                    <x-icon name="bolt" size="4" /><span class="tabular-nums">{{ $company->flows_count }}</span> {{ $company->flows_count === 1 ? 'flow' : 'flows' }}
+                </span>
+                <span class="inline-flex items-center gap-1 text-sm font-medium text-primary">
+                    Отвори <x-icon name="arrow-right" size="4" />
+                </span>
+            </div>
+        </a>
         @endforeach
     </div>
 @endif

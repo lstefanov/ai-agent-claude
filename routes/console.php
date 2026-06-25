@@ -12,5 +12,11 @@ Artisan::command('inspire', function () {
 Schedule::command('flows:run-scheduled')->everyMinute();
 Schedule::command('flows:watchdog')->everyMinute();
 Schedule::job(new SyncOllamaModelsJob)->hourly();
-Schedule::command('knowledge:recrawl-sites')->hourly();
 Schedule::command('knowledge:prune-web-cache')->daily();
+Schedule::command('flows:run-evals')->dailyAt('03:00');
+
+// AI Организация (Фаза 4): scheduled задачи по cron (всяка минута) + директорски ревюта (на час).
+Schedule::command('org:director-ticks')->everyMinute();
+Schedule::command('org:director-ticks --ticks')->hourly();
+// Фаза 7: седмично ревю на Управителя.
+Schedule::command('org:review')->weeklyOn(1, '08:00');

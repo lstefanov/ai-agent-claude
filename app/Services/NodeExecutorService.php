@@ -4,14 +4,18 @@ namespace App\Services;
 
 use App\Agents\AgentFactory;
 use App\Agents\DecisionAgent;
+use App\Agents\McpActionAgent;
 use App\Jobs\ExecuteNodeJob;
+use App\Models\FlowEdge;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\NodeRun;
+use App\Models\OrgMember;
 use App\Services\Execution\AdaptiveReplanner;
 use App\Services\Execution\FlowNodeAgentBridge;
 use App\Services\Execution\NodePromptBuilder;
 use App\Services\Execution\StepQaGate;
+use App\Services\Org\PersonaService;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use App\Support\NodeDeadline;
@@ -56,6 +60,10 @@ class NodeExecutorService
     // 85-знакова „присъда" върху 26K доклад).
     private int $lastUpstreamMaxLen = 0;
 
+    // Кеш на ПЕРСОНА БЛОКА per run (org-flow) — резолвира се веднъж, не на всеки възел.
+    /** @var array<int, string> */
+    private array $personaBlockCache = [];
+
     public function __construct(
         private AgentFactory $factory,
         private FlowMemoryService $memory,
@@ -93,16 +101,73 @@ class NodeExecutorService
                 return;
             }
 
+            // Persist the run row up-front so it has an id, then open the paid-call
+            // attribution frame for the WHOLE node lifecycle. Everything below —
+            // mcp_action, the memory/knowledge pre-pass, the agentic tool loop, and
+            // the dedup/QA/replan work between attempts — records to llm_requests
+            // with this run/node (the frame is cleared in the finally; nested owners
+            // like the planner revision save/restore it). node_runs.cost_usd uses the
+            // context-free LlmUsage accumulator, so it was already correct.
+            $nodeRun->fill([
+                'node_key' => $node->node_key,
+                'status' => 'running',
+                'started_at' => $nodeRun->started_at ?? now(),
+            ])->save();
+
+            LlmContext::set([
+                'purpose' => 'runtime',
+                'company_id' => $flowRun->flow?->company_id,
+                'flow_id' => $node->flow_id,
+                'flow_run_id' => $flowRun->id,
+                'node_run_id' => $nodeRun->id,
+                'agent_name' => $node->name,
+                'agent_type' => $node->type,
+                // Билинг-атрибуция (§0.5.1): за org-flow run-овете контролерът/
+                // executor-ът слага reservation_id+context в context — node LLM
+                // повикванията се атрибутират към task_run резервацията. Не-org
+                // flow → null → без атрибуция (непроменено поведение).
+                'context_type' => $flowRun->context['credit_context_type'] ?? null,
+                'subject_type' => $flowRun->context['credit_subject_type'] ?? null,
+                'subject_id' => $flowRun->context['credit_subject_id'] ?? null,
+                'reservation_id' => $flowRun->context['credit_reservation_id'] ?? null,
+            ]);
+
             // Human-in-the-loop: the node never executes an agent — it pauses the
-            // run until a person approves/rejects via the run UI.
+            // run until a person approves/rejects via the run UI. Exception: when
+            // every mcp_action it gates is explicitly marked requires_approval=false
+            // (the per-action checkbox unchecked), the gate is waived and the node
+            // auto-passes — so the checkbox actually controls the inserted node.
             if ($node->type === 'human_approval') {
+                if ($this->approvalWaived($node)) {
+                    RunLog::append($flowRun->id, "[MCP] {$node->name}: одобрението е прескочено — действието е маркирано без нужда от потвърждение (requires_approval=false)");
+                    $nodeRun->fill([
+                        'node_key' => $node->node_key,
+                        'status' => 'completed',
+                        'output' => 'Auto-approved: действието не изисква потвърждение.',
+                        'error' => null,
+                        'started_at' => $nodeRun->started_at ?? now(),
+                        'completed_at' => now(),
+                    ])->save();
+
+                    return;
+                }
+
                 $this->pauseForApproval($flowRun, $node, $nodeRun);
+
+                return;
+            }
+
+            // MCP действие: не минава през AgentLoop/QA/памет — изпълнява tool
+            // call в свързана система и записва резултата.
+            if ($node->type === 'mcp_action') {
+                $this->executeMcpAction($flowRun, $node, $nodeRun);
 
                 return;
             }
 
             $this->runWithQaRetry($flowRun, $node, $nodeRun);
         } finally {
+            LlmContext::clear();
             NodeDeadline::clear();
         }
     }
@@ -155,6 +220,227 @@ class NodeExecutorService
     }
 
     // ──────────────────────────────────────────────────────────────────────
+    // MCP действие — изпълнява tool call в свързана система
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Изпълнява mcp_action node чрез McpActionAgent. Не хвърля при провал на
+     * tool-а (за да НЕ се retry-ва job-ът и да не дублира write операция);
+     * вместо това маркира node-а failed и уважава failure_policy: fail_fast
+     * проваля run-а, best_effort продължава останалите клонове.
+     */
+    private function executeMcpAction(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun): void
+    {
+        $started = microtime(true);
+        $tool = (string) ($node->config['tool'] ?? '');
+
+        // Safety gate: действие, маркирано requires_approval, НЕ се изпълнява без
+        // „Одобрение от човек" предшественик. Планерът го гарантира
+        // (gateWriteMcpActions); ръчно поставен write node без gate се блокира —
+        // никакво изходящо действие без одобрение (освен ако потребителят изрично
+        // махне отметката requires_approval).
+        if (($node->config['requires_approval'] ?? false) && ! $this->hasApprovalPredecessor($node)) {
+            $message = "Действие „{$tool}\" изисква одобрение, но няма свързан „Одобрение от човек\" възел преди него.";
+            $nodeRun->fill([
+                'node_key' => $node->node_key,
+                'status' => 'failed',
+                'input' => "MCP: {$tool}",
+                'model_used' => 'mcp:'.(explode('.', $tool)[0] ?: 'action'),
+                'error' => $message,
+                'started_at' => $nodeRun->started_at ?? now(),
+                'completed_at' => now(),
+            ])->save();
+            RunLog::append($flowRun->id, "[MCP] {$node->name}: блокирано — write действие без human_approval gate");
+
+            if (($flowRun->context['failure_policy'] ?? 'fail_fast') !== 'best_effort') {
+                $this->failFlowRun($flowRun, $message);
+            }
+
+            return;
+        }
+
+        // act HARD GATE под preview (§B2): org flow (има assistant_task_id) + ORG_ACT_ENABLED=false
+        // → произвежда „чернова на действието" (tool/аргументи/очакван ефект), БЕЗ реален
+        // страничен ефект и БЕЗ ред в connector_tool_logs. Реалният act иска реален auth (Фаза 6).
+        if (isset($flowRun->context['assistant_task_id']) && ! config('organization.act.enabled')) {
+            $params = (array) ($node->config['tool_params'] ?? []);
+            $connectorId = (int) ($node->config['connector_id'] ?? 0);
+            $draft = "ЧЕРНОВА НА ДЕЙСТВИЕ (act изключен под preview — без реален ефект)\n"
+                ."Инструмент: {$tool}\nКонектор: #{$connectorId}\n"
+                .'Аргументи: '.json_encode($params, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)."\n"
+                .'Очакван ефект: действието БИ било изпълнено при включен реален auth (ORG_ACT_ENABLED=true).';
+            $nodeRun->fill([
+                'node_key' => $node->node_key,
+                'status' => 'completed',
+                'input' => "MCP draft: {$tool}",
+                'output' => $draft,
+                'model_used' => 'mcp:draft',
+                'error' => null,
+                'started_at' => $nodeRun->started_at ?? now(),
+                'completed_at' => now(),
+            ])->save();
+            RunLog::append($flowRun->id, "[MCP] {$node->name}: act изключен → чернова на действието (без реален страничен ефект)");
+
+            return;
+        }
+
+        $nodeRun->fill([
+            'node_key' => $node->node_key,
+            'status' => 'running',
+            'input' => "MCP: {$tool} (connector #".((int) ($node->config['connector_id'] ?? 0)).')',
+            'model_used' => 'mcp:'.(explode('.', $tool)[0] ?: 'action'),
+            'error' => null,
+            'started_at' => $nodeRun->started_at ?? now(),
+        ])->save();
+
+        $outputs = $this->mcpRunOutputs($flowRun, $node);
+        $result = app(McpActionAgent::class)->run($node, $flowRun, $outputs, $nodeRun->id, $this->finalReportOutput($flowRun));
+        $durationMs = (int) ((microtime(true) - $started) * 1000);
+
+        if ($result->success) {
+            $nodeRun->update([
+                'status' => 'completed',
+                'output' => $result->text,
+                'cost_usd' => 0,
+                'duration_ms' => $durationMs,
+                'completed_at' => now(),
+            ]);
+            RunLog::append($flowRun->id, "[MCP] {$node->name}: {$tool} ✅");
+
+            return;
+        }
+
+        // Провал — без throw (write tool не бива да се повтаря при job retry).
+        $message = "MCP tool '{$tool}' fail: {$result->error}";
+        $nodeRun->update([
+            'status' => 'failed',
+            'error' => $message,
+            'duration_ms' => $durationMs,
+            'completed_at' => now(),
+        ]);
+        RunLog::append($flowRun->id, "[MCP] {$node->name}: ГРЕШКА — {$result->error}");
+
+        if (($flowRun->context['failure_policy'] ?? 'fail_fast') !== 'best_effort') {
+            $this->failFlowRun($flowRun, $message);
+        }
+    }
+
+    /**
+     * Дали одобрението е waive-нато: всеки mcp_action, който този „Одобрение от
+     * човек" възел гейтва (пряк наследник), е ИЗРИЧНО маркиран
+     * requires_approval=false. Така отметката „изисква потвърждение" в имейл/
+     * action-нода реално управлява авто-вмъкнатия approval възел — без редакция
+     * на графа. Generic approval без mcp_action наследник никога не се waive-ва.
+     */
+    private function approvalWaived(FlowNode $node): bool
+    {
+        $downstreamKeys = FlowEdge::where('flow_version_id', $node->flow_version_id)
+            ->where('from_node_key', $node->node_key)
+            ->pluck('to_node_key')
+            ->all();
+        if (empty($downstreamKeys)) {
+            return false;
+        }
+
+        $actions = FlowNode::where('flow_version_id', $node->flow_version_id)
+            ->whereIn('node_key', $downstreamKeys)
+            ->where('type', 'mcp_action')
+            ->get(['config']);
+        if ($actions->isEmpty()) {
+            return false;
+        }
+
+        foreach ($actions as $action) {
+            if (($action->config['requires_approval'] ?? true) !== false) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Дали node-ът има пряк „Одобрение от човек" предшественик в графа. */
+    private function hasApprovalPredecessor(FlowNode $node): bool
+    {
+        $predKeys = FlowEdge::where('flow_version_id', $node->flow_version_id)
+            ->where('to_node_key', $node->node_key)
+            ->pluck('from_node_key')
+            ->all();
+        if (empty($predKeys)) {
+            return false;
+        }
+
+        return FlowNode::where('flow_version_id', $node->flow_version_id)
+            ->whereIn('node_key', $predKeys)
+            ->where('type', 'human_approval')
+            ->exists();
+    }
+
+    /**
+     * Изходите на ВСИЧКИ завършили възли в run-а, keyed по node_key И по име — за
+     * да работят {{agent.<node_key>.output}} и {{agent.<име>.output}} за ЛЮБОЙ
+     * възел, не само пряк предшественик (прекият предшественик на имейла обикн. е
+     * „Одобрение от човек", а потребителят иска да реферира доклада).
+     *
+     * @return array<string,string>
+     */
+    private function mcpRunOutputs(FlowRun $flowRun, FlowNode $node): array
+    {
+        $names = FlowNode::where('flow_version_id', $node->flow_version_id)
+            ->pluck('name', 'node_key');
+
+        $outputs = NodeRun::where('flow_run_id', $flowRun->id)
+            ->where('status', 'completed')
+            ->pluck('output', 'node_key');
+
+        $map = [];
+        foreach ($outputs as $key => $output) {
+            if ($output === null || $output === '') {
+                continue;
+            }
+            $map[$key] = $output;
+            if (! empty($names[$key])) {
+                $map[$names[$key]] = $output;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Финалният доклад на run-а за {{report}} / {{flow.output}}: изходът на
+     * последния завършил body-възел (с предимство bg_text_corrector — финално
+     * изгладеният текст). Празно, ако няма body възел.
+     */
+    private function finalReportOutput(FlowRun $flowRun): string
+    {
+        $nodes = FlowNode::where('flow_version_id', $flowRun->flow_version_id)
+            ->where('is_active', true)
+            ->get();
+
+        $bodyKeys = $nodes->filter(fn (FlowNode $n) => $n->effectiveOutputRole() === 'body')
+            ->pluck('node_key')
+            ->all();
+        if ($bodyKeys === []) {
+            return '';
+        }
+
+        $correctorKeys = array_values(array_intersect(
+            $nodes->where('type', 'bg_text_corrector')->pluck('node_key')->all(),
+            $bodyKeys,
+        ));
+
+        $pick = fn (array $keys): ?string => $keys === [] ? null : NodeRun::where('flow_run_id', $flowRun->id)
+            ->whereIn('node_key', $keys)
+            ->where('status', 'completed')
+            ->whereNotNull('output')
+            ->orderByDesc('completed_at')
+            ->value('output');
+
+        return (string) ($pick($correctorKeys) ?? $pick($bodyKeys) ?? '');
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // Core execution + step-QA retry loop
     // ──────────────────────────────────────────────────────────────────────
 
@@ -171,9 +457,16 @@ class NodeExecutorService
         $maxDedupRetries = min(5, max(0, (int) config('services.memory.dedup_max_retries', 2)));
         $dedupRetriesUsed = 0;
         $dedupFeedback = null;
+        // QA feedback from a sub-threshold attempt — fed into the next run so the
+        // retry knows WHAT to fix instead of blindly repeating the same prompt.
+        $qaFeedback = null;
+        // Cumulative paid cost across all attempts of THIS node (runOnce overwrites
+        // node_runs.cost_usd per attempt) — drives the retry cost cap.
+        $cumulativeCost = 0.0;
 
         while (true) {
-            $output = $this->runOnce($flowRun, $node, $nodeRun, $revision, $dedupFeedback);
+            $output = $this->runOnce($flowRun, $node, $nodeRun, $revision, $dedupFeedback, $qaFeedback);
+            $cumulativeCost += (float) $nodeRun->cost_usd;
 
             // Watchdog: degenerate output (empty/placeholder boilerplate) is a
             // failure even before QA — try one planner revision immediately.
@@ -228,8 +521,31 @@ class NodeExecutorService
                 return;
             }
 
+            // Budget guard: stop retrying if the node ran out of time, blew the
+            // cost cap, or the run already died — keep the best output we have
+            // instead of burning another full re-run (16 web searches etc.).
+            if (($capReason = $this->qaRetryBudgetExceeded($flowRun, $cumulativeCost)) !== null) {
+                RunLog::append($flowRun->id, "[QA] {$node->name}: приема се изход под прага (score {$qaResult['score']}) — {$capReason}");
+                $nodeRun->update([
+                    'status' => 'completed',
+                    'quality_metrics' => array_merge((array) $nodeRun->quality_metrics, [
+                        'qa_accepted_below_threshold' => true,
+                        'qa_cap_reason' => $capReason,
+                    ]),
+                ]);
+
+                return;
+            }
+
             if ($qaRetriesUsed < $maxQaRetries) {
                 $qaRetriesUsed++;
+
+                // Feed the verifier's actionable feedback into the next attempt so
+                // even the cheap first retry is informed, not a blind repeat.
+                $fb = trim((string) ($qaResult['feedback'] ?? ''));
+                $qaFeedback = $fb !== ''
+                    ? 'ОБРАТНА ВРЪЗКА ОТ ПРОВЕРКАТА НА КАЧЕСТВОТО (предишният опит беше отхвърлен — поправи конкретно следното): '.$fb
+                    : null;
 
                 // First retry is plain (cheap). From the second on, ask the
                 // planner to revise the failing agent (Фаза 3).
@@ -241,28 +557,78 @@ class NodeExecutorService
                 }
 
                 RunLog::append($flowRun->id, "[QA] {$node->name}: повторен опит {$qaRetriesUsed}/{$maxQaRetries}"
-                    .($revision !== null ? ' с ревизия от планера' : ''));
+                    .($revision !== null ? ' с ревизия от планера' : '')
+                    .($qaFeedback !== null ? ' (с обратна връзка)' : ''));
 
                 $this->resetForRetry($nodeRun);
 
                 continue;
             }
 
-            // Max retries exhausted — QA gate failed.
-            // We handle this as a business-logic failure (not a thrown exception) so that:
-            //  1. The NodeRun update is committed (no DB rollback from batch transaction).
-            //  2. The ExecuteNodeJob returns normally → batch thinks job succeeded.
-            //  3. The FlowRun is marked 'failed' here; subsequent dispatchWave calls
-            //     see status ≠ 'running' and stop the chain.
-            // Technical failures (Ollama down, etc.) still throw — those are caught by
-            // the batch dispatcher and handled via the try/catch in dispatchWave.
+            // Max retries exhausted — QA gate failed. Handled as a business-logic
+            // failure (not a thrown exception) so the NodeRun update commits and
+            // ExecuteNodeJob returns normally.
             $message = "QA gate failed after {$maxQaRetries} retries for {$node->name}: "
                 ."score {$qaResult['score']} < threshold {$qaConfig['threshold']}";
+
+            // fail_fast marks the whole run failed (subsequent dispatchWave calls
+            // see status ≠ 'running' and stop the chain).
+            if (($flowRun->context['failure_policy'] ?? 'best_effort') === 'fail_fast') {
+                $nodeRun->update(['status' => 'failed', 'error' => $message]);
+                $this->failFlowRun($flowRun, $message);
+
+                return;
+            }
+
+            // best_effort: a non-empty output WAS produced — accept it below the
+            // threshold (flagged) instead of marking the node failed. Marking it
+            // failed would let resolveActiveNodes prune everything downstream,
+            // silently dropping a delivery tail (e.g. approval → email) even
+            // though usable content exists. The best available text still flows;
+            // the flag keeps it auditable.
+            if (trim($output) !== '') {
+                RunLog::append($flowRun->id, "[QA] {$node->name}: провал след {$maxQaRetries} опита — приема се най-добрият изход под прага (best_effort); веригата продължава");
+                $nodeRun->update([
+                    'status' => 'completed',
+                    'quality_metrics' => array_merge((array) $nodeRun->quality_metrics, [
+                        'qa_accepted_below_threshold' => true,
+                        'qa_cap_reason' => "score {$qaResult['score']} < threshold {$qaConfig['threshold']} след {$maxQaRetries} опита",
+                    ]),
+                ]);
+
+                return;
+            }
+
+            // Empty/degenerate output — nothing usable to pass on; mark failed and
+            // let resolveActiveNodes prune the dead branch.
             $nodeRun->update(['status' => 'failed', 'error' => $message]);
-            $this->failFlowRun($flowRun, $message);
+            RunLog::append($flowRun->id, "[QA] {$node->name}: провал след {$maxQaRetries} опита — празен изход, run-ът продължава без този възел");
 
             return;
         }
+    }
+
+    /**
+     * Reason to stop the QA retry loop early (time/cost budget or a dead run), or
+     * null to keep retrying. Prevents a single gated node from burning unbounded
+     * money and time on repeated full re-runs.
+     */
+    private function qaRetryBudgetExceeded(FlowRun $flowRun, float $cumulativeCost): ?string
+    {
+        if ($this->jobDeadlineTs !== null && microtime(true) >= $this->jobDeadlineTs) {
+            return 'времевият бюджет на възела изтече';
+        }
+
+        $cap = (float) config('services.qa.max_retry_cost_usd', 0);
+        if ($cap > 0 && $cumulativeCost > $cap) {
+            return 'разходният таван ($'.number_format($cap, 2).') е надхвърлен';
+        }
+
+        if (FlowRun::whereKey($flowRun->id)->value('status') !== 'running') {
+            return 'run-ът вече не е активен';
+        }
+
+        return null;
     }
 
     private function failFlowRun(FlowRun $flowRun, string $message): void
@@ -273,13 +639,67 @@ class NodeExecutorService
     }
 
     /**
+     * Should the company-knowledge ("ЗНАНИЕ") block be injected into this node's
+     * prompt? Yes for synthesis/content nodes (incl. the ones that build
+     * comparisons/tables, which need OUR own services & prices to fill the
+     * own-company column); no for transformers, control nodes, or nodes that
+     * already pull facts through the agentic knowledge_search prepass.
+     */
+    private function shouldInjectKnowledge(FlowNode $node): bool
+    {
+        $excluded = ['bg_text_corrector', 'translator', 'human_approval', 'mcp_action', 'decision', 'qa_verifier'];
+        if (in_array($node->type, $excluded, true)) {
+            return false;
+        }
+
+        $tools = array_map('strval', (array) ($node->config['tools'] ?? []));
+        if (in_array('knowledge_search', $tools, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Персона блок се инжектира навсякъде ОСВЕН в persona-неутралните възли — същият
+     * под на компетентност като знанието (§5.3): „импулсивен" член мени КАК, не дали QA минава.
+     */
+    private function shouldInjectPersona(FlowNode $node): bool
+    {
+        $excluded = ['bg_text_corrector', 'translator', 'human_approval', 'mcp_action', 'decision', 'qa_verifier'];
+
+        return ! in_array($node->type, $excluded, true);
+    }
+
+    /**
+     * ПЕРСОНА БЛОКЪТ на члена-собственик на run-а (резолвиран веднъж и кеширан per run,
+     * за да не удря БД на всеки възел). Празен низ за не-org flow (без org_member_id).
+     */
+    private function personaBlock(FlowRun $flowRun): string
+    {
+        $memberId = $flowRun->context['org_member_id'] ?? null;
+        if (! $memberId) {
+            return '';
+        }
+
+        if (array_key_exists($flowRun->id, $this->personaBlockCache)) {
+            return $this->personaBlockCache[$flowRun->id];
+        }
+
+        $member = OrgMember::with('persona')->find($memberId);
+        $block = $member ? app(PersonaService::class)->compileSystemPrompt($member) : '';
+
+        return $this->personaBlockCache[$flowRun->id] = $block;
+    }
+
+    /**
      * Execute the node exactly once. Returns the cleaned output string.
      * Throws RuntimeException after MAX_ATTEMPTS technical failures.
      *
      * A planner revision (Фаза 3) is applied to the in-memory node only —
      * never persisted to flow_nodes.
      */
-    private function runOnce(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun, ?array $revision = null, ?string $dedupFeedback = null): string
+    private function runOnce(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun, ?array $revision = null, ?string $dedupFeedback = null, ?string $qaFeedback = null): string
     {
         if ($revision !== null) {
             $this->replanner->applyRevision($node, $revision);
@@ -301,24 +721,45 @@ class NodeExecutorService
             }
         }
 
-        // Знание: фактологичен RAG блок от базата знания на фирмата — само за
-        // content нодове и само от grounding колекциите (документи/сайт, НЕ
+        // Знание: фактологичен RAG блок от базата знания на фирмата — за синтез/
+        // content нодовете (вкл. тези, които строят сравнения/таблици), но НЕ за
+        // трансформъри/контрол-нодове или нодове с knowledge_search (те ползват
+        // агентния prepass). Само от grounding колекциите (документи/сайт, НЕ
         // история). Работи и за локални модели, които не могат tool-calling.
         if (KnowledgeService::enabledForFlow($flowRun->flow)
             && ($node->config['knowledge']['enabled'] ?? true) !== false
-            && $this->memory->isContentNode($node)) {
-            $knowledgeBlock = $this->knowledge->knowledgeBlock($flowRun->flow->company, $input, [
-                'company_id' => $flowRun->flow->company_id,
-                'flow_id' => $node->flow_id,
-                'flow_run_id' => $flowRun->id,
-            ]);
+            && $this->shouldInjectKnowledge($node)) {
+            // Таблица/синтез нодове, които пълнят СОБСТВЕНАТА колона/ред, получават
+            // ПЪЛНИЯ структуриран профил (всички цени/услуги) — чисти факти, без
+            // зашумени уеб-чънкове, за да влязат цените по зони. Останалите нодове
+            // получават по-лекия relevance блок (безопасен за локални модели).
+            $tableBuilders = ['data_extractor', 'formatter', 'price_optimizer', 'competitor_profiler', 'swot_builder'];
+            $knowledgeBlock = in_array($node->type, $tableBuilders, true)
+                ? $this->knowledge->ownProfileBlock($flowRun->flow->company)
+                : $this->knowledge->knowledgeBlock($flowRun->flow->company, $input, [
+                    'company_id' => $flowRun->flow->company_id,
+                    'flow_id' => $node->flow_id,
+                    'flow_run_id' => $flowRun->id,
+                ]);
             if ($knowledgeBlock !== '') {
                 $input .= "\n\n".$knowledgeBlock;
             }
         }
 
+        // Персона: за org-flow нодовете добавяме ПЕРСОНА БЛОК на члена-собственик
+        // (характер/стил, НЕ компетентност), за да „действат като себе си" (§0.5.5).
+        // Персона-неутралните възли (QA/трансформъри/контрол) са изключени (под на
+        // компетентност, §5.3). Не-org flow (без org_member_id) → no-op.
+        if ($this->shouldInjectPersona($node) && ($personaBlock = $this->personaBlock($flowRun)) !== '') {
+            $input .= "\n\n".$personaBlock;
+        }
+
         if ($dedupFeedback !== null) {
             $input .= "\n\n".$dedupFeedback;
+        }
+
+        if ($qaFeedback !== null) {
+            $input .= "\n\n".$qaFeedback;
         }
 
         $nodeRun->fill([
@@ -337,6 +778,13 @@ class NodeExecutorService
         RunLog::append($flowRun->id, "STEP {$stepNo}/{$totalSteps}: {$node->name}");
 
         $agent = $this->bridge->bridgeAgent($node);
+        // Eval Suite: run-scoped model override — позволява една и съща версия
+        // да се пуска на различно ниво (моделите за нивото са пресметнати при
+        // eval и сложени в context['model_overrides']). '' = локален авто.
+        $overrides = $flowRun->context['model_overrides'] ?? null;
+        if (is_array($overrides) && array_key_exists($node->node_key, $overrides)) {
+            $agent->model = (string) $overrides[$node->node_key];
+        }
         // Времевият бюджет и фирменият контекст пътуват през transient DTO-то
         // (никога не се persist-ват) — deadline_ts до GenericAgent::runAgentic →
         // AgentLoop, company_id до KnowledgeSearchTool през AgentFactory.
@@ -357,17 +805,6 @@ class NodeExecutorService
         $rawOutput = null;
         $agentInstance = null;
         $startMs = now()->valueOf();
-
-        // Attribute every paid call this node makes (see LlmRequestRecorder).
-        LlmContext::set([
-            'purpose' => 'runtime',
-            'company_id' => $flowRun->flow?->company_id,
-            'flow_id' => $node->flow_id,
-            'flow_run_id' => $flowRun->id,
-            'node_run_id' => $nodeRun->id,
-            'agent_name' => $node->name,
-            'agent_type' => $node->type,
-        ]);
 
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
             try {
@@ -391,9 +828,9 @@ class NodeExecutorService
         $durationMs = now()->valueOf() - $startMs;
 
         // Collect paid-provider usage accumulated during this node execution
-        // (openai/* chat calls + any planner revision calls it triggered).
+        // (openai/* chat calls + any planner revision calls it triggered). The
+        // LlmContext frame is owned by executeNode() and spans every attempt.
         $usage = LlmUsage::take();
-        LlmContext::clear();
 
         if ($lastError !== null) {
             $message = "Node {$node->name} failed after ".self::MAX_ATTEMPTS.' attempts: '.$lastError->getMessage();

@@ -15,49 +15,37 @@ $qaThresholdOptions = range(0, 100, 5);
 <div class="mb-6">
     <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
-            <a href="{{ route('companies.show', $flow->company) }}" class="text-indigo-600 hover:underline text-sm inline-flex items-center gap-1">
-                ← {{ $flow->company->name }}
+            <a href="{{ route('companies.show', $flow->company) }}" class="inline-flex items-center gap-1 text-sm text-muted hover:text-ink transition">
+                <x-icon name="arrow-left" size="4" /> {{ $flow->company->name }}
             </a>
-            <h1 class="text-3xl font-bold text-gray-900 mt-2 flex items-center gap-3 flex-wrap">
+            <h1 class="text-2xl font-display font-bold text-ink mt-2 flex items-center gap-3 flex-wrap">
                 {{ $flow->name }}
-                @include('partials.status-badge', ['status' => $flow->status, 'class' => 'text-sm px-3'])
+                @include('partials.status-badge', ['status' => $flow->status])
             </h1>
         </div>
-        <div class="flex items-start gap-2 shrink-0">
-            <a href="{{ route('flows.edit', $flow) }}"
-               class="inline-flex items-center justify-center bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
-                ✏ Редактирай
-            </a>
-            <a href="{{ route('flows.builder', $flow) }}"
-               class="inline-flex items-center justify-center bg-white border border-indigo-300 hover:border-indigo-400 text-indigo-700 px-4 py-2 rounded-lg text-sm font-medium transition">
-                ⛓ Граф редактор
-            </a>
-            <a href="{{ route('flows.plan-ab', $flow) }}"
-               class="inline-flex items-center justify-center bg-white border border-violet-300 hover:border-violet-400 text-violet-700 px-4 py-2 rounded-lg text-sm font-medium transition"
-               title="Планирай с Ollama (безплатно), OpenAI и Anthropic и избери по-добрия план">
-                ⚖ A/B план
-            </a>
-            <form action="{{ route('flow-runs.store', $flow) }}" method="POST" class="flex items-start gap-2">
+        <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <x-button variant="secondary" size="sm" icon="pencil-square" :href="route('flows.edit', $flow)">Редактирай</x-button>
+            <x-button variant="secondary" size="sm" icon="share" :href="route('flows.builder', $flow)">Граф редактор</x-button>
+            <x-button variant="secondary" size="sm" icon="scale" :href="route('flows.plan-ab', $flow)" title="Планирай с Ollama (безплатно), OpenAI и Anthropic и избери по-добрия план">A/B план</x-button>
+            <x-button variant="secondary" size="sm" icon="beaker" :href="route('flows.eval.index', $flow)" title="Тествай качеството на изхода на различни версии и нива (цена↔качество)">Eval</x-button>
+            <form action="{{ route('flow-runs.store', $flow) }}" method="POST">
                 @csrf
-                <button type="submit"
-                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2">
-                    ▶ Стартирай
-                </button>
+                <x-button type="submit" size="sm" icon="play">Стартирай</x-button>
             </form>
         </div>
     </div>
-    <p class="text-gray-500 mt-1">{!! nl2br(e($flow->description)) !!}</p>
+    <p class="text-muted mt-1 text-sm max-w-prose">{!! nl2br(e($flow->description)) !!}</p>
 </div>
 
 {{-- Schedule info --}}
 @if($flow->schedule_cron)
-<div class="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 mb-6 flex items-center gap-3 text-sm text-blue-800">
-    <span class="text-lg">📅</span>
+<div class="bg-info-soft border border-info rounded-xl px-5 py-3 mb-6 flex items-center gap-3 text-sm text-info-strong">
+    <x-icon name="clock" size="5" class="shrink-0" />
     <div>
         <span class="font-medium">Cron разписание:</span>
-        <code class="font-mono bg-blue-100 px-2 py-0.5 rounded ml-1 text-xs">{{ $flow->schedule_cron }}</code>
+        <code class="font-mono bg-surface px-2 py-0.5 rounded ml-1 text-xs">{{ $flow->schedule_cron }}</code>
         @if($flow->last_run_at)
-            <span class="text-blue-500 ml-3">Последно: {{ $flow->last_run_at->diffForHumans() }}</span>
+            <span class="text-muted ml-3">Последно: {{ $flow->last_run_at->diffForHumans() }}</span>
         @endif
     </div>
 </div>
@@ -65,9 +53,9 @@ $qaThresholdOptions = range(0, 100, 5);
 
 {{-- Webhook / n8n Integration Panel --}}
 @if(false)
-<div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
-    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-        <h2 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+<div class="bg-surface rounded-xl border border-line mb-6 overflow-hidden">
+    <div class="px-6 py-4 border-b border-line bg-surface-subtle flex items-center justify-between">
+        <h2 class="text-base font-semibold text-ink flex items-center gap-2">
             <span>🔗</span> Webhook / n8n интеграция
         </h2>
         @if($flow->webhook_secret)
@@ -75,16 +63,16 @@ $qaThresholdOptions = range(0, 100, 5);
                 <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span> Активен
             </span>
         @else
-            <span class="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full font-medium">
-                <span class="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span> Неактивен
+            <span class="inline-flex items-center gap-1.5 text-xs bg-neutral-soft text-muted px-2.5 py-1 rounded-full font-medium">
+                <span class="w-1.5 h-1.5 rounded-full bg-subtle inline-block"></span> Неактивен
             </span>
         @endif
     </div>
 
     <div class="px-6 py-5">
         @if($flow->webhook_secret)
-            <p class="text-sm text-gray-500 mb-4">
-                Изпрати <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">POST</code> заявка към URL-а по-долу, за да стартираш flow-а от n8n, Zapier, Make или друга платформа. Добави JSON тяло с произволни данни — те ще бъдат достъпни като <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">&#123;&#123;webhook_payload&#125;&#125;</code> в промптовете на агентите.
+            <p class="text-sm text-muted mb-4">
+                Изпрати <code class="bg-neutral-soft px-1.5 py-0.5 rounded text-xs font-mono">POST</code> заявка към URL-а по-долу, за да стартираш flow-а от n8n, Zapier, Make или друга платформа. Добави JSON тяло с произволни данни — те ще бъдат достъпни като <code class="bg-neutral-soft px-1.5 py-0.5 rounded text-xs font-mono">&#123;&#123;webhook_payload&#125;&#125;</code> в промптовете на агентите.
             </p>
 
             {{-- Webhook URL --}}
@@ -96,24 +84,24 @@ $qaThresholdOptions = range(0, 100, 5);
                        id="webhookUrlInput"
                        value="{{ $webhookUrl }}"
                        readonly
-                       class="flex-1 font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-gray-700 select-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                       class="flex-1 font-mono text-xs bg-surface-subtle border border-line rounded-lg px-3 py-2.5 text-ink select-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30"
                        onclick="this.select()" />
                 <button onclick="copyWebhookUrl()"
-                        class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-2.5 rounded-lg transition">
+                        class="shrink-0 bg-primary hover:bg-primary-hover text-white text-xs font-medium px-3 py-2.5 rounded-lg transition">
                     Копирай
                 </button>
             </div>
 
             {{-- n8n example hint --}}
             <details class="mb-4">
-                <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+                <summary class="text-xs text-muted cursor-pointer hover:text-ink select-none">
                     Как да настроиш в n8n?
                 </summary>
-                <div class="mt-3 bg-gray-50 rounded-lg p-4 text-xs text-gray-600 space-y-2 border border-gray-100">
+                <div class="mt-3 bg-surface-subtle rounded-lg p-4 text-xs text-muted space-y-2 border border-line">
                     <p><strong>Вариант 1 — n8n изпраща към FlowAI (trigger):</strong></p>
                     <ol class="list-decimal list-inside space-y-1 ml-1">
                         <li>В n8n добави нов нод <strong>HTTP Request</strong></li>
-                        <li>Метод: <code class="bg-white px-1 rounded border border-gray-200">POST</code> | URL: горният webhook адрес</li>
+                        <li>Метод: <code class="bg-surface px-1 rounded border border-line">POST</code> | URL: горният webhook адрес</li>
                         <li>Body: JSON с данните, които искаш да подадеш на агентите</li>
                         <li>Свържи нода след trigger (Gmail, Google Drive, Schedule и др.)</li>
                     </ol>
@@ -137,13 +125,13 @@ $qaThresholdOptions = range(0, 100, 5);
                 </button>
             </form>
         @else
-            <p class="text-sm text-gray-500 mb-4">
+            <p class="text-sm text-muted mb-4">
                 Генерирай webhook URL, за да можеш да стартираш този flow автоматично от <strong>n8n</strong>, Zapier, Make или друга платформа — при нов email, файл в Google Drive, Facebook коментар и т.н.
             </p>
             <form action="{{ route('flows.webhook.generate', $flow) }}" method="POST">
                 @csrf
                 <button type="submit"
-                        class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                        class="bg-primary hover:bg-primary-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition">
                     🔗 Генерирай Webhook URL
                 </button>
             </form>
@@ -155,20 +143,20 @@ $qaThresholdOptions = range(0, 100, 5);
 {{-- Result delivery panel --}}
 @if(false)
 @php $delivery = $flow->settings['delivery'] ?? []; @endphp
-<div class="bg-white rounded-xl border border-gray-200 p-6 mt-6"
+<div class="bg-surface rounded-xl border border-line p-6 mt-6"
      x-data="{ channel: '{{ $delivery['channel'] ?? 'none' }}' }">
-    <h2 class="text-base font-semibold text-gray-900 flex items-center gap-2 mb-1">
+    <h2 class="text-base font-semibold text-ink flex items-center gap-2 mb-1">
         <span>📤</span> Доставка на резултата
     </h2>
-    <p class="text-sm text-gray-500 mb-4">След успешен run финалният изход се изпраща автоматично към избрания канал.</p>
+    <p class="text-sm text-muted mb-4">След успешен run финалният изход се изпраща автоматично към избрания канал.</p>
 
     <form action="{{ route('flows.settings.update', $flow) }}" method="POST" class="space-y-4">
         @csrf
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Канал</label>
+                <label class="block text-sm font-medium text-ink mb-1">Канал</label>
                 <select name="delivery_channel" x-model="channel"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                     <option value="none">— без доставка —</option>
                     <option value="email">Email</option>
                     <option value="slack">Slack (webhook)</option>
@@ -177,21 +165,21 @@ $qaThresholdOptions = range(0, 100, 5);
                 </select>
             </div>
             <div x-show="channel !== 'none' && channel !== 'file'" x-cloak>
-                <label class="block text-sm font-medium text-gray-700 mb-1"
+                <label class="block text-sm font-medium text-ink mb-1"
                        x-text="channel === 'email' ? 'Email адрес' : 'Webhook URL'"></label>
                 <input type="text" name="delivery_target" value="{{ $delivery['target'] ?? '' }}"
                        :placeholder="channel === 'email' ? 'name@example.com' : 'https://...'"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
             </div>
         </div>
         <div x-show="channel === 'email'" x-cloak>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Тема на имейла (по избор)</label>
+            <label class="block text-sm font-medium text-ink mb-1">Тема на имейла (по избор)</label>
             <input type="text" name="delivery_subject" value="{{ $delivery['subject'] ?? '' }}"
                    placeholder="Резултат от flow: {{ $flow->name }}"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                   class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
         </div>
         <button type="submit"
-                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                class="bg-primary hover:bg-primary-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition">
             Запази доставката
         </button>
     </form>
@@ -205,27 +193,27 @@ function copyWebhookUrl() {
         const btn = event.target;
         const orig = btn.textContent;
         btn.textContent = 'Копирано ✓';
-        btn.classList.replace('bg-indigo-600', 'bg-green-600');
-        btn.classList.replace('hover:bg-indigo-700', 'hover:bg-green-700');
+        btn.classList.replace('bg-primary', 'bg-green-600');
+        btn.classList.replace('hover:bg-primary-hover', 'hover:bg-green-700');
         setTimeout(() => {
             btn.textContent = orig;
-            btn.classList.replace('bg-green-600', 'bg-indigo-600');
-            btn.classList.replace('hover:bg-green-700', 'hover:bg-indigo-700');
+            btn.classList.replace('bg-green-600', 'bg-primary');
+            btn.classList.replace('hover:bg-green-700', 'hover:bg-primary-hover');
         }, 2000);
     });
 }
 </script>
 
 {{-- Шаблони (граф версии) --}}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6 mb-6"
+<div class="bg-surface rounded-xl border border-line overflow-hidden mt-6 mb-6"
      x-data="flowVersionsPanel(@js(csrf_token()))">
-    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+    <div class="px-6 py-4 border-b border-line bg-surface-subtle flex items-center justify-between">
         <div>
-            <h2 class="text-base font-semibold text-gray-900">Шаблони</h2>
-            <p class="text-xs text-gray-400 mt-0.5">Граф версии на този flow — активният (●) се изпълнява при Run.</p>
+            <h2 class="text-base font-semibold text-ink">Шаблони</h2>
+            <p class="text-xs text-subtle mt-0.5">Граф версии на този flow — активният се изпълнява при Run.</p>
         </div>
         <a href="{{ route('flows.builder', $flow) }}?new_template=1"
-           class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3 py-1.5 rounded-lg transition">
+           class="text-sm bg-primary hover:bg-primary-hover text-white font-medium px-3 py-1.5 rounded-lg transition">
             ＋ Нов шаблон
         </a>
     </div>
@@ -235,13 +223,13 @@ function copyWebhookUrl() {
     </template>
 
     @if($versions->isEmpty())
-        <div class="px-6 py-8 text-center text-sm text-gray-400">
+        <div class="px-6 py-8 text-center text-sm text-subtle">
             Все още няма шаблони — отвори граф редактора и запази графа, или генерирай нов план.
         </div>
     @else
-        <div class="divide-y divide-gray-50">
+        <div class="divide-y divide-line">
             @foreach($versions as $version)
-                <div class="px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50/60 transition">
+                <div class="px-6 py-3 flex items-center justify-between gap-3 hover:bg-surface-subtle/60 transition">
                     <div class="flex flex-1 items-start gap-3 min-w-0 overflow-hidden">
                         @if($version->is_active)
                             <span class="shrink-0 w-[80px] mt-0.5 inline-flex items-center justify-center text-[11px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">активен</span>
@@ -249,8 +237,8 @@ function copyWebhookUrl() {
                             <span class="shrink-0 w-[80px]"></span>
                         @endif
                         <div class="min-w-0 flex flex-col gap-0.5">
-                            <div class="text-sm font-semibold text-gray-900 truncate">{{ $version->name }}</div>
-                            <div class="text-xs text-gray-400 space-y-0.5">
+                            <div class="text-sm font-semibold text-ink truncate">{{ $version->name }}</div>
+                            <div class="text-xs text-subtle space-y-0.5">
                                 <div title="Създаден на">Създаден: {{ $version->created_at->format('d.m.Y H:i') }}</div>
                                 <div title="Последен run">Последен run: {{ $version->last_run_at ? $version->last_run_at->format('d.m.Y H:i') : 'няма' }}</div>
                                 <div title="Общ разход: генерация + run-ове" class="text-amber-600">Разход: ${{ number_format($version->total_cost_usd ?? 0, 6) }}</div>
@@ -261,8 +249,8 @@ function copyWebhookUrl() {
                                         'high' => ['🚀 Високо', 'bg-orange-100 text-orange-700 border-orange-300'],
                                         'ultra' => ['💎 Ултра', 'bg-violet-100 text-violet-700 border-violet-300'],
                                         'god' => ['👑 GOD', 'bg-amber-100 text-amber-800 border-amber-400'],
-                                        'custom' => ['✎ Custom', 'bg-gray-100 text-gray-600 border-gray-300'],
-                                        default => ['—', 'bg-gray-100 text-gray-400 border-gray-200'],
+                                        'custom' => ['✎ Custom', 'bg-neutral-soft text-muted border-line'],
+                                        default => ['—', 'bg-neutral-soft text-subtle border-line'],
                                     };
                                 @endphp
                                 <div title="Ниво на моделите на агентите в този шаблон">
@@ -291,28 +279,33 @@ function copyWebhookUrl() {
                         </form>
                         @unless($version->is_active)
                             <button type="button"
-                                    @click="activate(@js(route('flows.versions.activate', [$flow, $version])))"
+                                    @click="activate(@js(route('flows.versions.activate', [$flow, $version])), {{ $flowHasEvalCases ? 'true' : 'false' }}, {{ in_array($version->id, $versionsWithEvalResults) ? 'true' : 'false' }}, @js(route('flows.eval.index', $flow)))"
                                     class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 font-medium leading-none">
                                 Активирай
                             </button>
                         @endunless
                         <button type="button"
                                 @click="rename(@js(route('flows.versions.update', [$flow, $version])), @js($version->name))"
-                                class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 leading-none">
+                                class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-line text-muted hover:bg-surface-subtle leading-none">
                             Преименувай
                         </button>
                         <button type="button"
                                 @click="duplicate(@js(route('flows.versions.duplicate', [$flow, $version])), @js($version->name))"
-                                class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 leading-none">
+                                class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-line text-muted hover:bg-surface-subtle leading-none">
                             Дублирай
                         </button>
                         <a href="{{ route('flows.builder', $flow) }}?version={{ $version->id }}"
-                           class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-medium leading-none">
+                           class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-primary text-primary hover:bg-info-soft font-medium leading-none">
                             ✎ Редактирай
+                        </a>
+                        <a href="{{ route('flows.eval.results', $flow) }}?version={{ $version->id }}"
+                           class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-teal-300 text-teal-700 hover:bg-teal-50 font-medium leading-none"
+                           title="Eval резултати за тази версия">
+                            🧪 Eval
                         </a>
                         @if($version->is_active)
                             <button type="button" disabled title="Активният шаблон не може да бъде изтрит — първо активирай друг."
-                                    class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed leading-none">
+                                    class="h-8 inline-flex items-center justify-center px-2.5 rounded-lg border border-line text-subtle cursor-not-allowed leading-none">
                                 Изтрий
                             </button>
                         @else
@@ -327,6 +320,19 @@ function copyWebhookUrl() {
             @endforeach
         </div>
     @endif
+
+    {{-- Eval warning: активиране на версия без eval резултати --}}
+    <div x-show="showEvalWarn" x-cloak @keydown.escape.window="showEvalWarn = false"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
+        <div class="bg-surface rounded-xl shadow-xl max-w-md w-full p-6" @click.outside="showEvalWarn = false">
+            <h3 class="text-lg font-bold text-ink mb-2">Версията няма eval резултати</h3>
+            <p class="text-sm text-muted mb-5">Имаш зададени тестове за качество, но тази версия още не е оценявана. Препоръчваме да пуснеш eval преди активиране.</p>
+            <div class="flex items-center justify-end gap-3">
+                <button type="button" @click="confirmActivate()" class="text-sm text-muted hover:text-ink">Активирай без eval</button>
+                <a :href="evalUrl" class="bg-primary hover:bg-primary-hover text-white text-sm font-medium px-4 py-2 rounded-lg">Пусни eval</a>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -346,7 +352,18 @@ function flowVersionsPanel(csrf) {
 
     return {
         error: null,
-        async activate(url) {
+        showEvalWarn: false, pendingActivate: null, evalUrl: null,
+        async activate(url, hasCases = false, hasResults = false, evalUrl = null) {
+            if (hasCases && !hasResults) {
+                this.pendingActivate = url; this.evalUrl = evalUrl; this.showEvalWarn = true;
+                return;
+            }
+            await this._doActivate(url);
+        },
+        confirmActivate() {
+            const url = this.pendingActivate; this.showEvalWarn = false; this._doActivate(url);
+        },
+        async _doActivate(url) {
             try { await send(url, 'POST'); window.location.reload(); }
             catch (e) { this.error = e.message; }
         },
@@ -374,20 +391,20 @@ function flowVersionsPanel(csrf) {
 {{-- Run History DataTable --}}
 <div x-data="runsHistory(@js(route('flows.runs-history', $flow)), @js($versions->map(fn($v) => ['id' => $v->id, 'name' => $v->name])))"
      x-init="load()"
-     class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+     class="bg-surface rounded-xl border border-line overflow-hidden">
 
     {{-- Header --}}
-    <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-4 flex-wrap">
-        <h2 class="text-base font-semibold text-gray-900">История на изпълненията</h2>
-        <span x-show="meta.total !== null" class="text-xs text-gray-400" x-text="'Общо: ' + meta.total"></span>
+    <div class="px-6 py-4 border-b border-line bg-surface-subtle flex items-center justify-between gap-4 flex-wrap">
+        <h2 class="text-base font-semibold text-ink">История на изпълненията</h2>
+        <span x-show="meta.total !== null" class="text-xs text-subtle" x-text="'Общо: ' + meta.total"></span>
     </div>
 
     {{-- Filters --}}
-    <div class="px-6 py-3 border-b border-gray-100 flex flex-wrap items-end gap-3">
+    <div class="px-6 py-3 border-b border-line flex flex-wrap items-end gap-3">
         {{-- Status --}}
         <div class="flex flex-col gap-1">
-            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Статус</label>
-            <select x-model="filters.status" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+            <label class="text-[10px] text-subtle font-medium uppercase tracking-wide">Статус</label>
+            <select x-model="filters.status" @change="reset()" class="text-xs border border-line rounded-lg px-2.5 py-1.5 bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-primary/30">
                 <option value="">Всички</option>
                 <option value="completed">Успешен</option>
                 <option value="failed">Неуспешен</option>
@@ -398,8 +415,8 @@ function flowVersionsPanel(csrf) {
 
         {{-- Triggered by --}}
         <div class="flex flex-col gap-1">
-            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Задействан от</label>
-            <select x-model="filters.triggered_by" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+            <label class="text-[10px] text-subtle font-medium uppercase tracking-wide">Задействан от</label>
+            <select x-model="filters.triggered_by" @change="reset()" class="text-xs border border-line rounded-lg px-2.5 py-1.5 bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-primary/30">
                 <option value="">Всички</option>
                 <option value="manual">▶ Ръчно</option>
                 <option value="scheduler">⏰ Планиран</option>
@@ -409,8 +426,8 @@ function flowVersionsPanel(csrf) {
         {{-- Version --}}
         <template x-if="versions.length > 0">
             <div class="flex flex-col gap-1">
-                <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Шаблон</label>
-                <select x-model="filters.version_id" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                <label class="text-[10px] text-subtle font-medium uppercase tracking-wide">Шаблон</label>
+                <select x-model="filters.version_id" @change="reset()" class="text-xs border border-line rounded-lg px-2.5 py-1.5 bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-primary/30">
                     <option value="">Всички</option>
                     <template x-for="v in versions" :key="v.id">
                         <option :value="v.id" x-text="v.name"></option>
@@ -421,22 +438,22 @@ function flowVersionsPanel(csrf) {
 
         {{-- Date from --}}
         <div class="flex flex-col gap-1">
-            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Дата от</label>
+            <label class="text-[10px] text-subtle font-medium uppercase tracking-wide">Дата от</label>
             <input type="date" x-model="filters.date_from" @change="reset()"
-                   class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                   class="text-xs border border-line rounded-lg px-2.5 py-1.5 bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-primary/30">
         </div>
 
         {{-- Date to --}}
         <div class="flex flex-col gap-1">
-            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Дата до</label>
+            <label class="text-[10px] text-subtle font-medium uppercase tracking-wide">Дата до</label>
             <input type="date" x-model="filters.date_to" @change="reset()"
-                   class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                   class="text-xs border border-line rounded-lg px-2.5 py-1.5 bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-primary/30">
         </div>
 
         {{-- Per page --}}
         <div class="flex flex-col gap-1">
-            <label class="text-[10px] text-gray-400 font-medium uppercase tracking-wide">На страница</label>
-            <select x-model.number="perPage" @change="reset()" class="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+            <label class="text-[10px] text-subtle font-medium uppercase tracking-wide">На страница</label>
+            <select x-model.number="perPage" @change="reset()" class="text-xs border border-line rounded-lg px-2.5 py-1.5 bg-surface text-ink focus:outline-none focus:ring-1 focus:ring-primary/30">
                 <option value="10">10</option>
                 <option value="15">15</option>
                 <option value="25">25</option>
@@ -449,24 +466,24 @@ function flowVersionsPanel(csrf) {
         {{-- Reset --}}
         <button type="button" @click="clearFilters()"
                 x-show="hasActiveFilters()"
-                class="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-3 py-1.5 bg-white hover:bg-gray-50 transition self-end">
+                class="text-xs text-muted hover:text-ink border border-line rounded-lg px-3 py-1.5 bg-surface hover:bg-surface-subtle transition self-end">
             ✕ Изчисти
         </button>
     </div>
 
     {{-- Loading skeleton --}}
     <template x-if="loading">
-        <div class="divide-y divide-gray-50">
+        <div class="divide-y divide-line">
             <template x-for="i in [1,2,3,4,5]" :key="i">
                 <div class="px-6 py-3 flex items-center justify-between gap-3 animate-pulse">
                     <div class="flex items-center gap-3">
-                        <div class="w-2 h-2 rounded-full bg-gray-200"></div>
-                        <div class="h-3 w-16 bg-gray-200 rounded"></div>
-                        <div class="h-3 w-12 bg-gray-200 rounded"></div>
+                        <div class="w-2 h-2 rounded-full bg-neutral-soft"></div>
+                        <div class="h-3 w-16 bg-neutral-soft rounded"></div>
+                        <div class="h-3 w-12 bg-neutral-soft rounded"></div>
                     </div>
                     <div class="flex items-center gap-4">
-                        <div class="h-3 w-24 bg-gray-200 rounded"></div>
-                        <div class="h-3 w-16 bg-gray-200 rounded"></div>
+                        <div class="h-3 w-24 bg-neutral-soft rounded"></div>
+                        <div class="h-3 w-16 bg-neutral-soft rounded"></div>
                     </div>
                 </div>
             </template>
@@ -476,16 +493,16 @@ function flowVersionsPanel(csrf) {
     {{-- Empty state --}}
     <template x-if="!loading && rows.length === 0">
         <div class="px-6 py-10 text-center">
-            <p class="text-gray-400 text-sm mb-3" x-text="hasActiveFilters() ? 'Няма резултати за избраните филтри' : 'Все още няма изпълнения'"></p>
-            <p x-show="!hasActiveFilters()" class="text-xs text-gray-300">Натисни ▶ Стартирай за първото изпълнение</p>
+            <p class="text-subtle text-sm mb-3" x-text="hasActiveFilters() ? 'Няма резултати за избраните филтри' : 'Все още няма изпълнения'"></p>
+            <p x-show="!hasActiveFilters()" class="text-xs text-subtle">Натисни ▶ Стартирай за първото изпълнение</p>
         </div>
     </template>
 
     {{-- Rows --}}
     <template x-if="!loading && rows.length > 0">
-        <div class="divide-y divide-gray-50">
+        <div class="divide-y divide-line">
             <template x-for="run in rows" :key="run.id">
-                <div class="px-6 py-3 flex items-center justify-between hover:bg-gray-50/60 transition gap-3">
+                <div class="px-6 py-3 flex items-center justify-between hover:bg-surface-subtle/60 transition gap-3">
                     <div class="flex items-center gap-3 min-w-0 flex-wrap">
                         {{-- Status dot --}}
                         <span :class="{
@@ -494,7 +511,7 @@ function flowVersionsPanel(csrf) {
                             'bg-red-500':   run.status === 'failed',
                             'bg-blue-500 animate-pulse': run.status === 'running',
                             'bg-violet-500 animate-pulse': run.status === 'waiting_approval',
-                            'bg-gray-300':  run.status === 'pending',
+                            'bg-line-strong':  run.status === 'pending',
                         }"></span>
                         {{-- Status badge --}}
                         <span :class="{
@@ -503,13 +520,13 @@ function flowVersionsPanel(csrf) {
                             'bg-red-100 text-red-700':     run.status === 'failed',
                             'bg-blue-100 text-blue-700':   run.status === 'running',
                             'bg-violet-100 text-violet-700': run.status === 'waiting_approval',
-                            'bg-gray-100 text-gray-500':   run.status === 'pending',
+                            'bg-neutral-soft text-muted':   run.status === 'pending',
                         }" x-text="{completed:'Завършен',failed:'Неуспешен',running:'Работи',pending:'Чакащ',waiting_approval:'✋ Чака одобрение'}[run.status] ?? run.status"></span>
                         {{-- Triggered by --}}
-                        <span class="text-xs text-gray-400" x-text="{'manual':'▶ Ръчно','scheduler':'⏰ Планиран'}[run.triggered_by] ?? run.triggered_by"></span>
+                        <span class="text-xs text-subtle" x-text="{'manual':'▶ Ръчно','scheduler':'⏰ Планиран'}[run.triggered_by] ?? run.triggered_by"></span>
                         {{-- Version pill --}}
                         <template x-if="run.version_name">
-                            <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100"
+                            <span class="text-[11px] px-2 py-0.5 rounded-full bg-info-soft text-primary border border-info"
                                   x-text="run.version_name" title="Шаблон"></span>
                         </template>
                         {{-- Level pill --}}
@@ -523,16 +540,16 @@ function flowVersionsPanel(csrf) {
 
                     <div class="flex items-center gap-4 shrink-0">
                         <template x-if="run.started_at">
-                            <span class="text-xs text-gray-400" x-text="run.started_at"></span>
+                            <span class="text-xs text-subtle" x-text="run.started_at"></span>
                         </template>
                         <template x-if="run.duration_secs !== null">
-                            <span class="text-xs text-gray-400 tabular-nums"
+                            <span class="text-xs text-subtle tabular-nums"
                                   x-text="run.duration_secs >= 60 ? Math.floor(run.duration_secs/60)+'м '+(run.duration_secs%60)+'с' : run.duration_secs+'с'"></span>
                         </template>
                         <template x-if="run.cost_usd">
                             <span class="text-xs text-amber-600 tabular-nums font-medium" x-text="'$' + run.cost_usd"></span>
                         </template>
-                        <a :href="run.builder_url" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Детайли →</a>
+                        <a :href="run.builder_url" class="text-xs text-primary hover:text-primary-hover font-medium">Детайли →</a>
                     </div>
                 </div>
             </template>
@@ -541,26 +558,26 @@ function flowVersionsPanel(csrf) {
 
     {{-- Pagination --}}
     <template x-if="!loading && meta.last_page > 1">
-        <div class="px-6 py-3 border-t border-gray-100 flex items-center justify-between gap-4">
-            <span class="text-xs text-gray-400"
+        <div class="px-6 py-3 border-t border-line flex items-center justify-between gap-4">
+            <span class="text-xs text-subtle"
                   x-text="'Страница ' + meta.current_page + ' от ' + meta.last_page + ' (' + meta.total + ' общо)'"></span>
             <div class="flex items-center gap-1">
                 <button @click="goTo(meta.current_page - 1)" :disabled="meta.current_page <= 1"
-                        class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                        class="px-2.5 py-1 text-xs border border-line rounded-lg text-muted hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed transition">
                     ← Назад
                 </button>
                 <template x-for="p in pageNumbers()" :key="p">
                     <button @click="p !== '…' && goTo(p)"
                             :class="{
                                 'px-2.5 py-1 text-xs border rounded-lg transition': true,
-                                'bg-indigo-600 border-indigo-600 text-white': p === meta.current_page,
-                                'border-gray-200 text-gray-600 hover:bg-gray-50': p !== meta.current_page && p !== '…',
-                                'border-transparent text-gray-400 cursor-default': p === '…',
+                                'bg-primary border-primary text-white': p === meta.current_page,
+                                'border-line text-muted hover:bg-surface-subtle': p !== meta.current_page && p !== '…',
+                                'border-transparent text-subtle cursor-default': p === '…',
                             }"
                             x-text="p"></button>
                 </template>
                 <button @click="goTo(meta.current_page + 1)" :disabled="meta.current_page >= meta.last_page"
-                        class="px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                        class="px-2.5 py-1 text-xs border border-line rounded-lg text-muted hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed transition">
                     Напред →
                 </button>
             </div>
@@ -586,8 +603,8 @@ function runsHistory(url, versions) {
                 high:   { label: '🚀 Високо', cls: 'bg-orange-100 text-orange-700 border-orange-300' },
                 ultra:  { label: '💎 Ултра',  cls: 'bg-violet-100 text-violet-700 border-violet-300' },
                 god:    { label: '👑 GOD',    cls: 'bg-amber-100 text-amber-800 border-amber-400' },
-                custom: { label: '✎ Custom',  cls: 'bg-gray-100 text-gray-600 border-gray-300' },
-            }[lv] || { label: lv, cls: 'bg-gray-100 text-gray-400 border-gray-200' };
+                custom: { label: '✎ Custom',  cls: 'bg-neutral-soft text-muted border-line' },
+            }[lv] || { label: lv, cls: 'bg-neutral-soft text-subtle border-line' };
         },
 
         async load() {

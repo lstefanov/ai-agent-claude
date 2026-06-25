@@ -21,10 +21,10 @@ class Agent extends Model
 
     protected $casts = [
         'capabilities' => 'array',
-        'depends_on'   => 'array',
-        'config'       => 'array',
-        'is_verifier'  => 'boolean',
-        'is_active'    => 'boolean',
+        'depends_on' => 'array',
+        'config' => 'array',
+        'is_verifier' => 'boolean',
+        'is_active' => 'boolean',
     ];
 
     public function flow(): BelongsTo

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\ChatClientInterface;
 use App\Support\LlmRequestRecorder;
 use App\Support\LlmUsage;
+use App\Support\Utf8;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
@@ -255,22 +256,28 @@ class OpenAiChatService implements ChatClientInterface
     }
 
     /**
-     * Embedding vector for a text (plan-library vector retrieval). Pinned to
-     * the OpenAI config regardless of $provider — embeddings are only used by
-     * the plan library and only OpenAI is wired for them. Usage is recorded
-     * for cost tracking like every other paid call.
+     * Embedding vector for a text. Provider-aware: every OpenAI-compatible
+     * provider that exposes /embeddings works (OpenAI, Gemini през OpenAI
+     * compat слоя). Usage is recorded for cost tracking like every other
+     * paid call.
      *
      * @return array<int, float>
      */
-    public function embed(string $text): array
+    public function embed(string $text, ?string $model = null): array
     {
-        $model = (string) config('services.openai.embedding_model', 'text-embedding-3-small');
+        $model = $model
+            ?? (string) $this->cfg('embedding_model', $this->provider === 'openai' ? 'text-embedding-3-small' : '');
+
+        if ($model === '') {
+            throw new \RuntimeException("Provider '{$this->provider}' has no embedding model configured.");
+        }
+
         $input = mb_substr($text, 0, 8000);
         $startMs = (int) (microtime(true) * 1000);
 
-        $response = Http::withToken((string) config('services.openai.api_key'))
+        $response = Http::withToken((string) $this->cfg('api_key'))
             ->timeout(60)
-            ->post(rtrim((string) config('services.openai.base_url', 'https://api.openai.com/v1'), '/').'/embeddings', [
+            ->post(rtrim((string) $this->cfg('base_url'), '/').'/embeddings', [
                 'model' => $model,
                 'input' => $input,
             ])
@@ -278,10 +285,10 @@ class OpenAiChatService implements ChatClientInterface
 
         $promptTokens = (int) ($response->json('usage.prompt_tokens') ?? 0);
 
-        LlmUsage::record('openai', $model, $promptTokens, 0);
+        LlmUsage::record($this->provider, $model, $promptTokens, 0);
 
         LlmRequestRecorder::record(
-            'openai', $model, 'embedding',
+            $this->provider, $model, 'embedding',
             null, $input, null, [],
             $promptTokens, 0,
             (int) (microtime(true) * 1000) - $startMs,
@@ -290,7 +297,7 @@ class OpenAiChatService implements ChatClientInterface
         $vector = $response->json('data.0.embedding');
 
         if (! is_array($vector) || $vector === []) {
-            throw new \RuntimeException('OpenAI embeddings response had no vector.');
+            throw new \RuntimeException(ucfirst($this->provider).' embeddings response had no vector.');
         }
 
         return array_map('floatval', $vector);
@@ -329,6 +336,11 @@ class OpenAiChatService implements ChatClientInterface
 
     private function post(array $payload, int $timeout, string $kind = 'chat'): Response
     {
+        // Scrub invalid UTF-8 from scraped/tool content before Guzzle serializes
+        // the body — otherwise Utils::jsonEncode throws "Malformed UTF-8" and the
+        // node dies (deterministically, on every retry).
+        $payload = Utf8::clean($payload);
+
         $startMs = (int) (microtime(true) * 1000);
 
         // Transient failures (free-tier capacity 503s, rate-limit 429s, network

@@ -1,21 +1,21 @@
 @php
-$map = [
-    // Run statuses
-    'completed' => ['label' => 'Завършен',     'class' => 'bg-green-100 text-green-700'],
-    'failed'    => ['label' => 'Неуспешен',    'class' => 'bg-red-100 text-red-700'],
-    'running'   => ['label' => 'Изпълнява се', 'class' => 'bg-blue-100 text-blue-700 animate-pulse'],
-    'pending'   => ['label' => 'Чакащ',        'class' => 'bg-gray-100 text-gray-500'],
-    'skipped'   => ['label' => 'Пропуснат',    'class' => 'bg-gray-100 text-gray-400'],
-    'waiting_approval' => ['label' => '✋ Чака одобрение', 'class' => 'bg-violet-100 text-violet-700 animate-pulse'],
-    // Flow statuses
-    'active'    => ['label' => 'Активен',      'class' => 'bg-green-100 text-green-700'],
-    'draft'     => ['label' => 'Чернова',      'class' => 'bg-yellow-100 text-yellow-700'],
-    'paused'    => ['label' => 'Пауза',        'class' => 'bg-gray-100 text-gray-500'],
-];
-$cfg   = $map[$status ?? ''] ?? ['label' => ucfirst($status ?? '—'), 'class' => 'bg-gray-100 text-gray-500'];
-$label = $label ?? $cfg['label'];
-$extra = $class ?? '';
+    // status → [color, icon, label]. color maps to <x-badge> semantic tones.
+    $map = [
+        // Run / node statuses
+        'completed' => ['success', 'check-circle',        'Завършен'],
+        'failed'    => ['danger',  'x-circle',            'Неуспешен'],
+        'running'   => ['accent',  'arrow-path',          'Изпълнява се'],
+        'pending'   => ['neutral',  'clock',              'Чакащ'],
+        'skipped'   => ['neutral',  'minus-circle',       'Пропуснат'],
+        'waiting_approval' => ['warning', 'hand-raised',  'Чака одобрение'],
+        // Flow statuses
+        'active'    => ['success', 'check-circle',        'Активен'],
+        'draft'     => ['warning', 'pencil-square',       'Чернова'],
+        'paused'    => ['neutral',  'pause-circle',       'Пауза'],
+    ];
+    [$color, $icon, $defaultLabel] = $map[$status ?? ''] ?? ['neutral', null, ucfirst($status ?? '—')];
+    $isRunning = ($status ?? '') === 'running' || ($status ?? '') === 'waiting_approval';
 @endphp
-<span class="inline-flex items-center text-xs px-2 py-1 rounded-full font-medium {{ $cfg['class'] }} {{ $extra }}">
-    {{ $label }}
-</span>
+<x-badge :color="$color" :icon="$icon" :pulse="$isRunning" @class([$class ?? '']) >
+    {{ $label ?? $defaultLabel }}
+</x-badge>

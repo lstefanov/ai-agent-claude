@@ -54,13 +54,20 @@ class GeneratorService
         return $this->client($provider)->chat($model, $systemPrompt, $userMessage, $options, $onProgress);
     }
 
+    /**
+     * Lightweight AI-assist call. Provider+model default to the global
+     * ASSIST_PROVIDER, but a caller can pin its own (e.g. a single endpoint
+     * that must run on a cheap OpenAI model regardless of the global setting).
+     */
     public function assist(
         string $systemPrompt,
         string $userMessage,
         array $options = [],
-        ?callable $onProgress = null
+        ?callable $onProgress = null,
+        ?string $provider = null,
+        ?string $model = null,
     ): string {
-        $provider = $this->assistProvider();
+        $provider ??= $this->assistProvider();
         $modelKey = $provider.'_model';
         $defaults = [
             'anthropic' => 'claude-haiku-4-5',
@@ -71,7 +78,7 @@ class GeneratorService
             'qwen' => 'qwen3.5-flash',
             'ollama' => 'todorov/bggpt:Gemma-3-12B-IT-Q5_K_M',
         ];
-        $model = (string) config('services.assist.'.$modelKey, $defaults[$provider] ?? '');
+        $model ??= (string) config('services.assist.'.$modelKey, $defaults[$provider] ?? '');
 
         if ($provider === 'ollama') {
             return app(OllamaService::class)->chat($model, $systemPrompt, $userMessage, $options, $onProgress);

@@ -32,7 +32,7 @@ class AdaptiveReplanner
             return null;
         }
 
-        LlmContext::set([
+        LlmContext::push([
             'purpose' => 'agent_revision',
             'company_id' => $flowRun->flow?->company_id,
             'flow_id' => $node->flow_id,
@@ -57,7 +57,7 @@ class AdaptiveReplanner
                 $reason,
             );
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
         }
 
         if ($revision === null) {

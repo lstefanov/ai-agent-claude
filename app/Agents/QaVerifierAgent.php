@@ -51,6 +51,38 @@ class QaVerifierAgent extends BaseAgent
         return (int) $agentRun->tokens_used;
     }
 
+    /**
+     * Pull the verifier's actionable feedback ("improvements"/"weaknesses") out of
+     * the JSON response, so a failed QA retry can be told WHAT to fix instead of
+     * blindly re-running the identical prompt. Returns '' if nothing usable.
+     */
+    public function extractFeedback(string $response): string
+    {
+        $items = [];
+
+        $decoded = json_decode(trim($response), true);
+        if (is_array($decoded)) {
+            foreach (['improvements', 'weaknesses'] as $key) {
+                foreach ((array) ($decoded[$key] ?? []) as $item) {
+                    if (($item = trim((string) $item)) !== '') {
+                        $items[] = $item;
+                    }
+                }
+            }
+        }
+
+        // Regex fallback for non-strict JSON: grab the "improvements" array body.
+        if ($items === [] && preg_match('/"improvements"\s*:\s*\[(.*?)\]/s', $response, $m)) {
+            foreach (preg_split('/"\s*,\s*"/', trim($m[1])) as $item) {
+                if (($item = trim($item, " \t\n\r\"")) !== '') {
+                    $items[] = $item;
+                }
+            }
+        }
+
+        return implode('; ', array_slice($items, 0, 4));
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // System prompt — ENGLISH ONLY, structured JSON output.
     // ──────────────────────────────────────────────────────────────────────
@@ -67,6 +99,7 @@ CRITICAL RULES:
 1. Respond ONLY in ENGLISH. Never use any other language in your response.
 2. The content being reviewed may be in Bulgarian or other languages — that is CORRECT and EXPECTED.
 3. Focus ONLY on the criteria below.
+4. Explicitly-marked unavailable EXTERNAL data (e.g. "н/д", "не е публично", "N/A") is ACCEPTABLE when that information is genuinely not public — do NOT lower the score for it. Only penalize data that WAS provided in the source/knowledge but the author failed to use (e.g. our own company's facts left as "н/д").
 
 EVALUATION CRITERIA:
 {$customCriteria}

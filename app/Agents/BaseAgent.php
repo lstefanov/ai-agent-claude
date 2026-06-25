@@ -79,6 +79,51 @@ abstract class BaseAgent
         return $prompt;
     }
 
+    /**
+     * Build a clean, concise web-search query for the non-agentic tool path.
+     *
+     * Local models don't drive function calling, so the code must hand the
+     * search tool a real query rather than a raw slice of the instruction
+     * prompt (which made Brave receive a truncated mid-word instruction). Prefer
+     * a stated topic from the flow context; otherwise ask the model for one
+     * short query. Falls back to a trimmed slice of the input whenever the model
+     * returns nothing usable, so the search path never breaks a run.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    protected function deriveSearchQuery(Agent $agent, string $input, array $context): string
+    {
+        foreach (['flow_topic', 'topic', 'company_name'] as $key) {
+            $topic = trim((string) ($context[$key] ?? ''));
+            if ($topic !== '') {
+                return mb_substr($topic, 0, 300);
+            }
+        }
+
+        $fallback = trim(mb_substr($input, 0, 200));
+        $task = trim(mb_substr($input, 0, 600));
+        if ($task === '') {
+            return $fallback;
+        }
+
+        try {
+            $raw = $this->ollama->chat(
+                model: $agent->model,
+                systemPrompt: 'You are a search query specialist. From the task below, output ONE concise web search query (a few keywords) in the same language as the task. No quotes, no explanation, no label — only the query.',
+                userMessage: "Task:\n{$task}",
+                options: ['temperature' => 0.2],
+            );
+        } catch (\Throwable $e) {
+            return $fallback;
+        }
+
+        $query = preg_replace('/<think\b[^>]*>.*?<\/think>/is', '', (string) $raw) ?? '';
+        $query = str_replace(['"', '«', '»', '“', '”', "\n", "\r"], ['', '', '', '', '', ' ', ' '], $query);
+        $query = trim((string) preg_replace('/\s+/u', ' ', $query));
+
+        return $query !== '' ? mb_substr($query, 0, 300) : $fallback;
+    }
+
     protected function chat(Agent $agent, string $userMessage, string $extraSystemContext = ''): string
     {
         // system_prompt (editable in UI) takes precedence; fall back to role for older agents

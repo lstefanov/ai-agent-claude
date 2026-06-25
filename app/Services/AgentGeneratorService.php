@@ -46,9 +46,9 @@ class AgentGeneratorService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium): array
+    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false, ?string $personaBlock = null): array
     {
-        $planned = $this->planner->plan($flow, $onProgress, $logToken, $level);
+        $planned = $this->planner->plan($flow, $onProgress, $logToken, $level, $personaBlock);
 
         if (count($planned) < 3) {
             Log::warning('[AgentGenerator] Planner returned '.count($planned).' agents — nothing to build.');
@@ -60,7 +60,7 @@ class AgentGeneratorService
             $onProgress('Финализиране на pipeline-а');
         }
 
-        return $this->finalizePlannedAgents($planned, $level);
+        return $this->finalizePlannedAgents($planned, $level, $minimalQa);
     }
 
     /**
@@ -126,7 +126,7 @@ class AgentGeneratorService
      * @param  array<int, array<string, mixed>>  $planned
      * @return array<int, array<string, mixed>>
      */
-    public function finalizePlannedAgents(array $planned, ModelLevel $level = ModelLevel::Medium): array
+    public function finalizePlannedAgents(array $planned, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false): array
     {
         $agents = array_values(array_filter(array_map(
             fn ($a, $i) => $this->normalizeAgent($a, $i + 1, $level),
@@ -137,6 +137,10 @@ class AgentGeneratorService
         $agents = $this->ensureQaVerifierLast($agents);
         $agents = $this->ensureBgTextCorrectorBeforeQa($agents);
         $agents = $this->dedupeAgents($agents);
+        $agents = $this->groundKnowledgeTools($agents);
+        // MCP: пред всяко WRITE действие гарантирай human_approval node (планерът
+        // ПРЕДЛАГА, кодът ГАРАНТИРА) + отсей mcp_action без резолвиран конектор.
+        $agents = $this->gateWriteMcpActions($agents);
         $agents = $this->finalizeDependencyGraph($agents);
         // A capable planner (qwen) emits a correct dependency CHAIN (discoverer →
         // crawler → extractors → analysis → report) — keep it. Only a weak planner
@@ -145,6 +149,13 @@ class AgentGeneratorService
         $agents = $this->dependencyGraphIsDegenerate($agents)
             ? $this->applyRoleBasedDependencies($agents)
             : $this->ensureTailWiring($agents);
+
+        // A4/A5: клиентски flows — само финален QA gate (по-малко verifier извиквания)
+        // + по-нисък crawl таван на site-анализа (по-бързо). minimalQa = клиентски flow.
+        if ($minimalQa) {
+            $agents = $this->disableIntermediateQa($agents);
+            $agents = $this->capClientCrawl($agents, (int) config('client_flows.site_max_pages', 40));
+        }
 
         // uids are now assigned + stable → wire the final step-QA gate.
         $agents = $this->enableFinalQaGate($agents);
@@ -156,6 +167,142 @@ class AgentGeneratorService
         // Localise English copy to Bulgarian (structure already final, ids
         // untouched). No-op when the planner already wrote Bulgarian.
         return $this->translateAgentsToBulgarian($agents);
+    }
+
+    /**
+     * Знанието е ДОПЪЛНИТЕЛЕН източник, никога замяна на интернет — планерът
+     * ПРЕДЛАГА, кодът ГАРАНТИРА:
+     *  - custom агент САМО с knowledge_search получава и web_search (за да не
+     *    остане заключен към базата и да връща "не е намерено");
+     *  - промпт, който ограничава търсенето "(само) в базата знания", се
+     *    пренаписва механично да позволи и интернет.
+     */
+    private function groundKnowledgeTools(array $agents): array
+    {
+        $webTools = ['web_search', 'pro_search', 'scrape_page', 'crawl_site', 'discover_urls', 'google_reviews'];
+
+        foreach ($agents as &$agent) {
+            $config = is_array($agent['config'] ?? null) ? $agent['config'] : [];
+            $tools = array_values(array_map('strval', (array) ($config['tools'] ?? [])));
+
+            if (in_array('knowledge_search', $tools, true)
+                && array_intersect($tools, $webTools) === []) {
+                $config['tools'] = array_merge($tools, ['web_search']);
+                $agent['config'] = $config;
+            }
+
+            foreach (['prompt_template', 'system_prompt'] as $field) {
+                $text = (string) ($agent[$field] ?? '');
+                if ($text === '' || ! preg_match('/база(та)?\s+(със\s+)?знания/iu', $text)) {
+                    continue;
+                }
+
+                $rewritten = preg_replace(
+                    '/(потърси|търси|провери)\s+(само\s+)?(в|във)\s+база(та)?\s+(със\s+)?знания(\s+на\s+[^\s,.;:]+)?/iu',
+                    'провери в базата знания И потърси в интернет',
+                    $text,
+                );
+
+                if (is_string($rewritten) && $rewritten !== $text) {
+                    $agent[$field] = $rewritten;
+                }
+            }
+        }
+        unset($agent);
+
+        return $agents;
+    }
+
+    /**
+     * MCP write-gating: планерът ПРЕДЛАГА mcp_action, кодът ГАРАНТИРА безопасност:
+     *  - mcp_action без резолвиран конектор се отсява (фирмата няма такава връзка);
+     *  - пред всяко WRITE действие, което още няма human_approval predecessor, се
+     *    вмъква такъв (действието започва да зависи само от одобрението, а
+     *    одобрението наследява оригиналния upstream на действието).
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function gateWriteMcpActions(array $agents): array
+    {
+        $writeTools = (array) config('mcp.write_tools', []);
+
+        // 1) Отсей mcp_action без конектор + изчисти висящите зависимости към тях.
+        $dropped = [];
+        $agents = array_values(array_filter($agents, function ($a) use (&$dropped) {
+            if (($a['type'] ?? '') === 'mcp_action' && empty($a['config']['connector_id'])) {
+                if (! empty($a['uid'])) {
+                    $dropped[] = $a['uid'];
+                }
+
+                return false;
+            }
+
+            return true;
+        }));
+        if ($dropped !== []) {
+            foreach ($agents as &$a) {
+                $a['depends_on'] = array_values(array_diff((array) ($a['depends_on'] ?? []), $dropped));
+            }
+            unset($a);
+        }
+
+        $typeByUid = [];
+        foreach ($agents as $a) {
+            if (! empty($a['uid'])) {
+                $typeByUid[$a['uid']] = $a['type'] ?? '';
+            }
+        }
+
+        // 2) Вмъкни human_approval пред WRITE действия без такъв.
+        $inserted = [];
+        foreach ($agents as &$agent) {
+            if (($agent['type'] ?? '') !== 'mcp_action') {
+                continue;
+            }
+            $tool = (string) ($agent['config']['tool'] ?? '');
+            // Write tool → одобрение, ОСВЕН ако requires_approval е ИЗРИЧНО false
+            // (потребителят/описанието е опт-аутнал — §14).
+            $requiresApproval = $agent['config']['requires_approval'] ?? null;
+            if ($requiresApproval === false) {
+                continue;
+            }
+            if ($requiresApproval !== true && ! in_array($tool, $writeTools, true)) {
+                continue;
+            }
+
+            $deps = array_values(array_map('strval', (array) ($agent['depends_on'] ?? [])));
+            foreach ($deps as $d) {
+                if (($typeByUid[$d] ?? '') === 'human_approval') {
+                    continue 2; // вече има approval predecessor
+                }
+            }
+
+            $apUid = 'mcp_approval_'.($agent['uid'] ?? substr(md5($tool.microtime()), 0, 8));
+            $inserted[] = [
+                'name' => 'Одобрение: '.($agent['name'] ?? $tool),
+                'type' => 'human_approval',
+                'role' => 'Човешко одобрение преди изходящото действие.',
+                'capabilities' => [],
+                'prompt_template' => 'Прегледай материала и одобри изпълнението на: '.$tool,
+                'system_prompt' => '',
+                'model' => '',
+                'model_reason' => 'Пауза за човешко одобрение.',
+                'order' => (int) ($agent['order'] ?? 0),
+                'is_verifier' => false,
+                'qa_threshold' => null,
+                'config' => ['qa' => ['enabled' => false]],
+                'uid' => $apUid,
+                'depends_on' => $deps,
+                'output_language' => null,
+            ];
+            // Действието ПАЗИ data-зависимостите си (за {{agent.X.output}}) + чака
+            // одобрението. Изтриване на одобрението оставя data-връзките непокътнати.
+            $agent['depends_on'] = array_values(array_unique([...$deps, $apUid]));
+        }
+        unset($agent);
+
+        return array_merge($inserted, $agents);
     }
 
     /**
@@ -190,6 +337,55 @@ class AgentGeneratorService
 
             $agent['config'] = $config;
             break; // gate only the final corrector
+        }
+        unset($agent);
+
+        return $agents;
+    }
+
+    /**
+     * A4: изключва per-agent QA на ВСИЧКИ възли (извиква се преди
+     * enableFinalQaGate, така че остава само финалният гейт). За клиентски flows —
+     * по-малко verifier извиквания и retry-та; финалното качество се пази от гейта.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function disableIntermediateQa(array $agents): array
+    {
+        foreach ($agents as &$agent) {
+            if (is_array($agent['config']['qa'] ?? null)) {
+                $agent['config']['qa']['enabled'] = false;
+            }
+        }
+        unset($agent);
+
+        return $agents;
+    }
+
+    /**
+     * A5: понижава crawl тавана на deep_researcher възлите за клиентски flows
+     * (site-анализът свършва по-бързо). Само сваля високи/незададени стойности.
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @return array<int, array<string, mixed>>
+     */
+    private function capClientCrawl(array $agents, int $cap): array
+    {
+        if ($cap <= 0) {
+            return $agents;
+        }
+
+        foreach ($agents as &$agent) {
+            if (($agent['type'] ?? '') !== 'deep_researcher') {
+                continue;
+            }
+            $config = is_array($agent['config'] ?? null) ? $agent['config'] : [];
+            $existing = (int) ($config['max_pages_to_scrape'] ?? 0);
+            if ($existing === 0 || $existing > $cap) {
+                $config['max_pages_to_scrape'] = $cap;
+                $agent['config'] = $config;
+            }
         }
         unset($agent);
 
@@ -545,7 +741,29 @@ class AgentGeneratorService
             return $config;
         }
 
+        // mcp_action изпълнява tool call — не вика LLM. Пази само MCP конфигурацията.
+        if ($type === 'mcp_action') {
+            $config = is_array($raw) ? $raw : [];
+
+            return [
+                'connector_id' => isset($config['connector_id']) ? (int) $config['connector_id'] : null,
+                'tool' => (string) ($config['tool'] ?? ''),
+                'tool_params' => is_array($config['tool_params'] ?? null) ? $config['tool_params'] : [],
+                'requires_approval' => (bool) ($config['requires_approval'] ?? false),
+                'qa' => ['enabled' => false],
+            ];
+        }
+
         $config = is_array($raw) ? $raw : ['temperature' => 0.7];
+
+        // Планерът знае КАКВО да проверява, кодът гарантира че проверката се
+        // случва: написан qa.custom_prompt с изключен gate е безсмислица
+        // (виждано на живо: «провери дали е извлякъл реални цени» +
+        // enabled=false → «Не е намерено» мина без проверка).
+        if (is_array($config['qa'] ?? null)
+            && trim((string) ($config['qa']['custom_prompt'] ?? '')) !== '') {
+            $config['qa']['enabled'] = true;
+        }
 
         $typeDefault = $this->numPredictForType($type);
         $plannerPredict = $config['planner_num_predict'] ?? null;

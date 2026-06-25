@@ -472,18 +472,18 @@ class ModelRouterService
         ]) : null;
         $startMs = (int) (microtime(true) * 1000);
 
+        LlmContext::push([
+            'purpose' => 'model_routing',
+            'session_id' => $logToken,
+            'company_id' => $flow?->company_id,
+            'flow_id' => $flow?->id,
+        ]);
+
         try {
-            LlmContext::set([
-                'purpose' => 'model_routing',
-                'session_id' => $logToken,
-                'company_id' => $flow?->company_id,
-                'flow_id' => $flow?->id,
-            ]);
             $result = OpenAiChatService::for($provider)->chatJson($model, $system, $user, 'model_routing', $schema, [
                 'temperature' => 0.1,
                 'num_predict' => 4000,
             ]);
-            LlmContext::clear();
 
             $log?->update(array_merge(LlmUsage::take(), [
                 'raw_response' => json_encode($result, JSON_UNESCAPED_UNICODE),
@@ -492,7 +492,6 @@ class ModelRouterService
                 'status' => 'completed',
             ]));
         } catch (Throwable $e) {
-            LlmContext::clear();
             $log?->update(array_merge(LlmUsage::take(), [
                 'status' => 'failed',
                 'error' => $e->getMessage(),
@@ -501,6 +500,8 @@ class ModelRouterService
             Log::warning('[ModelRouter] Smart профилирането се провали — детерминистичната матрица поема: '.$e->getMessage());
 
             return $profiles;
+        } finally {
+            LlmContext::pop();
         }
 
         foreach ((array) ($result['agents'] ?? []) as $row) {
@@ -552,7 +553,9 @@ class ModelRouterService
             $score += (float) config('model_router.planner_vote_bonus', 8.0);
         }
 
-        return $score + $this->historyBonus($history, $provider, $p['item']['type']);
+        return $score
+            + $this->historyBonus($history, $provider, $p['item']['type'])
+            + $this->evalBonus($provider, $p['item']['type']);
     }
 
     private function fitsContext(array $p, string $provider): bool
@@ -648,5 +651,57 @@ class ModelRouterService
         $failRate = $pair['fails'] / max(1, $pair['n']);
 
         return $bonus - $failRate * (float) config('model_router.history_fail_penalty', 10.0);
+    }
+
+    /**
+     * Eval Suite сигнал: среден ФИНАЛЕН judged score (flow_eval_runs.score) на
+     * runs, в които този провайдър е въртял агент от този тип. По-силен сигнал
+     * от per-node qa_score (мери крайното качество на изхода). Допълва историята,
+     * не я заменя; неутрален при < 3 наблюдения.
+     */
+    private function evalBonus(string $provider, string $type): float
+    {
+        $pair = $this->evalStats()[$provider.'|'.$type] ?? null;
+        if ($pair === null || ($pair['n'] ?? 0) < 3) {
+            return 0.0;
+        }
+
+        $avg = $pair['sum'] / $pair['n'];
+
+        // 0–100 центрирано спрямо 75 (добър праг), клампнато ±10, малка тежест.
+        return max(-10.0, min(10.0, ($avg - 75.0) / 2.5)) * (float) config('model_router.eval_weight', 0.5);
+    }
+
+    /** @return array<string, array{sum: float, n: int}> provider|type → eval score агрегат */
+    private function evalStats(): array
+    {
+        $days = (int) config('model_router.history_days', 30);
+
+        return Cache::remember('model_router_eval_v1', 600, function () use ($days) {
+            $rows = NodeRun::query()
+                ->join('flow_nodes', 'flow_nodes.id', '=', 'node_runs.flow_node_id')
+                ->join('flow_runs', 'flow_runs.id', '=', 'node_runs.flow_run_id')
+                ->join('flow_eval_runs', 'flow_eval_runs.flow_run_id', '=', 'flow_runs.id')
+                ->where('flow_runs.triggered_by', 'eval')
+                ->where('flow_eval_runs.status', 'completed')
+                ->whereNotNull('flow_eval_runs.score')
+                ->where('node_runs.created_at', '>=', now()->subDays($days))
+                ->whereNotNull('node_runs.model_used')
+                ->where('node_runs.status', 'completed')
+                ->get(['flow_nodes.type as type', 'node_runs.model_used as model_used', 'flow_eval_runs.score as eval_score']);
+
+            $stats = [];
+            foreach ($rows as $row) {
+                $provider = PaidModel::provider($row->model_used);
+                if ($provider === null) {
+                    continue;
+                }
+                $key = $provider.'|'.$row->type;
+                $stats[$key]['sum'] = ($stats[$key]['sum'] ?? 0) + (float) $row->eval_score;
+                $stats[$key]['n'] = ($stats[$key]['n'] ?? 0) + 1;
+            }
+
+            return $stats;
+        });
     }
 }

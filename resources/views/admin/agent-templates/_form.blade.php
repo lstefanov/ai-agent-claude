@@ -1,22 +1,22 @@
-<div class="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
+<div class="bg-surface border border-line rounded-xl p-6 space-y-4">
     <div class="grid grid-cols-2 gap-4">
         <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Иконка (emoji)</label>
+            <label class="block text-xs font-semibold text-muted mb-1">Иконка (emoji)</label>
             <input type="text" name="icon" value="{{ old('icon', $agentTemplate->icon ?? '🤖') }}" required
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                   class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
         </div>
         <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Ime на шаблона</label>
+            <label class="block text-xs font-semibold text-muted mb-1">Ime на шаблона</label>
             <input type="text" name="name" value="{{ old('name', $agentTemplate->name ?? '') }}" required
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                   class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
         </div>
         <div class="col-span-2">
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Кратко описание (показва се в popup картата)</label>
+            <label class="block text-xs font-semibold text-muted mb-1">Кратко описание (показва се в popup картата)</label>
             <input type="text" name="description" value="{{ old('description', $agentTemplate->description ?? '') }}" required maxlength="500"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                   class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
         </div>
         <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Тип</label>
+            <label class="block text-xs font-semibold text-muted mb-1">Тип</label>
             @include('partials.agent-type-select', [
                 'name'         => 'type',
                 'selectedType' => old('type', $agentTemplate->type ?? ''),
@@ -24,13 +24,13 @@
             ])
         </div>
         <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Подредба (sort_order)</label>
+            <label class="block text-xs font-semibold text-muted mb-1">Подредба (sort_order)</label>
             <input type="number" name="sort_order" value="{{ old('sort_order', $agentTemplate->sort_order ?? 0) }}" min="0"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                   class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
         </div>
         <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Модел по подразбиране</label>
-            <select name="model" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <label class="block text-xs font-semibold text-muted mb-1">Модел по подразбиране</label>
+            <select name="model" class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                 <option value="">— авто (ще се избере при добавяне) —</option>
                 @foreach($models as $m)
                     <option value="{{ $m->ollama_tag }}" {{ old('model', $agentTemplate->model ?? '') === $m->ollama_tag ? 'selected' : '' }}>
@@ -40,47 +40,47 @@
             </select>
         </div>
         <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Temperature</label>
+            <label class="block text-xs font-semibold text-muted mb-1">Temperature</label>
             <input type="number" name="config[temperature]" step="0.1" min="0" max="2"
                    value="{{ old('config.temperature', $agentTemplate->config['temperature'] ?? 0.7) }}"
-                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                   class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
         </div>
         <div class="col-span-2">
             <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs font-semibold text-gray-600">Роля / Описание</label>
+                <label class="block text-xs font-semibold text-muted">Роля / Описание</label>
                 <button type="button" onclick="generateAgentField('role', this)"
-                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                        class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                     ✨ Генерирай с AI
                 </button>
             </div>
-            <textarea name="role" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('role', $agentTemplate->role ?? '') }}</textarea>
+            <textarea name="role" rows="2" class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">{{ old('role', $agentTemplate->role ?? '') }}</textarea>
         </div>
         <div class="col-span-2">
             <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs font-semibold text-gray-600">System Промпт</label>
+                <label class="block text-xs font-semibold text-muted">System Промпт</label>
                 <button type="button" onclick="generateAgentField('system_prompt', this)"
-                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                        class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                     ✨ Генерирай с AI
                 </button>
             </div>
-            <textarea name="system_prompt" id="tpl-sp-field" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('system_prompt', $agentTemplate->system_prompt ?? '') }}</textarea>
+            <textarea name="system_prompt" id="tpl-sp-field" rows="3" class="w-full border border-line rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40">{{ old('system_prompt', $agentTemplate->system_prompt ?? '') }}</textarea>
             @include('partials.token-helper', ['textareaId' => 'tpl-sp-field', 'agents' => null, 'xAgents' => null])
         </div>
         <div class="col-span-2">
             <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs font-semibold text-gray-600">Промпт Шаблон</label>
+                <label class="block text-xs font-semibold text-muted">Промпт Шаблон</label>
                 <button type="button" onclick="generateAgentField('prompt_template', this)"
-                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                        class="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
                     ✨ Генерирай с AI
                 </button>
             </div>
-            <textarea name="prompt_template" id="tpl-pt-field" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">{{ old('prompt_template', $agentTemplate->prompt_template ?? '') }}</textarea>
+            <textarea name="prompt_template" id="tpl-pt-field" rows="4" class="w-full border border-line rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40">{{ old('prompt_template', $agentTemplate->prompt_template ?? '') }}</textarea>
             @include('partials.token-helper', ['textareaId' => 'tpl-pt-field', 'agents' => null, 'xAgents' => null])
         </div>
     </div>
     <div class="flex justify-end gap-3 pt-2">
-        <a href="{{ $cancelUrl }}" class="border border-gray-300 bg-white text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-50 transition">Откажи</a>
-        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
+        <a href="{{ $cancelUrl }}" class="border border-line bg-surface text-muted px-4 py-2 rounded-lg text-sm hover:bg-surface-subtle transition">Откажи</a>
+        <button type="submit" class="bg-primary hover:bg-primary-hover text-white px-5 py-2 rounded-lg text-sm font-semibold transition">
             💾 Запази шаблона
         </button>
     </div>

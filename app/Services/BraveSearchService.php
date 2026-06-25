@@ -2,35 +2,55 @@
 
 namespace App\Services;
 
+use App\Support\LlmRequestRecorder;
+use App\Support\LlmUsage;
+use App\Support\Utf8;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class BraveSearchService
 {
-    private const ENDPOINT     = 'https://api.search.brave.com/res/v1/web/search';
+    private const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
+
     private const MAX_ATTEMPTS = 3;
-    private const RETRY_SLEEP  = 1;
+
+    private const RETRY_SLEEP = 1;
 
     public function search(string $query, ?int $count = null): array
     {
         $apiKey = config('services.brave.api_key');
-        $count  = $count ?? (int) config('services.brave.results_count', 10);
+        $count = $count ?? (int) config('services.brave.results_count', 10);
 
         $lastException = null;
+        $startMs = (int) (microtime(true) * 1000);
 
         for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
             try {
                 $response = Http::withHeaders([
-                    'Accept'               => 'application/json',
-                    'Accept-Encoding'      => 'gzip',
+                    'Accept' => 'application/json',
+                    'Accept-Encoding' => 'gzip',
                     'X-Subscription-Token' => $apiKey,
                 ])->get(self::ENDPOINT, [
-                    'q'     => $query,
+                    'q' => $query,
                     'count' => $count,
                 ]);
 
                 if ($response->successful()) {
-                    return $response->json('web.results') ?? [];
+                    // Scrub invalid UTF-8 from result titles/descriptions at the source.
+                    $results = Utf8::clean($response->json('web.results') ?? []);
+
+                    // Per-request одит за admin "Разходи" (секция Външни API).
+                    $cost = (float) config('services.brave.request_cost_usd', 0);
+                    LlmUsage::addFlatCost($cost);
+                    LlmRequestRecorder::record(
+                        'brave', 'search', 'web_search',
+                        null, $query, $this->resultsPreview($results),
+                        ['count' => $count], 0, 0,
+                        (int) (microtime(true) * 1000) - $startMs,
+                        costOverride: $cost,
+                    );
+
+                    return $results;
                 }
 
                 throw new \RuntimeException(
@@ -39,7 +59,7 @@ class BraveSearchService
 
             } catch (\RuntimeException $e) {
                 $lastException = $e;
-                Log::warning("[BraveSearch] Attempt {$attempt} failed: " . $e->getMessage());
+                Log::warning("[BraveSearch] Attempt {$attempt} failed: ".$e->getMessage());
                 if ($attempt < self::MAX_ATTEMPTS) {
                     sleep(self::RETRY_SLEEP);
                 }
@@ -47,7 +67,22 @@ class BraveSearchService
         }
 
         throw new \RuntimeException(
-            'Brave Search failed after ' . self::MAX_ATTEMPTS . ' attempts: ' . $lastException->getMessage(),
+            'Brave Search failed after '.self::MAX_ATTEMPTS.' attempts: '.$lastException->getMessage(),
         );
+    }
+
+    /** Кратък преглед на резултатите за одит реда (response_text). */
+    private function resultsPreview(array $results): string
+    {
+        $lines = [];
+        foreach (array_slice($results, 0, 10) as $i => $result) {
+            $n = $i + 1;
+            $title = $result['title'] ?? 'No title';
+            $url = $result['url'] ?? '';
+            $snippet = $result['description'] ?? '';
+            $lines[] = trim("[{$n}] {$title}\n{$url}\n{$snippet}");
+        }
+
+        return implode("\n\n", $lines);
     }
 }

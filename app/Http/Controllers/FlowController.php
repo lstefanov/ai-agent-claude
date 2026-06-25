@@ -6,7 +6,9 @@ use App\Models\AgentGenerationLog;
 use App\Models\Company;
 use App\Models\Flow;
 use App\Models\LlmModel;
+use App\Services\AgentGenerationLauncher;
 use App\Services\AgentGeneratorService;
+use App\Services\FlowDescriptionImprover;
 use App\Services\GeneratorService;
 use App\Support\ModelLevel;
 use App\Support\PlannerPhases;
@@ -88,7 +90,13 @@ class FlowController extends Controller
                 $version->setAttribute('total_cost_usd', (float) ($version->cost_usd ?? 0) + $runtimeCostUsd);
             });
 
-        return view('flows.show', compact('flow', 'versions'));
+        // Eval Suite: подсказваме „пусни eval преди активиране" — кои версии имат
+        // завършени eval резултати, и дали изобщо има активни тестове за flow-а.
+        $flowHasEvalCases = $flow->evalCases()->where('is_active', true)->exists();
+        $versionsWithEvalResults = $flow->evalRuns()->where('status', 'completed')
+            ->distinct()->pluck('flow_version_id')->all();
+
+        return view('flows.show', compact('flow', 'versions', 'flowHasEvalCases', 'versionsWithEvalResults'));
     }
 
     public function runsHistory(Request $request, Flow $flow): JsonResponse
@@ -229,7 +237,7 @@ class FlowController extends Controller
     /**
      * AJAX: improve a flow description using AI.
      */
-    public function improveDescription(Request $request)
+    public function improveDescription(Request $request, FlowDescriptionImprover $improver)
     {
         $request->validate([
             'description' => 'required|string|min:5',
@@ -237,42 +245,20 @@ class FlowController extends Controller
             'company_id' => 'nullable|exists:companies,id',
         ]);
 
-        $name = $request->name ?? '';
-        $description = $request->description;
-
-        $systemPrompt = 'Ти си експерт по бизнес автоматизация и дигитален маркетинг. Подобряваш описания на автоматизирани workflows. Отговаряй САМО с подобреното описание — без въведение, без обяснения, без кавички.';
-
-        $userMessage = <<<MSG
-Подобри следното описание на flow "{$name}".
-
-Оригинално описание:
-{$description}
-
-Изисквания:
-- Напиши 3-5 изречения на български
-- Бъди конкретен за: какво прави flow-ът, за коя аудитория е, на какъв език е изходът, каква е структурата на pipeline-а
-- Запази оригиналния смисъл, но го направи по-детайлен и по-ясен за AI агентите
-- Върни САМО подобреното описание, без допълнителен текст
-MSG;
-
         try {
-            $improved = $this->llm->assist(
-                systemPrompt: $systemPrompt,
-                userMessage: $userMessage,
-                options: ['temperature' => 0.4, 'num_predict' => 600]
-            );
-        } catch (\Exception $e) {
+            $improved = $improver->improve((string) ($request->name ?? ''), (string) $request->description);
+        } catch (\Throwable $e) {
             return response()->json(['error' => 'AI услугата не е достъпна. Провери ASSIST_PROVIDER и API ключа.'], 503);
         }
 
-        return response()->json(['improved' => trim($improved)]);
+        return response()->json(['improved' => $improved]);
     }
 
     /**
      * Start agent generation in a background process and return a token.
      * The client polls generationStatus() every 2 seconds.
      */
-    public function generateAgents(Request $request)
+    public function generateAgents(Request $request, AgentGenerationLauncher $launcher)
     {
         $request->validate([
             'company_id' => 'required|exists:companies,id',
@@ -313,32 +299,14 @@ MSG;
             ], 503);
         }
 
-        $token = Str::uuid()->toString();
-
-        // Store request data so the background command can read it
-        Cache::put("agent_gen_request_{$token}", [
-            'company_id' => $request->company_id,
-            'flow_id' => (int) $request->flow_id,
-            'name' => $request->name,
-            'description' => $request->description,
-            'level' => ModelLevel::fromRequest($request->input('level'))->value,
-            'phases' => $phases,
-        ], now()->addMinutes(15));
-
-        // Initialise status so the poller immediately sees 'pending'
-        Cache::put("agent_gen_{$token}", [
-            'status' => 'pending',
-            'agents' => [],
-            'error' => null,
-            'stage' => 'Стартиране...',
-            'updated_at' => now()->timestamp,
-        ], now()->addMinutes(15));
-
-        // Launch background artisan command (won't be killed by Apache timeout)
-        $php = env('PHP_CLI_BINARY', PHP_BINARY);
-        $artisan = base_path('artisan');
-        $tok = escapeshellarg($token);
-        exec("{$php} {$artisan} flows:generate-agents {$tok} >> ".escapeshellarg(storage_path('logs/agent-gen.log')).' 2>&1 &');
+        $token = $launcher->launch(
+            (int) $request->company_id,
+            (int) $request->flow_id,
+            (string) $request->name,
+            (string) $request->description,
+            ModelLevel::fromRequest($request->input('level'))->value,
+            $phases,
+        );
 
         return response()->json(['token' => $token]);
     }

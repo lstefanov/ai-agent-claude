@@ -11,6 +11,7 @@ use App\Agents\Tools\PerplexitySearchTool;
 use App\Agents\Tools\SiteCrawlerTool;
 use App\Agents\Tools\SiteDiscoveryTool;
 use App\Agents\Tools\WebScraperTool;
+use App\Agents\Tools\WebSearchTool;
 use App\Models\Agent;
 use App\Services\AgentLoop;
 use App\Services\BraveSearchService;
@@ -40,10 +41,10 @@ class AgentFactory
                 new WebScraperTool(new CrawlService),
                 new SiteDiscoveryTool(new CrawlService),
             ]),
-            'researcher' => new ResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
-            'multi_researcher' => new MultiResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
+            'researcher' => new ResearcherAgent($this->ollama, [$this->webSearchTool()]),
+            'multi_researcher' => new MultiResearcherAgent($this->ollama, [$this->webSearchTool()]),
             'deep_researcher' => new DeepResearcherAgent($this->ollama, [
-                new BraveSearchTool($this->braveSearch),
+                $this->webSearchTool(),
                 new PerplexitySearchTool(new PerplexitySearchService),
                 new WebScraperTool(new CrawlService),
                 new SiteCrawlerTool(new CrawlService),
@@ -57,9 +58,9 @@ class AgentFactory
             'translator' => new TranslatorAgent($this->ollama),
             'orchestrator' => new OrchestratorAgent($this->ollama),
             'email' => new EmailAgent($this->ollama),
-            'trend_researcher' => new TrendResearcherAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
+            'trend_researcher' => new TrendResearcherAgent($this->ollama, [$this->webSearchTool()]),
             'competitor_profiler' => new CompetitorProfilerAgent($this->ollama, [
-                new BraveSearchTool($this->braveSearch),
+                $this->webSearchTool(),
                 new PerplexitySearchTool(new PerplexitySearchService),
                 new WebScraperTool(new CrawlService),
             ]),
@@ -72,10 +73,10 @@ class AgentFactory
             ]),
             'review_analyzer' => new ReviewAnalyzerAgent($this->ollama, [
                 new GoogleReviewsTool(new GooglePlacesService),
-                new BraveSearchTool($this->braveSearch),
+                $this->webSearchTool(),
                 new WebScraperTool(new CrawlService),
             ]),
-            'keyword_extractor' => new KeywordExtractorAgent($this->ollama, [new BraveSearchTool($this->braveSearch)]),
+            'keyword_extractor' => new KeywordExtractorAgent($this->ollama, [$this->webSearchTool()]),
             'webhook_sender' => new WebhookSenderAgent($this->ollama),
             'slack_notifier' => new SlackNotifierAgent($this->ollama),
             'hashtag_generator' => new HashtagGeneratorAgent($this->ollama),
@@ -83,6 +84,10 @@ class AgentFactory
             // Pause nodes never reach the factory — NodeExecutorService pauses
             // the run before instantiating an agent. Defensive guard only.
             'human_approval' => throw new \RuntimeException('human_approval nodes pause the run — they are never executed as agents.'),
+            // mcp_action nodes изпълняват действие в свързана система; обработват
+            // се по отделен path в NodeExecutorService (McpActionAgent), не през
+            // AgentFactory. Defensive guard only.
+            'mcp_action' => throw new \RuntimeException('mcp_action nodes се изпълняват през NodeExecutorService::executeMcpAction, не като агенти.'),
             // Planner-composed "on the fly" agent: gets the full tool belt, but only
             // runs the tools whitelisted in its config['tools'] (see GenericAgent).
             // The AgentLoop powers its agentic mode on paid models.
@@ -93,7 +98,7 @@ class AgentFactory
                     ((int) ($agent->config['flow_run_id'] ?? 0)) ?: null,
                     ($agent->config['node_key'] ?? null) ?: null,
                 ),
-                new BraveSearchTool($this->braveSearch),
+                $this->webSearchTool(),
                 new PerplexitySearchTool(new PerplexitySearchService),
                 new PeopleSearchTool(new PerplexitySearchService),
                 new WebScraperTool(new CrawlService),
@@ -105,5 +110,17 @@ class AgentFactory
             // All remaining LLM-only types (swot_builder, report_writer, seo_writer, etc.) use ContentAgent intentionally
             default => new ContentAgent($this->ollama),
         };
+    }
+
+    /**
+     * `web_search` инструмент, който рутира към конфигурирания провайдър
+     * (WEB_SEARCH_PROVIDER — brave по подразбиране, или perplexity).
+     */
+    private function webSearchTool(): WebSearchTool
+    {
+        return new WebSearchTool(
+            new BraveSearchTool($this->braveSearch),
+            new PerplexitySearchTool(new PerplexitySearchService),
+        );
     }
 }

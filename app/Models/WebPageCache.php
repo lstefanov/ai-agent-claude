@@ -14,13 +14,15 @@ class WebPageCache extends Model
     protected $table = 'web_page_cache';
 
     protected $fillable = [
-        'url_hash', 'url', 'content_hash', 'markdown',
-        'fetched_at', 'last_checked_at', 'hit_count', 'meta',
+        'url_hash', 'url', 'content_hash', 'markdown', 'title',
+        'meta_description', 'links', 'fetched_at', 'last_checked_at',
+        'hit_count', 'meta',
     ];
 
     protected $casts = [
         'fetched_at' => 'datetime',
         'last_checked_at' => 'datetime',
+        'links' => 'array',
         'meta' => 'array',
     ];
 }

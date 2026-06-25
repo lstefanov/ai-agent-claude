@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * A folder in a company's knowledge base. Folders nest (parent_id) and are
  * purely organizational — deleting one cascades to subfolders while its
- * documents drop to the root (FK nullOnDelete on knowledge_documents).
+ * resources drop to the root (FK nullOnDelete on knowledge_resources).
  */
 class KnowledgeFolder extends Model
 {
@@ -30,8 +30,8 @@ class KnowledgeFolder extends Model
         return $this->hasMany(self::class, 'parent_id')->orderBy('name');
     }
 
-    public function documents(): HasMany
+    public function resources(): HasMany
     {
-        return $this->hasMany(KnowledgeDocument::class, 'folder_id');
+        return $this->hasMany(KnowledgeResource::class, 'folder_id');
     }
 }

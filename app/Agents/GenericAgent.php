@@ -2,6 +2,7 @@
 
 namespace App\Agents;
 
+use App\Agents\Tools\KnowledgeSearchTool;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Services\AgentLoop;
@@ -38,6 +39,12 @@ class GenericAgent extends BaseAgent
 {
     private const MATERIAL_HEADER = "\n\n--- СЪБРАНИ ДАННИ (използвай ги като основен източник; цитирай URL където е уместно) ---\n";
 
+    private const KB_HEADER = "\n\n--- ФИРМЕНА БАЗА ЗНАНИЯ (проверени вътрешни данни; ползвай ги с приоритет за фирмени цени/услуги/условия) ---\n";
+
+    private ?AgentRun $activeRun = null;
+
+    private string $activeAgentName = '';
+
     public function __construct(
         OllamaService $ollama,
         array $tools = [],
@@ -48,6 +55,10 @@ class GenericAgent extends BaseAgent
 
     public function run(Agent $agent, AgentRun $agentRun, array $context): string
     {
+        // Контекст за [TOOL] логването в useTool() — и за двата режима.
+        $this->activeRun = $agentRun;
+        $this->activeAgentName = (string) $agent->name;
+
         $enabled = $this->enabledTools($agent);
 
         if ($this->loop && $enabled !== [] && PaidModel::isPaid($agent->model)) {
@@ -61,13 +72,12 @@ class GenericAgent extends BaseAgent
 
         $material = [];
 
-        // Фирмената база знания първа — вътрешните факти (цени, услуги, условия)
+        // Фирмената база знания първа — гарантирано и multi-query (по
+        // чеклистата от промпта): вътрешните факти (цени, услуги, условия)
         // имат приоритет пред това, което интернет твърди за фирмата.
-        if (in_array('knowledge_search', $enabled, true) && $query !== '') {
-            $result = $this->useTool('knowledge_search', ['query' => $query]);
-            if ($this->usable($result)) {
-                $material['Фирмена база знания ('.$query.')'] = $result;
-            }
+        $kb = $this->knowledgePrePass($agent, $agentRun, $enabled);
+        if ($kb !== null && $kb['text'] !== '') {
+            $material['Фирмена база знания'] = $kb['text'];
         }
 
         if (in_array('web_search', $enabled, true) && $query !== '') {
@@ -181,6 +191,25 @@ class GenericAgent extends BaseAgent
         $maxSteps = max(1, min(12, (int) ($agent->config['max_steps'] ?? 0) ?: 6));
         $userMessage = (string) $agentRun->input;
 
+        // Гарантиран KB pre-pass: данните от базата знания пристигат В промпта,
+        // не по инициатива на модела — flash-tier модели приключват на първия
+        // отговор без нито един tool call (run 111: 5s, «Не е намерено» при
+        // налични факти). knowledge_search остава наличен за follow-up заявки.
+        $kb = $this->knowledgePrePass($agent, $agentRun, $enabled);
+        if ($kb !== null && $kb['text'] !== '') {
+            $userMessage .= self::KB_HEADER.$kb['text'];
+        }
+
+        // Анти-мързел: има ли web инструменти, първият отговор без нито един
+        // tool call получава еднократен тласък (KB вече е гарантиран горе).
+        $webTools = array_values(array_diff($enabled, ['knowledge_search']));
+        $noToolsNudge = $webTools !== []
+            ? 'Не използва нито един инструмент. Провери с наличните инструменти ('
+                .implode(', ', $webTools)
+                .') твърденията, които не са покрити от блока ФИРМЕНА БАЗА ЗНАНИЯ, преди финалния отговор. '
+                .'Не маркирай категория като «не е намерено», без да си я потърсил.'
+            : null;
+
         $this->lastChatParams = [
             'model' => $agent->model,
             'system_prompt' => $systemPrompt,
@@ -220,6 +249,7 @@ class GenericAgent extends BaseAgent
             // наближаване loop-ът приключва с частичен резултат вместо job-ът
             // да умре с TimeoutExceededException.
             deadlineTs: isset($agent->config['deadline_ts']) ? (float) $agent->config['deadline_ts'] : null,
+            noToolsNudge: $noToolsNudge,
         );
 
         if (($result['deadline_hit'] ?? false) && $agentRun->flow_run_id) {
@@ -229,6 +259,62 @@ class GenericAgent extends BaseAgent
         $this->lastRawOutput = $result['content'];
 
         return $this->sanitizeModelOutput($result['content'], $systemPrompt, $userMessage, $options);
+    }
+
+    /**
+     * Детерминистичният KB pre-pass (общ за двата режима): multi-query извадка
+     * по чеклистата от промпта през KnowledgeSearchTool (носи фирмения/run
+     * контекст от AgentFactory). Логва "[ЗНАНИЕ]" ред в run лога.
+     *
+     * @param  array<int, string>  $enabled
+     * @return array{text: string, facts: int, chunks: int, queries: int}|null
+     */
+    private function knowledgePrePass(Agent $agent, AgentRun $agentRun, array $enabled): ?array
+    {
+        if (! in_array('knowledge_search', $enabled, true)) {
+            return null;
+        }
+
+        $tool = $this->tools['knowledge_search'] ?? null;
+        if (! $tool instanceof KnowledgeSearchTool) {
+            return null;
+        }
+
+        $kb = $tool->checklist((string) $agentRun->input);
+
+        if ($agentRun->flow_run_id) {
+            RunLog::append((int) $agentRun->flow_run_id, sprintf(
+                '[ЗНАНИЕ] %s: %d факта + %d откъса инжектирани (%d заявки)',
+                $agent->name, $kb['facts'], $kb['chunks'], $kb['queries'],
+            ));
+        }
+
+        return $kb;
+    }
+
+    /**
+     * Всяко изпълнение на инструмент (и в двата режима — детерминистичните
+     * извиквания и executor-ът на agentic loop-а) оставя "[TOOL]" ред в run
+     * лога: без това разследването на «не е намерено» е по презумпция.
+     */
+    protected function useTool(string $name, array $params): ?string
+    {
+        $runId = (int) ($this->activeRun?->flow_run_id ?? 0);
+        if ($runId !== 0) {
+            $summary = [];
+            foreach ($params as $key => $value) {
+                if (! is_scalar($value) || trim((string) $value) === '') {
+                    continue;
+                }
+                $summary[] = $key.': '.mb_substr(trim((string) $value), 0, 80);
+                if (count($summary) >= 2) {
+                    break;
+                }
+            }
+            RunLog::append($runId, "[TOOL] {$this->activeAgentName}: {$name}(".implode(', ', $summary).')');
+        }
+
+        return parent::useTool($name, $params);
     }
 
     /** @return array<int, string> */
@@ -270,7 +356,7 @@ class GenericAgent extends BaseAgent
             }
         }
 
-        return trim(mb_substr((string) $agentRun->input, 0, 200));
+        return $this->deriveSearchQuery($agent, (string) $agentRun->input, $context);
     }
 
     private function resolveGoogleReviewsQuery(array $params, array $context, string $fallback): string

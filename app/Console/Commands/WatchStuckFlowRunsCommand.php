@@ -5,8 +5,8 @@ namespace App\Console\Commands;
 use App\Models\FlowRun;
 use App\Models\NodeRun;
 use App\Support\FlowsQueueInspector;
+use App\Support\QueueHeartbeat;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class WatchStuckFlowRunsCommand extends Command
@@ -14,8 +14,6 @@ class WatchStuckFlowRunsCommand extends Command
     protected $signature = 'flows:watchdog {--minutes=10 : Minutes without run/node activity before a run is considered stuck}';
 
     protected $description = 'Fail stuck flow runs whose queue jobs are orphaned or whose flows worker heartbeat is missing.';
-
-    private const FLOWS_QUEUE_HEARTBEAT_KEY = 'queue.heartbeat.flows';
 
     private FlowsQueueInspector $queue;
 
@@ -25,7 +23,7 @@ class WatchStuckFlowRunsCommand extends Command
 
         $minutes = max(1, (int) $this->option('minutes'));
         $cutoff = now()->subMinutes($minutes);
-        $heartbeatAlive = Cache::has(self::FLOWS_QUEUE_HEARTBEAT_KEY);
+        $heartbeatAlive = QueueHeartbeat::flowsAlive();
         $failed = 0;
 
         FlowRun::whereIn('status', ['pending', 'running'])

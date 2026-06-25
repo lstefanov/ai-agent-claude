@@ -5,18 +5,18 @@
 @section('content')
 <div class="flex items-center justify-between mb-8">
     <div>
-        <h1 class="text-3xl font-bold text-gray-900">LLM Модели</h1>
-        <p class="text-gray-500 mt-1">Ollama модели — наличност, изтегляне и тест</p>
+        <h1 class="text-3xl font-bold text-ink">LLM Модели</h1>
+        <p class="text-muted mt-1">Ollama модели — наличност, изтегляне и тест</p>
     </div>
     <div class="flex gap-2">
         <button onclick="document.getElementById('add-model-form').classList.toggle('hidden')"
-                class="bg-white border border-gray-300 hover:border-indigo-400 text-gray-700 px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
+                class="bg-surface border border-line hover:border-primary text-ink px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
             ＋ Добави модел
         </button>
         <form action="{{ route('models.sync') }}" method="POST">
             @csrf
             <button type="submit"
-                    class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
+                    class="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
                 🔄 Синхронизирай
             </button>
         </form>
@@ -24,66 +24,66 @@
 </div>
 
 {{-- Add model form --}}
-<div id="add-model-form" class="hidden mb-6 bg-white rounded-xl border border-indigo-200 p-6">
-    <h3 class="text-sm font-semibold text-gray-700 mb-4">Добави нов модел</h3>
+<div id="add-model-form" class="hidden mb-6 bg-surface rounded-xl border border-info p-6">
+    <h3 class="text-sm font-semibold text-ink mb-4">Добави нов модел</h3>
     <form action="{{ route('models.store') }}" method="POST">
         @csrf
         <div class="grid grid-cols-2 gap-4">
             <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Ollama Tag <span class="text-red-400">*</span></label>
+                <label class="block text-xs font-medium text-muted mb-1">Ollama Tag <span class="text-red-400">*</span></label>
                 <input type="text" name="ollama_tag" placeholder="llama3.2:3b"
                        value="{{ old('ollama_tag') }}"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="w-full border border-line rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40">
                 @error('ollama_tag') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Показвано Име <span class="text-red-400">*</span></label>
+                <label class="block text-xs font-medium text-muted mb-1">Показвано Име <span class="text-red-400">*</span></label>
                 <input type="text" name="display_name" placeholder="LLaMA 3.2 3B"
                        value="{{ old('display_name') }}"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                 @error('display_name') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Категория <span class="text-red-400">*</span></label>
-                <select name="category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <label class="block text-xs font-medium text-muted mb-1">Категория <span class="text-red-400">*</span></label>
+                <select name="category" class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
                     @foreach(['general','json','reasoning','qa','code','multilingual','vision','bulgarian','other'] as $cat)
                         <option value="{{ $cat }}" {{ old('category') === $cat ? 'selected' : '' }}>{{ $cat }}</option>
                     @endforeach
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">RAM (GB)</label>
+                <label class="block text-xs font-medium text-muted mb-1">RAM (GB)</label>
                 <input type="number" name="ram_required_gb" step="0.5" min="0" placeholder="5.0"
                        value="{{ old('ram_required_gb') }}"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Размер (MB)</label>
+                <label class="block text-xs font-medium text-muted mb-1">Размер (MB)</label>
                 <input type="number" name="size_mb" min="0" placeholder="4700"
                        value="{{ old('size_mb') }}"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Описание</label>
+                <label class="block text-xs font-medium text-muted mb-1">Описание</label>
                 <input type="text" name="description" placeholder="Кратко описание..."
                        value="{{ old('description') }}"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">
             </div>
         </div>
         <div class="mt-4 flex gap-3">
-            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+            <button type="submit" class="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition">
                 Добави
             </button>
             <button type="button" onclick="document.getElementById('add-model-form').classList.add('hidden')"
-                    class="text-gray-500 hover:text-gray-700 text-sm">Отказ</button>
+                    class="text-muted hover:text-ink text-sm">Отказ</button>
         </div>
     </form>
 </div>
 
 @foreach($models as $category => $categoryModels)
 <div class="mb-8">
-    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">{{ $category }}</h2>
-    <div class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+    <h2 class="text-sm font-semibold text-muted uppercase tracking-widest mb-3">{{ $category }}</h2>
+    <div class="bg-surface rounded-xl border border-line divide-y divide-line">
         @foreach($categoryModels as $model)
         <div x-data="modelRow({{ $model->id }}, '{{ addslashes($model->ollama_tag) }}', '{{ $model->pull_status ?? 'idle' }}', {{ $model->pull_progress ?? 0 }}, {{ $model->is_available ? 'true' : 'false' }}, @js($model->pull_error))"
              x-init="init()"
@@ -93,7 +93,7 @@
             {{-- Main row --}}
             <div class="flex items-center gap-4">
                 {{-- Status dot --}}
-                <div :class="isAvailable ? 'bg-green-500' : (status === 'pulling' ? 'bg-blue-400 animate-pulse' : (status === 'failed' ? 'bg-red-400' : 'bg-gray-300'))"
+                <div :class="isAvailable ? 'bg-green-500' : (status === 'pulling' ? 'bg-blue-400 animate-pulse' : (status === 'failed' ? 'bg-red-400' : 'bg-line-strong'))"
                      class="w-2.5 h-2.5 rounded-full shrink-0"></div>
 
                 {{-- Model info --}}
@@ -115,7 +115,7 @@
                     'classifier'          => 'bg-blue-100 text-blue-700',
                     'sentiment_analyzer'  => 'bg-blue-100 text-blue-700',
                     'summarizer'          => 'bg-blue-100 text-blue-700',
-                    'decision'            => 'bg-indigo-100 text-indigo-700',
+                    'decision'            => 'bg-info-soft text-primary',
                     // Content writers
                     'content_bg'          => 'bg-emerald-100 text-emerald-700',
                     'content_en'          => 'bg-emerald-100 text-emerald-700',
@@ -142,27 +142,27 @@
                     'email'               => 'bg-sky-100 text-sky-700',
                     'image_prompt'        => 'bg-purple-100 text-purple-700',
                     // Integrations
-                    'webhook_sender'      => 'bg-gray-100 text-gray-600',
-                    'slack_notifier'      => 'bg-gray-100 text-gray-600',
-                    'google_sheets_writer'=> 'bg-gray-100 text-gray-600',
+                    'webhook_sender'      => 'bg-neutral-soft text-muted',
+                    'slack_notifier'      => 'bg-neutral-soft text-muted',
+                    'google_sheets_writer'=> 'bg-neutral-soft text-muted',
                     // Quality
                     'qa_verifier'         => 'bg-red-100 text-red-700',
                     'verifier'            => 'bg-red-100 text-red-700',
                     // Special
-                    'orchestrator'        => 'bg-indigo-100 text-indigo-700',
+                    'orchestrator'        => 'bg-info-soft text-primary',
                     'code'                => 'bg-zinc-100 text-zinc-700',
                     'vision'              => 'bg-purple-100 text-purple-700',
                 ];
                 @endphp
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="font-medium {{ $model->is_enabled ? 'text-gray-900' : 'text-gray-400' }}">{{ $model->display_name }}</span>
-                        <span class="text-xs font-mono text-gray-400">{{ $model->ollama_tag }}</span>
+                        <span class="font-medium {{ $model->is_enabled ? 'text-ink' : 'text-subtle' }}">{{ $model->display_name }}</span>
+                        <span class="text-xs font-mono text-subtle">{{ $model->ollama_tag }}</span>
                         @if(!$model->is_enabled)
-                            <span class="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">изключен</span>
+                            <span class="text-xs bg-neutral-soft text-subtle px-1.5 py-0.5 rounded">изключен</span>
                         @endif
                     </div>
-                    <p class="text-sm text-gray-500 mt-0.5">{{ $model->description }}</p>
+                    <p class="text-sm text-muted mt-0.5">{{ $model->description }}</p>
                     @if(!empty($model->is_default_for))
                     <div class="flex flex-wrap gap-1 mt-1.5">
                         @foreach($model->is_default_for as $role)
@@ -172,10 +172,10 @@
                                     {{ $agentTypes[$role]['label'] }} <span class="opacity-50 font-normal">({{ $role }})</span>
                                 </span>
                                 @if(!empty($agentTypes[$role]['description']))
-                                <div class="absolute bottom-full left-0 mb-2 z-50 w-64 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-xl
+                                <div class="absolute bottom-full left-0 mb-2 z-50 w-64 px-3 py-2 bg-ink text-white text-xs rounded-lg shadow-xl
                                             invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity duration-150 pointer-events-none whitespace-normal">
                                     {{ $agentTypes[$role]['description'] }}
-                                    <div class="absolute top-full left-4 border-4 border-transparent border-t-gray-900"></div>
+                                    <div class="absolute top-full left-4 border-4 border-transparent border-t-ink"></div>
                                 </div>
                                 @endif
                             </div>
@@ -187,7 +187,7 @@
 
                 {{-- Size --}}
                 @if($model->size_mb)
-                <span class="text-xs text-gray-400 shrink-0 tabular-nums">
+                <span class="text-xs text-subtle shrink-0 tabular-nums">
                     @if($model->size_mb >= 1000)
                         {{ number_format($model->size_mb / 1024, 1) }} GB
                     @else
@@ -198,7 +198,7 @@
 
                 {{-- RAM --}}
                 @if($model->ram_required_gb)
-                <span class="text-xs text-gray-400 shrink-0">{{ $model->ram_required_gb }} GB RAM</span>
+                <span class="text-xs text-subtle shrink-0">{{ $model->ram_required_gb }} GB RAM</span>
                 @endif
 
                 {{-- Actions --}}
@@ -212,7 +212,7 @@
                     {{-- Pull button --}}
                     <template x-if="!isAvailable && status !== 'pulling'">
                         <button @click="startPull()"
-                                class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-3 py-1 rounded-full transition font-medium">
+                                class="text-xs bg-info-soft hover:bg-info-soft text-primary px-3 py-1 rounded-full transition font-medium">
                             ⬇ Изтегли
                         </button>
                     </template>
@@ -239,7 +239,7 @@
                     <template x-if="isAvailable">
                         <button @click="runTest()"
                                 :disabled="testing"
-                                class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded-full transition"
+                                class="text-xs bg-neutral-soft hover:bg-surface-subtle text-muted px-2 py-1 rounded-full transition"
                                 :class="testing ? 'opacity-50 cursor-wait' : ''">
                             <span x-show="!testing">▶ Тест</span>
                             <span x-show="testing">⏳</span>
@@ -253,7 +253,7 @@
                                 title="{{ $model->is_enabled ? 'Изключи модела от FlowAI' : 'Включи модела в FlowAI' }}"
                                 class="text-xs px-2 py-1 rounded-full transition
                                     {{ $model->is_enabled
-                                        ? 'bg-gray-100 hover:bg-red-50 text-gray-400 hover:text-red-500'
+                                        ? 'bg-neutral-soft hover:bg-red-50 text-subtle hover:text-red-500'
                                         : 'bg-green-50 hover:bg-green-100 text-green-600' }}">
                             {{ $model->is_enabled ? '⏸' : '▶' }}
                         </button>
@@ -264,12 +264,12 @@
             {{-- Progress bar --}}
             <template x-if="status === 'pulling'">
                 <div class="mt-3">
-                    <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
+                    <div class="flex items-center justify-between text-xs text-subtle mb-1">
                         <span x-text="pullPhase || 'Изтегляне…'" class="animate-pulse"></span>
                         <span x-text="progress + '%'" class="tabular-nums"></span>
                     </div>
-                    <div class="w-full bg-gray-100 rounded-full h-1.5">
-                        <div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                    <div class="w-full bg-neutral-soft rounded-full h-1.5">
+                        <div class="bg-info-soft0 h-1.5 rounded-full transition-all duration-500"
                              :style="'width: ' + (progress || 1) + '%'"></div>
                     </div>
                 </div>
@@ -285,7 +285,7 @@
                             Провери дали тагът е верен на <a href="https://ollama.com/library" target="_blank" class="underline hover:text-red-700">ollama.com/library</a>
                         </p>
                     </div>
-                    <button @click="pullError = ''" class="text-gray-300 hover:text-gray-500 text-xs mt-1">✕</button>
+                    <button @click="pullError = ''" class="text-subtle hover:text-muted text-xs mt-1">✕</button>
                 </div>
             </template>
 
@@ -296,7 +296,7 @@
                          class="flex-1 text-xs rounded-lg border px-3 py-2 font-mono">
                         <span x-text="testResult"></span>
                     </div>
-                    <button @click="testResult = ''" class="text-gray-300 hover:text-gray-500 text-xs mt-1">✕</button>
+                    <button @click="testResult = ''" class="text-subtle hover:text-muted text-xs mt-1">✕</button>
                 </div>
             </template>
         </div>

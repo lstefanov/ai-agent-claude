@@ -3,15 +3,21 @@
 namespace App\Services;
 
 use App\Jobs\DistillFlowMemoryJob;
-use App\Jobs\DistillRunKnowledgeJob;
 use App\Jobs\ExecuteNodeJob;
+use App\Jobs\HarvestRunKnowledgeJob;
+use App\Jobs\JudgeEvalRunJob;
+use App\Models\CreditReservation;
 use App\Models\Flow;
 use App\Models\FlowEdge;
+use App\Models\FlowEvalRun;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\FlowVersion;
 use App\Models\NodeRun;
+use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\OrgBlueprintLibraryService;
 use App\Support\GraphTopology;
+use App\Support\LlmContext;
 use App\Support\RunLog;
 use App\Support\UrlExtractor;
 use Illuminate\Bus\Batch;
@@ -86,12 +92,13 @@ class GraphFlowExecutor
             ->where('is_active', true)
             ->where('type', 'decision')
             ->exists();
-        // Partial-failure policy: 'fail_fast' (default) cancels the run on the
-        // first node error; 'best_effort' lets independent branches continue and
-        // fan-in nodes assemble from whatever predecessors completed.
-        $context['failure_policy'] = ($version->graph_layout['failure_policy'] ?? 'fail_fast') === 'best_effort'
-            ? 'best_effort'
-            : 'fail_fast';
+        // Partial-failure policy: 'best_effort' (default) lets independent branches
+        // continue and fan-in nodes assemble from whatever predecessors completed;
+        // 'fail_fast' cancels the whole run on the first node error. A caller (напр.
+        // eval) или шаблонът (graph_layout.failure_policy) може да наложи политиката.
+        $context['failure_policy'] = (($context['failure_policy'] ?? $version->graph_layout['failure_policy'] ?? 'best_effort') === 'fail_fast')
+            ? 'fail_fast'
+            : 'best_effort';
 
         $flowRun->update([
             'status' => 'running',
@@ -100,8 +107,9 @@ class GraphFlowExecutor
             // Which template was executed — webhook/scheduler runs get it here.
             'flow_version_id' => $version->id,
             // Snapshot the cost level used, so the run history reflects it even if
-            // the template is re-leveled afterwards.
-            'model_level' => $version->model_level,
+            // the template is re-leveled afterwards. Eval runs override the level
+            // (their models are re-pinned run-scoped via context['model_overrides']).
+            'model_level' => $context['eval_level'] ?? $version->model_level,
             // Snapshot the Drawflow graph_layout at the moment the run starts so
             // the historical run viewer can show the exact graph that was executed
             // even if the user edits the template afterwards.
@@ -159,11 +167,15 @@ class GraphFlowExecutor
         // WS4: prune branches not taken by an upstream decision. A node runs only
         // if it has an active incoming path; the rest are marked 'skipped'.
         $waveKeys = $waves[$index];
-        if ($flowRun->context['has_decisions'] ?? false) {
+        // best_effort → a failed node doesn't cancel the batch; later waves still run.
+        $bestEffort = ($flowRun->context['failure_policy'] ?? 'best_effort') === 'best_effort';
+        // Prune nodes whose path is dead: a decision didn't pick them, OR (best_effort)
+        // every predecessor failed/was skipped — running them input-less yields garbage.
+        if (($flowRun->context['has_decisions'] ?? false) || $bestEffort) {
             [$waveKeys, $skipped] = $this->resolveActiveNodes($flowRun, $waveKeys);
             if (! empty($skipped)) {
                 $this->markSkipped($flowRun, $skipped);
-                RunLog::append($flowRunId, '[SKIP] извън избрания branch: '.implode(', ', $skipped));
+                RunLog::append($flowRunId, '[SKIP] няма успял предшественик / извън избрания branch: '.implode(', ', $skipped));
             }
         }
 
@@ -178,9 +190,6 @@ class GraphFlowExecutor
 
             return;
         }
-
-        // best_effort → failed nodes don't cancel the batch; later waves still run.
-        $bestEffort = ($flowRun->context['failure_policy'] ?? 'fail_fast') === 'best_effort';
 
         RunLog::append($flowRunId, 'WAVE '.($index + 1).'/'.count($waves).': '.implode(', ', $waveKeys));
 
@@ -236,8 +245,10 @@ class GraphFlowExecutor
         }
 
         // Deterministic, role-aware assembly from node_runs (body/appendix),
-        // with an optional guarded LLM formatting pass.
-        $composed = app(FinalComposerService::class)->compose($flowRun);
+        // with an optional guarded LLM formatting pass. За org-flow обвиваме композа
+        // в LlmContext с резервацията на run-а, за да НЕ изтече FinalComposer разходът
+        // (§A6) — иначе се записва без reservation_id и settle го пропуска.
+        $composed = $this->withRunReservationContext($flowRun, fn () => app(FinalComposerService::class)->compose($flowRun));
 
         // Fallback to terminal node outputs if no body/appendix nodes exist.
         $output = $composed['output'] !== '' ? $composed['output'] : $this->terminalAssembly($flowRun);
@@ -267,6 +278,15 @@ class GraphFlowExecutor
 
         $flowRun->flow->update(['last_run_at' => now()]);
 
+        // Eval runs са СИНТЕТИЧНИ тестове — оценяват се и спират дотук, БЕЗ
+        // странични ефекти (не учат plan library/паметта, не жънат знание, не
+        // доставят). Само диспечваме judge-а върху произведения изход.
+        if (isset($flowRun->context['eval_run_id'])) {
+            JudgeEvalRunJob::dispatch((int) $flowRun->context['eval_run_id']);
+
+            return;
+        }
+
         // Plan library (Фаза 2): a successful run proves the approved plan —
         // it becomes a few-shot example for future planning.
         app(PlanLibraryService::class)->recordRunOutcome($flowRun);
@@ -277,10 +297,10 @@ class GraphFlowExecutor
             DistillFlowMemoryJob::dispatch($flowRun->id);
         }
 
-        // Знание: историческата колекция на фирмата получава финала + изходите
-        // на съдържателните агенти (cross-flow, достъпно през knowledge_search).
+        // Знание: жътва на фирмени ФАКТИ от изходите на агентите — профилът
+        // на фирмата се обновява с всеки успешен run (одит в knowledge_events).
         if (KnowledgeService::enabledForFlow($flowRun->flow)) {
-            DistillRunKnowledgeJob::dispatch($flowRun->id);
+            HarvestRunKnowledgeJob::dispatch($flowRun->id);
         }
 
         // Deliver the result to the flow's configured channel (email/Slack/
@@ -289,6 +309,71 @@ class GraphFlowExecutor
             app(DeliveryService::class)->deliver($flowRun);
         } catch (Throwable $e) {
             report($e);
+        }
+
+        // Org run успех → учи blueprint-а (proven; учеща библиотека, §7.3). Best-effort.
+        if (isset($flowRun->context['assistant_task_id'])
+            && ($company = $flowRun->flow?->company)
+            && ($activeVersion = $company->activeOrgVersion)) {
+            try {
+                app(OrgBlueprintLibraryService::class)->learnFromVersion($activeVersion);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        // Билинг (§0.5.3): реконсилиация на task_run резервацията — реалното похарчено
+        // (вече вижда и FinalComposer реда) + refund на остатъка. No-op за не-org flow.
+        $this->settleRunReservation($flowRun);
+    }
+
+    /**
+     * Закрива task_run резервацията на run-а (settle реалното + refund на остатъка).
+     * Симетрично за success (finalize) и терминал провал (fail). Идемпотентно — settle
+     * е no-op, ако резервацията вече не е `reserved`. No-op за не-org flow (без резервация).
+     */
+    private function settleRunReservation(FlowRun $flowRun): void
+    {
+        $reservationId = $flowRun->context['credit_reservation_id'] ?? null;
+        if (! $reservationId) {
+            return;
+        }
+
+        $reservation = CreditReservation::find($reservationId);
+        if (! $reservation || $reservation->status !== 'reserved') {
+            return;
+        }
+
+        $meter = app(CreditMeterService::class);
+        $meter->settle($reservation, $meter->actualFor($reservation));
+    }
+
+    /**
+     * Изпълнява $fn с ambient LlmContext, носещ резервацията на run-а (§A6), за да се
+     * атрибутират направените LLM повиквания към task_run резервацията. Не-org flow → без рамка.
+     */
+    private function withRunReservationContext(FlowRun $flowRun, callable $fn): mixed
+    {
+        $reservationId = $flowRun->context['credit_reservation_id'] ?? null;
+        if (! $reservationId) {
+            return $fn();
+        }
+
+        LlmContext::push([
+            'purpose' => 'runtime',
+            'company_id' => $flowRun->flow?->company_id,
+            'flow_id' => $flowRun->flow_id,
+            'flow_run_id' => $flowRun->id,
+            'context_type' => $flowRun->context['credit_context_type'] ?? 'task_run',
+            'subject_type' => $flowRun->context['credit_subject_type'] ?? null,
+            'subject_id' => $flowRun->context['credit_subject_id'] ?? null,
+            'reservation_id' => $reservationId,
+        ]);
+
+        try {
+            return $fn();
+        } finally {
+            LlmContext::pop();
         }
     }
 
@@ -527,6 +612,18 @@ class GraphFlowExecutor
         NodeRun::where('flow_run_id', $flowRun->id)
             ->whereIn('status', ['pending', 'running'])
             ->update(['status' => 'failed', 'error' => $message, 'completed_at' => now()]);
+
+        // Eval run, чийто FlowRun се провали → маркирай и eval реда като провален.
+        if (isset($context['eval_run_id'])) {
+            FlowEvalRun::whereKey((int) $context['eval_run_id'])
+                ->whereIn('status', ['pending', 'running'])
+                ->update(['status' => 'failed', 'error' => $message]);
+        }
+
+        // Билинг (§A4): терминалният провал (вкл. human-approval REJECT, който минава
+        // оттук) settle-ва реално похарченото до провала + refund-ва резервирания остатък
+        // → failed/rejected/cancelled run НИКОГА не задържа резервирани кредити.
+        $this->settleRunReservation($flowRun->fresh());
 
         RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} FAILED — {$message}");
     }

@@ -49,7 +49,7 @@ class StepQaGate
     }
 
     /**
-     * @return array{passed: bool, score: int}
+     * @return array{passed: bool, score: int, feedback: string}
      */
     public function verify(
         FlowRun $flowRun,
@@ -104,7 +104,7 @@ class StepQaGate
                 : $this->extractScoreFromOutput($verifierOutput);
         } catch (Throwable $e) {
             // Verifier failure → treat as passed so the node isn't blocked.
-            return ['passed' => true, 'score' => 100];
+            return ['passed' => true, 'score' => 100, 'feedback' => ''];
         }
 
         // Record QA results in the run context for UI display.
@@ -112,7 +112,13 @@ class StepQaGate
 
         $passed = $score >= $qaConfig['threshold'];
 
-        return ['passed' => $passed, 'score' => $score];
+        // Below threshold → surface the verifier's actionable feedback so the
+        // retry is informed instead of a blind re-run of the same prompt.
+        $feedback = (! $passed && $verifierInstance instanceof QaVerifierAgent)
+            ? $verifierInstance->extractFeedback($verifierOutput)
+            : '';
+
+        return ['passed' => $passed, 'score' => $score, 'feedback' => $feedback];
     }
 
     /**
@@ -123,11 +129,16 @@ class StepQaGate
      */
     private function syntheticVerifier(FlowNode $node): Agent
     {
+        // A stronger judge than the tiny default local model (qwen3:4b) can be
+        // pinned via QA_VERIFIER_MODEL (e.g. a cheap cloud model) — it routes
+        // through OllamaService::chat() like any paid-prefixed model. Empty → the
+        // best installed local QA model.
+        $override = trim((string) config('services.qa.model', ''));
         $agent = new Agent;
         $agent->forceFill([
             'type' => 'qa_verifier',
             'name' => 'QA · '.$node->name,
-            'model' => $this->modelSelector->resolveRunnable('qa_verifier', 'qa verifier'),
+            'model' => $override !== '' ? $override : $this->modelSelector->resolveRunnable('qa_verifier', 'qa verifier'),
             'config' => [],
             'is_verifier' => true,
             'flow_id' => $node->flow_id,

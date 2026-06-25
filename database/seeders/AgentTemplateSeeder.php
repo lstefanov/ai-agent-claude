@@ -537,6 +537,81 @@ class AgentTemplateSeeder extends Seeder
                 'prompt_template' => 'Write content about the following topic: {{topic}}. Company context: {{company_description}}. Additional context: {{input}}. Write in {{output_tone}} tone with {{output_style}} style. Format: {{output_format}}. Ensure the content is engaging, original and appropriate for the target audience.',
                 'config' => ['temperature' => 0.7, 'num_predict' => 1500],
             ],
+
+            // --- MCP интеграции (реални системи; type=mcp_action). connector_id
+            //     остава null — потребителят избира свързания акаунт в панела.
+            //     requires_approval=true за write действия → ръчното добавяне
+            //     слага „Одобрение от човек" възел преди тях (builder pairing). ---
+            [
+                'icon' => '📧', 'name' => 'Изпрати имейл (Gmail)', 'type' => 'mcp_action', 'sort_order' => 70, 'is_active' => true,
+                'description' => 'Изпраща имейл през свързан Gmail акаунт (с одобрение преди изпращане).',
+                'role' => 'Изходящо действие: изпраща готовия текст по имейл през Gmail.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'gmail.send_email', 'requires_approval' => true, 'tool_params' => []],
+            ],
+            [
+                'icon' => '📝', 'name' => 'Създай чернова (Gmail)', 'type' => 'mcp_action', 'sort_order' => 71, 'is_active' => true,
+                'description' => 'Създава чернова в Gmail без да я изпраща.',
+                'role' => 'Изходящо действие: записва имейл като чернова в свързания Gmail акаунт.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'gmail.create_draft', 'requires_approval' => true, 'tool_params' => []],
+            ],
+            [
+                'icon' => '📨', 'name' => 'Прочети входящи (Gmail)', 'type' => 'mcp_action', 'sort_order' => 72, 'is_active' => true,
+                'description' => 'Чете последните имейли от входящата кутия (с филтри) за по-нататъшна обработка.',
+                'role' => 'Входно действие: издърпва последните имейли от Gmail за анализ от следващите агенти.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'gmail.list_emails', 'requires_approval' => false, 'tool_params' => []],
+            ],
+            [
+                'icon' => '➕', 'name' => 'Добави ред (Google Sheets)', 'type' => 'mcp_action', 'sort_order' => 73, 'is_active' => true,
+                'description' => 'Добавя нов ред в Google Sheets таблица.',
+                'role' => 'Изходящо действие: записва ред със стойности в свързан Google Sheets документ.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'sheets.append_row', 'requires_approval' => true, 'tool_params' => []],
+            ],
+            [
+                'icon' => '✏️', 'name' => 'Обнови клетки (Google Sheets)', 'type' => 'mcp_action', 'sort_order' => 74, 'is_active' => true,
+                'description' => 'Обновява клетки в зададен диапазон на Google Sheets.',
+                'role' => 'Изходящо действие: презаписва клетки в свързан Google Sheets документ.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'sheets.update_range', 'requires_approval' => true, 'tool_params' => []],
+            ],
+            [
+                'icon' => '📋', 'name' => 'Прочети диапазон (Google Sheets)', 'type' => 'mcp_action', 'sort_order' => 75, 'is_active' => true,
+                'description' => 'Чете клетки от Google Sheets (A1 нотация) за по-нататъшна обработка.',
+                'role' => 'Входно действие: издърпва стойности от свързан Google Sheets документ.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'sheets.read_range', 'requires_approval' => false, 'tool_params' => []],
+            ],
+            [
+                'icon' => '📑', 'name' => 'Нов лист (Google Sheets)', 'type' => 'mcp_action', 'sort_order' => 76, 'is_active' => true,
+                'description' => 'Създава нов лист (tab) в Google Sheets документ.',
+                'role' => 'Изходящо действие: добавя нов лист в свързан Google Sheets документ.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'sheets.create_sheet', 'requires_approval' => true, 'tool_params' => []],
+            ],
+            [
+                'icon' => '📤', 'name' => 'Качи файл (Google Drive)', 'type' => 'mcp_action', 'sort_order' => 77, 'is_active' => true,
+                'description' => 'Качва текстов файл в папка в Google Drive.',
+                'role' => 'Изходящо действие: създава файл в свързан Google Drive акаунт.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'drive.upload_file', 'requires_approval' => true, 'tool_params' => []],
+            ],
+            [
+                'icon' => '📄', 'name' => 'Създай Google Doc', 'type' => 'mcp_action', 'sort_order' => 78, 'is_active' => true,
+                'description' => 'Създава нов Google Doc с подаден текст в Google Drive.',
+                'role' => 'Изходящо действие: записва съдържанието като нов Google Doc.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'drive.create_doc', 'requires_approval' => true, 'tool_params' => []],
+            ],
+            [
+                'icon' => '🗂️', 'name' => 'Прочети файлове (Google Drive)', 'type' => 'mcp_action', 'sort_order' => 79, 'is_active' => true,
+                'description' => 'Изброява файлове в папка от Google Drive (с филтри) за по-нататъшна обработка.',
+                'role' => 'Входно действие: издърпва списък с файлове от свързан Google Drive акаунт.',
+                'system_prompt' => '', 'prompt_template' => '',
+                'config' => ['tool' => 'drive.list_files', 'requires_approval' => false, 'tool_params' => []],
+            ],
         ];
 
         foreach ($templates as $data) {
@@ -581,7 +656,7 @@ class AgentTemplateSeeder extends Seeder
             'airtable_writer' => 'qwen2.5:7b',
             'image_describer' => 'qwen2.5vl:7b',
             'image_prompt' => 'mistral',
-            'human_approval' => '', // pauses the run — no LLM involved
+            'human_approval', 'mcp_action' => '', // pause / MCP tool call — no LLM involved
             default => 'gemma4:12b',
         };
     }

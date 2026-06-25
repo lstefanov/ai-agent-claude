@@ -6,27 +6,43 @@ use App\Support\LlmContext;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Provider switch for the flow-memory embeddings: OpenAI (default) or the
- * local Ollama host (free). Every failure is non-fatal — memory must never
- * break a run, so embed() returns null and the caller skips similarity.
+ * Provider+model switch for embeddings (знанията и паметта). Every failure
+ * is non-fatal — memory/knowledge must never break a run, so embed() returns
+ * null and the caller skips similarity.
+ *
+ * Опции за провайдър (и защо):
+ *  - 'ollama' (DEFAULT) — локално, БЕЗПЛАТНО, без API ключ. Модели:
+ *      bge-m3 (default; мултиезичен, силен на български, 8k контекст),
+ *      nomic-embed-text (по-лек, по-слаб на кирилица).
+ *      Моделът трябва да е pull-нат на хоста: `ollama pull bge-m3`.
+ *  - 'gemini' — БЕЗПЛАТЕН tier през Google AI Studio ключ (GEMINI_API_KEY);
+ *      модел gemini-embedding-001 през OpenAI-compatible /embeddings.
+ *  - 'openai' — платен (центове); text-embedding-3-small е най-евтиният
+ *      и много стабилен избор, ако локалният хост не е наличен.
  *
  * Vectors from different providers/models have different dimensions and are
- * NOT comparable; providerTag() is stored next to each vector and similarity
- * only runs within one tag.
+ * NOT comparable; providerTag() ("провайдър:модел") is stored next to each
+ * vector and similarity only runs within one tag — смяна на провайдър/модел
+ * изисква re-ingest (бутонът re-ingest в UI на знанията).
  */
 class EmbeddingService
 {
+    private const PROVIDERS = ['ollama', 'openai', 'gemini'];
+
     private ?string $providerOverride = null;
 
+    private ?string $modelOverride = null;
+
     /**
-     * Clone with a pinned provider — the knowledge base can run on its own
-     * provider while flow memory keeps reading the memory config. Invalid or
-     * null overrides fall back to the default behavior.
+     * Clone with a pinned provider/model — the knowledge base can run on its
+     * own provider while flow memory keeps reading the memory config. Invalid
+     * or null overrides fall back to the default behavior.
      */
-    public function withProvider(?string $provider): static
+    public function withProvider(?string $provider, ?string $model = null): static
     {
         $clone = clone $this;
-        $clone->providerOverride = in_array($provider, ['openai', 'ollama'], true) ? $provider : null;
+        $clone->providerOverride = in_array($provider, self::PROVIDERS, true) ? $provider : null;
+        $clone->modelOverride = is_string($model) && trim($model) !== '' ? trim($model) : null;
 
         return $clone;
     }
@@ -34,16 +50,34 @@ class EmbeddingService
     public function provider(): string
     {
         $provider = $this->providerOverride
-            ?? (string) config('services.memory.embedding_provider', 'openai');
+            ?? (string) config('services.memory.embedding_provider', 'ollama');
 
-        return in_array($provider, ['openai', 'ollama'], true) ? $provider : 'openai';
+        return in_array($provider, self::PROVIDERS, true) ? $provider : 'ollama';
+    }
+
+    /** Конкретният embedding модел — override или per-provider default. */
+    public function model(): string
+    {
+        if ($this->modelOverride !== null) {
+            return $this->modelOverride;
+        }
+
+        // Без изричен override (= паметта) MEMORY_EMBEDDING_MODEL има думата.
+        $memoryModel = trim((string) config('services.memory.embedding_model', ''));
+        if ($this->providerOverride === null && $memoryModel !== '') {
+            return $memoryModel;
+        }
+
+        return match ($this->provider()) {
+            'ollama' => (string) config('services.ollama.embedding_model', 'bge-m3'),
+            'gemini' => (string) config('services.gemini.embedding_model', 'gemini-embedding-001'),
+            default => (string) config('services.openai.embedding_model', 'text-embedding-3-small'),
+        };
     }
 
     public function providerTag(): string
     {
-        return $this->provider() === 'ollama'
-            ? 'ollama:'.config('services.ollama.embedding_model', 'nomic-embed-text')
-            : 'openai:'.config('services.openai.embedding_model', 'text-embedding-3-small');
+        return $this->provider().':'.$this->model();
     }
 
     /**
@@ -52,22 +86,58 @@ class EmbeddingService
      */
     public function embed(string $text, array $context = []): ?array
     {
-        if ($this->provider() === 'openai' && empty(config('services.openai.api_key'))) {
+        $provider = $this->provider();
+
+        if (in_array($provider, ['openai', 'gemini'], true)
+            && empty(config("services.{$provider}.api_key"))) {
             return null;
         }
 
-        LlmContext::set(array_merge(['purpose' => 'embedding'], $context));
+        LlmContext::push(array_merge(['purpose' => 'embedding'], $context));
 
         try {
-            return $this->provider() === 'ollama'
-                ? app(OllamaService::class)->embed($text)
-                : app(OpenAiChatService::class)->embed($text);
+            return $provider === 'ollama'
+                ? app(OllamaService::class)->embed($text, $this->model())
+                : OpenAiChatService::for($provider)->embed($text, $this->model());
         } catch (\Throwable $e) {
-            Log::warning('[FlowMemory] Embedding failed ('.$this->providerTag().'): '.$e->getMessage());
+            Log::warning('[Embedding] Failed ('.$this->providerTag().'): '.$e->getMessage());
 
             return null;
         } finally {
-            LlmContext::clear();
+            LlmContext::pop();
+        }
+    }
+
+    /**
+     * Batch embedding — при ollama една HTTP заявка за всички текстове
+     * (N серийни мрежови round-trip-а → 1); cloud провайдърите падат на
+     * embed() в цикъл. Резултатът е успореден на $texts (null = провал).
+     *
+     * @param  array<int, string>  $texts
+     * @param  array<string, mixed>  $context
+     * @return array<int, array<int, float>|null>
+     */
+    public function embedMany(array $texts, array $context = []): array
+    {
+        $texts = array_values($texts);
+        if ($texts === []) {
+            return [];
+        }
+
+        if ($this->provider() !== 'ollama') {
+            return array_map(fn (string $text) => $this->embed($text, $context), $texts);
+        }
+
+        LlmContext::push(array_merge(['purpose' => 'embedding'], $context));
+
+        try {
+            return app(OllamaService::class)->embedMany($texts, $this->model());
+        } catch (\Throwable $e) {
+            Log::warning('[Embedding] Batch failed ('.$this->providerTag().'): '.$e->getMessage());
+
+            return array_fill(0, count($texts), null);
+        } finally {
+            LlmContext::pop();
         }
     }
 

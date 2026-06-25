@@ -166,6 +166,8 @@ class FlowBuilderController extends Controller
             'newTemplate' => (bool) $request->boolean('new_template'),
             'runUrl' => route('flow-runs.store', $flow),
             'pollUrl' => $pollRun ? route('flow-runs.poll', $pollRun) : null,
+            // Пълен лог на изпълнението (plain text) — fetched into a modal.
+            'logUrl' => $pollRun ? route('flow-runs.log', $pollRun) : null,
             // Full node payloads are fetched on demand — the poll is metadata-only.
             'nodeDetailUrlBase' => $pollRun ? url("runs/{$pollRun->id}/nodes") : null,
             // Тест на агент: poll URL for ad-hoc test tokens (POST URLs derive
@@ -190,6 +192,9 @@ class FlowBuilderController extends Controller
             'knowledgeCount' => $flow->company ? app(KnowledgeService::class)->summary($flow->company)['documents'] : 0,
             'knowledgeEnabled' => KnowledgeService::enabledForFlow($flow),
             'knowledgeToggleUrl' => route('flows.knowledge.toggle', $flow),
+            // MCP конектори: панелът на mcp_action node-а (списък активни конектори + tools).
+            'connectorsUrl' => route('companies.connectors.index', $flow->company_id),
+            'connectorsAvailableUrl' => route('companies.connectors.available', $flow->company_id),
             // Resume: present when ?run= points to a failed run so the builder
             // can offer inline editing + "Save and continue" for failed nodes.
             'resumeUrl' => ($pollRun && $pollRun->status === 'failed')

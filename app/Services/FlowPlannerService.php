@@ -12,7 +12,6 @@ use App\Support\ModelLevel;
 use App\Support\PaidModel;
 use App\Support\TypographicQuotes;
 use App\Support\UrlExtractor;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -40,7 +39,7 @@ class FlowPlannerService
 
     /** Tools a `custom` (GenericAgent) step may use. */
     private const AVAILABLE_TOOLS = [
-        'web_search' => 'Търсене в интернет (Brave) — връща топ резултати със заглавие, URL и описание',
+        'web_search' => 'Търсене в интернет (конфигурируем провайдър — Brave/Perplexity) — връща топ резултати със заглавие, URL и описание',
         'pro_search' => 'Премиум търсене в интернет (Perplexity) — по-качествени резултати, domain/регион филтри; за конкурентен анализ и дълбоко проучване',
         'people_search' => 'Търсене на хора (Perplexity) — намира професионалисти по име, позиция, компания или локация, включително публични профили',
         'scrape_page' => 'Извлича пълното текстово съдържание на ЕДНА страница по URL',
@@ -48,7 +47,7 @@ class FlowPlannerService
         'discover_urls' => 'Открива списъка от вътрешни URL адреси на даден сайт (без да ги скрейпва)',
         'extract_document' => 'Извлича текст и таблици от PDF/сканиран документ/изображение по URL (Mistral OCR) — ценоразписи, каталози, фактури',
         'google_reviews' => 'Намира Google ревюта и рейтинг за бизнес по име/локация (Google Places API)',
-        'knowledge_search' => 'Търси във вътрешната база знания на фирмата (качени документи, ценоразписи, съдържание от сайта) — фирмени цени, продукти, услуги, условия',
+        'knowledge_search' => 'Търси във вътрешната база знания на фирмата (ресурси: документи, бележки, обходени страници, натрупани факти) — ДОПЪЛНИТЕЛЕН източник за наши цени/продукти/условия; НЕ замества търсенето в интернет',
     ];
 
     /** The intent of the most recent plan() call — persisted on the flow for the plan library. */
@@ -83,24 +82,24 @@ class FlowPlannerService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium): array
+    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, ?string $personaBlock = null): array
     {
         $intent = $this->analyzeIntent($flow, $onProgress, $logToken);
         $this->lastIntent = $intent;
 
-        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken);
+        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken, personaBlock: $personaBlock);
         $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
 
         // A strong planner rarely under-produces; a single transient short plan
-        // should not abort the whole run — retry the design phase once. The
-        // retry must not repeat the request verbatim (a low-temperature model
-        // fails identically), so it carries explicit corrective feedback.
+        // should not abort the whole run — retry the design phase once. The retry
+        // must not repeat the request verbatim (a low-temperature model fails
+        // identically), so it carries explicit corrective feedback.
         if (count($agents) < 3) {
             Log::warning('[FlowPlanner] Pipeline design returned '.count($agents).' agents — retrying once.');
             $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken,
                 'ВНИМАНИЕ: предишният опит върна само '.count($agents).' агента вместо пълен pipeline. '
                 .'Върни ПЪЛНИЯ DAG с ВСИЧКИ агенти (обикновено 7+), без съкращаване и без да '
-                .'прекъсваш текстовите полета по средата.');
+                .'прекъсваш текстовите полета по средата.', personaBlock: $personaBlock);
             $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
         }
 
@@ -111,7 +110,7 @@ class FlowPlannerService
         }
 
         if (config('services.planner.critique', true)) {
-            $agents = $this->critiquePlan($flow, $intent, $plan, $level, $onProgress, $logToken);
+            $agents = $this->critiquePlan($flow, $intent, $plan, $onProgress, $logToken);
         }
 
         return $this->sanitizePlanUrls(
@@ -150,8 +149,9 @@ PROMPT;
         $user = "Описание на flow (това е ЕДИНСТВЕНИЯТ източник на задачата):\n\"{$flow->description}\"";
 
         $kb = $flow->company ? app(KnowledgeService::class)->summary($flow->company) : null;
-        if (! empty($kb['documents'])) {
-            $user .= "\nЗабележка: фирмата има вътрешна база знания ({$kb['documents']} документа).";
+        if (! empty($kb['documents']) || ! empty($kb['facts'])) {
+            $user .= "\nЗабележка: фирмата има вътрешна база знания ({$kb['documents']} ресурса, {$kb['facts']} факта) — "
+                .'тя е ДОПЪЛНИТЕЛЕН източник и не променя нуждата от външно проучване (web/crawl).';
         }
 
         $result = $this->runPhase('intent_analysis', $system, $user, $this->intentSchema(), [
@@ -218,7 +218,7 @@ PROMPT;
     // ──────────────────────────────────────────────────────────────────────
 
     /** @return array<string, mixed> */
-    private function designPipeline(Flow $flow, array $intent, ModelLevel $level, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null): array
+    private function designPipeline(Flow $flow, array $intent, ModelLevel $level, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null, ?string $personaBlock = null): array
     {
         if ($onProgress) {
             $onProgress('Генериране на агенти');
@@ -270,6 +270,11 @@ qa_custom_prompt, rationale и plan_rationale пиши на БЪЛГАРСКИ. 
     trend_researcher НИКОГА не води сайт-анализ pipeline.
 13. qa_custom_prompt: конкретна проверка за изхода НА ТОЗИ агент (2-3 изречения, български).
 14. rationale: 1 изречение ЗАЩО този агент съществува (връзка с key_tasks).
+15. БАЗА ЗНАНИЯ: knowledge_search (ако е наличен) е САМО ДОПЪЛНЕНИЕ към интернет
+    инструментите — research/extraction агентите ВИНАГИ пазят web_search/scrape_page/
+    crawl_site, независимо какво има в базата. НИКОГА не пиши prompt_template, който
+    ограничава агента да търси САМО в базата знания — релевантното фирмено знание се
+    инжектира автоматично в промпта на всеки агент.
 
 ПРИМЕРНИ ТОПОЛОГИИ (само структура; имената са ориентировъчни):
 - Доклад за сайт: site_context → [deep_researcher, review_analyzer] (паралелно) →
@@ -295,14 +300,28 @@ PROMPT;
             $user .= "\n\n".$retryFeedback;
         }
 
-        return $this->runPhase('pipeline_design', $system, $user, $this->planSchema(), [
+        // Org: персоната на асистента-автор оформя СТИЛА/ПОДХОДА на проектираните
+        // агенти (тон, акценти, предпазливост/смелост) — без да жертва покритие,
+        // структура или вярност. Празен блок (админ/не-org) → промптът е непроменен.
+        if ($personaBlock !== null && $personaBlock !== '') {
+            $user .= "\n\n[ПЕРСОНА НА АВТОРА — асистентът, който проектира и ще движи този flow]\n"
+                .$personaBlock
+                ."\n\nОтрази този характер и подход в стила и формулировките на агентите (system_prompt/"
+                .'prompt_template/role/name). Персоната оформя ПОДХОДА, не коректността — покритието на '
+                .'key_tasks, топологията на DAG-а и верността на фактите остават водещи.';
+        }
+
+        // 11 агента ≈ 8.5K изходни токена (кирилицата токенизира скъпо) —
+        // medium трябва да носи 13-14 агента с margin. Провайдерският
+        // max_output_cap клампва, ако моделът поддържа по-малко.
+        return $this->runPhase('pipeline_design', $system, $user, $this->planSchema($flow), [
             'temperature' => 0.3,
-            'num_predict' => $this->numPredictFor($intent, simple: 8000, medium: 10000, complex: 12000),
+            'num_predict' => $this->numPredictFor($intent, simple: 8000, medium: 12000, complex: 16000),
         ], $flow, $logToken);
     }
 
     /** @return array<string, mixed> */
-    private function planSchema(): array
+    private function planSchema(?Flow $flow = null): array
     {
         return [
             'type' => 'object',
@@ -310,42 +329,131 @@ PROMPT;
             'required' => ['agents', 'plan_rationale'],
             'properties' => [
                 'plan_rationale' => ['type' => 'string'],
-                'agents' => ['type' => 'array', 'items' => $this->agentSpecSchema()],
+                'agents' => ['type' => 'array', 'items' => $this->agentSpecSchema($flow)],
             ],
         ];
     }
 
-    /** @return array<string, mixed> */
-    private function agentSpecSchema(): array
+    /**
+     * Схемата е условна: полетата mcp_tool + tool_params се добавят САМО когато
+     * фирмата има активни MCP конектори. Без конектори схемата е непроменена —
+     * нормалната генерация остава байт-идентична (нулев риск).
+     *
+     * @return array<string, mixed>
+     */
+    private function agentSpecSchema(?Flow $flow = null): array
     {
+        $required = [
+            'uid', 'name', 'type', 'custom_tools', 'role', 'system_prompt',
+            'prompt_template', 'depends_on', 'provider', 'temperature',
+            'output_size', 'qa_custom_prompt', 'is_verifier', 'rationale',
+        ];
+
+        $properties = [
+            'uid' => ['type' => 'string'],
+            'name' => ['type' => 'string'],
+            'type' => ['type' => 'string'],
+            'custom_tools' => [
+                'type' => 'array',
+                'items' => ['type' => 'string', 'enum' => array_keys(self::AVAILABLE_TOOLS)],
+            ],
+            'role' => ['type' => 'string'],
+            'system_prompt' => ['type' => 'string'],
+            'prompt_template' => ['type' => 'string'],
+            'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen']],
+            'temperature' => ['type' => 'number'],
+            'output_size' => ['type' => 'string', 'enum' => ['short', 'medium', 'long', 'unlimited']],
+            'qa_custom_prompt' => ['type' => ['string', 'null']],
+            'is_verifier' => ['type' => 'boolean'],
+            'rationale' => ['type' => 'string'],
+        ];
+
+        if ($this->mcpActionsFor($flow) !== []) {
+            $properties['mcp_tool'] = ['type' => ['string', 'null']];
+            $properties['tool_params'] = [
+                'type' => 'array',
+                'items' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['key', 'value'],
+                    'properties' => ['key' => ['type' => 'string'], 'value' => ['type' => 'string']],
+                ],
+            ];
+            $required[] = 'mcp_tool';
+            $required[] = 'tool_params';
+        }
+
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => [
-                'uid', 'name', 'type', 'custom_tools', 'role', 'system_prompt',
-                'prompt_template', 'depends_on', 'provider', 'temperature',
-                'output_size', 'qa_custom_prompt', 'is_verifier', 'rationale',
-            ],
-            'properties' => [
-                'uid' => ['type' => 'string'],
-                'name' => ['type' => 'string'],
-                'type' => ['type' => 'string'],
-                'custom_tools' => [
-                    'type' => 'array',
-                    'items' => ['type' => 'string', 'enum' => array_keys(self::AVAILABLE_TOOLS)],
-                ],
-                'role' => ['type' => 'string'],
-                'system_prompt' => ['type' => 'string'],
-                'prompt_template' => ['type' => 'string'],
-                'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
-                'provider' => ['type' => 'string', 'enum' => ['ollama', 'openai', 'anthropic', 'deepseek', 'gemini', 'xai', 'qwen']],
-                'temperature' => ['type' => 'number'],
-                'output_size' => ['type' => 'string', 'enum' => ['short', 'medium', 'long', 'unlimited']],
-                'qa_custom_prompt' => ['type' => ['string', 'null']],
-                'is_verifier' => ['type' => 'boolean'],
-                'rationale' => ['type' => 'string'],
-            ],
+            'required' => $required,
+            'properties' => $properties,
         ];
+    }
+
+    /**
+     * Активните MCP действия за фирмата (connector + tool). [] ако няма
+     * конектори → планерът изобщо не вижда MCP (схема + каталог непроменени).
+     *
+     * @return array<int, array{connector_id:int, connector:string, type:string, tool:string, desc:string, writes:bool}>
+     */
+    private function mcpActionsFor(?Flow $flow): array
+    {
+        $company = $flow?->company;
+        if (! $company) {
+            return [];
+        }
+
+        $mcp = app(McpClientService::class);
+        $out = [];
+        foreach ($company->connectors()->active()->get() as $connector) {
+            foreach ($mcp->listTools($connector) as $tool) {
+                $out[] = [
+                    'connector_id' => $connector->id,
+                    'connector' => $connector->display_name ?: $connector->connector_type,
+                    'type' => $connector->connector_type,
+                    'tool' => $tool['name'],
+                    'desc' => $tool['description'] ?? '',
+                    'writes' => (bool) ($tool['writes'] ?? false),
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Планерните tool_params идват като списък {key,value} (schema-friendly) →
+     * обект key=>value за FlowNode.config.
+     *
+     * @return array<string, string>
+     */
+    private function mcpPairsToObject(mixed $pairs): array
+    {
+        $out = [];
+        foreach ((array) $pairs as $pair) {
+            if (is_array($pair) && isset($pair['key'])) {
+                $value = trim((string) ($pair['value'] ?? ''));
+                // Планерска халюцинация-плейсхолдър (<UNKNOWN>, <recipient>…) → празно,
+                // за да го попълни потребителят, вместо да изпрати буквално „<UNKNOWN>".
+                if (preg_match('/^<[^>]*>$/', $value)) {
+                    $value = '';
+                }
+                $out[(string) $pair['key']] = $value;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Дали описанието на flow-а явно иска директно изпращане без одобрение. */
+    private function describesDirectSend(Flow $flow): bool
+    {
+        return (bool) preg_match(
+            '/без\s+одобрение|без\s+потвържден|директно\s+(изпрат|публикув|запиш)|автоматично\s+(изпрат|публикув)|no\s+approval|send\s+directly/iu',
+            (string) ($flow->description ?? ''),
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -356,7 +464,7 @@ PROMPT;
      * @param  array<int, array<string, mixed>>  $plan
      * @return array<int, array<string, mixed>>
      */
-    private function critiquePlan(Flow $flow, array $intent, array $plan, ModelLevel $level, ?callable $onProgress, ?string $logToken): array
+    private function critiquePlan(Flow $flow, array $intent, array $plan, ?callable $onProgress, ?string $logToken): array
     {
         if ($onProgress) {
             $onProgress('Проверка на плана');
@@ -366,23 +474,27 @@ PROMPT;
 Ти си QA на multi-agent pipeline планове. Получаваш intent и план (agents DAG).
 Провери безмилостно:
 1. Всяка key_task от intent-а покрита ли е от агент?
-2. Зависимостите логични ли са? Има ли агент, който ползва данни, които никой preди него не събира?
+2. Зависимостите логични ли са? Има ли агент, който ползва данни, които никой преди него не събира?
 3. Има ли излишни/дублиращи се агенти или агенти извън заданието?
 4. Fan-in агентите реферират ли правилните входове ({{node:Име}} съвпада с реално name)?
 5. Промптите конкретни ли са (формат, тон, какво се запазва дословно)?
 6. Има ли точно един bg_text_corrector (предпоследен) и един qa_verifier (uid qa_main, последен)?
-7. Провайдърите спазват ли правилото за нивото на разходите: {{provider_rule}}
-Ако планът е добър → approved=true, issues=[], revised_agents=[].
-Ако има дефекти → approved=false, опиши ги в issues и върни ЦЕЛИЯ поправен план в revised_agents
-(всички агенти, не само променените).
+НЕ проверявай и НЕ сменяй provider/model на агентите — моделите се назначават
+детерминистично СЛЕД критиката и всяка твоя промяна там се отхвърля.
+Ако планът е добър → approved=true, issues=[], revised_agents=[], remove_uids=[].
+Ако има дефекти → approved=false, опиши ги в issues и върни САМО промените (diff):
+- revised_agents: ПЪЛНАТА поправена спецификация САМО на агентите, които променяш или
+  добавяш (съществуващ uid = замяна, нов uid = добавяне). НЕ преписвай непроменените
+  агенти — планът е голям и преписването му се отрязва.
+- remove_uids: uid-овете на агентите за премахване (излишни/дублиращи се).
+- Ако премахваш/преименуваш агент, върни в revised_agents и агентите, чиито depends_on
+  или {{node:Име}} реферират към него, с поправени референции.
 ЕЗИК: всички текстови полета в revised_agents (name, role, system_prompt,
 prompt_template, qa_custom_prompt, rationale) са на БЪЛГАРСКИ. Ако заварен агент е с
 английско name или role — поправи го на кратко българско (name 2–5 думи).
 КАВИЧКИ: в текстовите стойности не пиши права двойна кавичка (") и не ползвай „…“ —
 ако ти трябват кавички, пиши «…».
 PROMPT;
-
-        $system = strtr($system, ['{{provider_rule}}' => $level->promptRule()]);
 
         $user = "INTENT:\n".json_encode($intent, JSON_UNESCAPED_UNICODE)
             ."\n\nПЛАН:\n".json_encode($plan, JSON_UNESCAPED_UNICODE)
@@ -392,20 +504,22 @@ PROMPT;
         $schema = [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['approved', 'issues', 'revised_agents'],
+            'required' => ['approved', 'issues', 'revised_agents', 'remove_uids'],
             'properties' => [
                 'approved' => ['type' => 'boolean'],
                 'issues' => ['type' => 'array', 'items' => ['type' => 'string']],
                 'revised_agents' => ['type' => 'array', 'items' => $this->agentSpecSchema()],
+                'remove_uids' => ['type' => 'array', 'items' => ['type' => 'string']],
             ],
         ];
 
-        // revised_agents mirrors the full plan, so the budget must cover every
-        // agent twice (once input, once output). Scale by agent count as a floor.
+        // Diff изход: issues + само променените агенти (на 11-агентен план
+        // пълното преписване е ~8.5K токена и се срязваше на капа). Подът по
+        // agent count покрива план, в който много агенти са дефектни.
         $agentCount = count($plan['agents'] ?? []);
         $critiqueBudget = max(
             $this->numPredictFor($intent, simple: 4000, medium: 6000, complex: 8000),
-            $agentCount * 600,
+            $agentCount * 300,
         );
 
         try {
@@ -421,14 +535,69 @@ PROMPT;
         }
 
         $revised = is_array($result['revised_agents'] ?? null) ? $result['revised_agents'] : [];
+        $removeUids = array_map('strval', is_array($result['remove_uids'] ?? null) ? $result['remove_uids'] : []);
 
-        if (! ($result['approved'] ?? true) && count($revised) >= 3) {
-            Log::info('[FlowPlanner] Critique revised the plan: '.implode(' | ', $result['issues'] ?? []));
+        // Blast-radius гард: легитимното премахване е 1-2 дублиращи се агента.
+        // Критика, която иска да реже над 1/4 от плана, е объркана (виждано на
+        // живо: mini модел изтри 4/11 агента заради измислено правило) —
+        // целият diff се отхвърля, планът остава.
+        if (count($removeUids) > max(1, intdiv($agentCount, 4))) {
+            Log::warning(sprintf(
+                '[FlowPlanner] Critique wanted to remove %d/%d agents — diff rejected, keeping original plan. Issues: %s',
+                count($removeUids), $agentCount, implode(' | ', $result['issues'] ?? []),
+            ));
 
-            return $revised;
+            return $plan['agents'];
+        }
+
+        if (! ($result['approved'] ?? true) && ($revised !== [] || $removeUids !== [])) {
+            $merged = $this->mergeRevisedAgents($plan['agents'], $revised, $removeUids);
+
+            // Sanity floor: критиката не може да остави план без съдържание.
+            if (count($merged) >= 3) {
+                Log::info('[FlowPlanner] Critique revised the plan: '.implode(' | ', $result['issues'] ?? []));
+
+                return $merged;
+            }
         }
 
         return $plan['agents'];
+    }
+
+    /**
+     * Apply the critique diff deterministically: existing uid → replace in
+     * place, new uid → append, remove_uids → drop. Dangling depends_on left
+     * by a removal are pruned later by AgentGeneratorService (references are
+     * validated against existing uids).
+     *
+     * @param  array<int, array<string, mixed>>  $agents
+     * @param  array<int, array<string, mixed>>  $revised
+     * @param  array<int, string>  $removeUids
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeRevisedAgents(array $agents, array $revised, array $removeUids): array
+    {
+        $byUid = [];
+        foreach ($agents as $i => $agent) {
+            $byUid[(string) ($agent['uid'] ?? 'idx_'.$i)] = $agent;
+        }
+
+        foreach ($revised as $agent) {
+            if (! is_array($agent)) {
+                continue;
+            }
+            $uid = (string) ($agent['uid'] ?? '');
+            if ($uid === '') {
+                continue;
+            }
+            $byUid[$uid] = $agent;
+        }
+
+        foreach ($removeUids as $uid) {
+            unset($byUid[$uid]);
+        }
+
+        return array_values($byUid);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -619,6 +788,25 @@ PROMPT;
                     array_map('strval', (array) ($spec['custom_tools'] ?? [])),
                     $allowed,
                 ));
+            }
+
+            // mcp_action: резолвираме конектора по namespace-а на tool-а
+            // (gmail.* → gmail, sheets.* → google_sheets) към активен конектор на
+            // фирмата. Параметрите идват като {key,value} двойки → обект. Без
+            // конектор → config.connector_id=null (генераторът ще го отсее).
+            if ($type === 'mcp_action') {
+                $mcpTool = (string) ($spec['mcp_tool'] ?? '');
+                $ns = explode('.', $mcpTool)[0];
+                $connectorType = config("mcp.tool_namespaces.$ns", $ns);
+                $connector = $flow->company?->connectors()->active()
+                    ->where('connector_type', $connectorType)->first();
+                $config['connector_id'] = $connector?->id;
+                $config['tool'] = $mcpTool;
+                $config['tool_params'] = $this->mcpPairsToObject($spec['tool_params'] ?? []);
+                // Write tool → одобрение, ОСВЕН ако описанието иска директно изпращане
+                // (потребителски опт-аут; генераторът уважава false).
+                $isWrite = in_array($mcpTool, (array) config('mcp.write_tools', []), true);
+                $config['requires_approval'] = $isWrite && ! $this->describesDirectSend($flow);
             }
 
             // Site-wide research gets the proven map-reduce treatment by default.
@@ -826,21 +1014,37 @@ PROMPT;
             $lines[] = "- {$name} → {$desc}";
         }
 
+        // MCP ДЕЙСТВИЯ — реални операции в свързаните системи на фирмата. Показват
+        // се само когато има активни конектори (иначе планерът не вижда mcp_action).
+        $mcpActions = $this->mcpActionsFor($flow);
+        if ($mcpActions !== []) {
+            $lines[] = '';
+            $lines[] = 'НАЛИЧНИ MCP ДЕЙСТВИЯ (реални системи — type="mcp_action"):';
+            foreach ($mcpActions as $a) {
+                $mark = $a['writes'] ? ' — WRITE: ИЗИСКВА human_approval ПРЕДИ него' : ' (read-only)';
+                $lines[] = "- {$a['tool']} («{$a['connector']}») → {$a['desc']}{$mark}";
+            }
+            $lines[] = 'Добави mcp_action агент САМО когато заданието явно иска действие в такава система '
+                .'(изпрати/запиши/публикувай/прочети). Полета: type="mcp_action", mcp_tool=точното име на '
+                .'действието по-горе, tool_params=списък {key,value}. За да вмъкнеш изхода на ПРЕДХОДЕН агент '
+                .'ползвай ТОЧНОТО МУ ИМЕ (name): {{agent.<точното name на агента>.output}} — НЕ uid. '
+                .'За вход от потребителя: {{flow.input.X}}. НИКОГА не измисляй стойности (получател/имейл/линк): '
+                .'ако не е подаден, остави полето ПРАЗНО (потребителят ще го попълни). За WRITE действие '
+                .'ЗАДЪЛЖИТЕЛНО добави отделен агент type="human_approval" и сложи неговия uid в depends_on на '
+                .'mcp_action. mcp_action не пише текст — само изпълнява действието.';
+        }
+
         if ($kbReady) {
             $folders = empty($kb['folders']) ? '' : ' (папки: '.implode(', ', $kb['folders']).')';
-            $titles = empty($kb['titles']) ? '' : ' Примерни документи: «'.implode('», «', array_slice($kb['titles'], 0, 5)).'».';
+            $titles = empty($kb['titles']) ? '' : ' Примерни ресурси: «'.implode('», «', array_slice($kb['titles'], 0, 5)).'».';
             $lines[] = '';
-            $lines[] = "БАЗА ЗНАНИЯ НА ФИРМАТА: {$kb['documents']} документа, {$kb['chunks']} откъса{$folders}.{$titles}";
-            $lines[] = 'Когато заданието иска фирмени факти (наши цени/продукти/услуги/условия), добави агент '
-                .'type=custom с custom_tools=["knowledge_search"] вместо да търси в интернет.';
-
-            // Свеж сайт в базата → не пращай агенти да обхождат СОБСТВЕНИЯ сайт.
-            if (($kb['by_source']['site'] ?? 0) > 0) {
-                $syncedAt = $flow?->company?->settings['knowledge']['site_synced_at'] ?? null;
-                $synced = $syncedAt ? ' (синхронизиран '.Carbon::parse($syncedAt)->format('d.m.Y').')' : '';
-                $lines[] = "САЙТЪТ НА ФИРМАТА е вече в базата знания{$synced}. За факти от СОБСТВЕНИЯ сайт "
-                    .'предпочитай knowledge_search пред crawl_site/scrape_page — по-бързо и без повторно обхождане.';
-            }
+            $lines[] = "БАЗА ЗНАНИЯ НА ФИРМАТА: {$kb['documents']} ресурса, {$kb['facts']} факта, {$kb['chunks']} откъса{$folders}.{$titles}";
+            $lines[] = 'Знанието е ДОПЪЛНИТЕЛЕН източник, НЕ замяна на интернет: релевантните факти се '
+                .'инжектират АВТОМАТИЧНО в промпта на всеки съдържателен агент, а custom агент може да '
+                .'добави knowledge_search КЪМ другите си tools за наши цени/продукти/условия.';
+            $lines[] = 'ЗАБРАНЕНО: агент, чийто промпт казва да търси САМО в базата знания, или '
+                .'research/extraction агент само с knowledge_search без интернет инструменти '
+                .'(web_search/scrape_page/crawl_site) — независимо какво вече има в базата.';
         }
 
         $models = LlmModel::where('is_available', true)
@@ -929,17 +1133,31 @@ PROMPT;
         ]);
         $startMs = (int) (microtime(true) * 1000);
 
+        // Planning normally owns the top-level frame, but an adaptive REVISION runs
+        // nested inside a node's execution — restore the enclosing node frame rather
+        // than clearing it, so the rest of that node's calls stay attributed.
+        $prevCtx = LlmContext::get();
+        $restoreCtx = static function () use ($prevCtx): void {
+            $prevCtx === [] ? LlmContext::clear() : LlmContext::set($prevCtx);
+        };
+
         LlmContext::set([
             'purpose' => 'planner:'.$phase,
             'session_id' => $logToken,
             'company_id' => $flow->company_id ?? $flow->company?->id,
             'flow_id' => $flow->id,
+            // Билинг-атрибуция: наследяваме резервацията от обгръщащата рамка (org
+            // генерация), за да влязат planner редовете под нея (§0.5.6).
+            'context_type' => $prevCtx['context_type'] ?? null,
+            'subject_type' => $prevCtx['subject_type'] ?? null,
+            'subject_id' => $prevCtx['subject_id'] ?? null,
+            'reservation_id' => $prevCtx['reservation_id'] ?? null,
         ]);
 
         try {
             $result = $this->generator->chatJson($system, $user, $phase, $schema, $options);
         } catch (Throwable $e) {
-            LlmContext::clear();
+            $restoreCtx();
             $log->update(array_merge(LlmUsage::take(), [
                 'status' => 'failed',
                 'error' => $e->getMessage(),
@@ -949,7 +1167,7 @@ PROMPT;
             throw $e;
         }
 
-        LlmContext::clear();
+        $restoreCtx();
 
         $parsed = $result['agents'] ?? $result['revised_agents'] ?? $result;
 
