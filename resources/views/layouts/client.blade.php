@@ -29,14 +29,15 @@
     {{-- Navigation --}}
     @php
         $navItems = [
-            'Табло'       => ['route' => 'client.dashboard',   'match' => 'client.dashboard'],
-            'Моите Flows' => ['route' => 'client.flows.index', 'match' => 'client.flows.*'],
+            'Организация'        => ['route' => 'client.org.start',   'match' => 'client.org.*'],
+            'Моите Flows'        => ['route' => 'client.flows.index', 'match' => 'client.flows.*'],
+            'Табло'              => ['route' => 'client.dashboard',   'match' => 'client.dashboard'],
         ];
     @endphp
     <nav class="bg-surface border-b border-line sticky top-0 z-40" x-data="{ open: false, menu: false }">
         <div class="max-w-7xl mx-auto px-6 flex items-stretch justify-between h-16">
             <div class="flex items-stretch gap-6">
-                <a href="{{ route('client.dashboard') }}"
+                <a href="{{ route('client.home') }}"
                    class="flex items-center gap-2 text-primary font-display font-bold text-lg tracking-tight hover:text-primary-hover transition rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
                     <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
                     FlowAI
@@ -59,9 +60,9 @@
 
             {{-- Right: изпъкващ CTA + фирма dropdown --}}
             <div class="flex items-center gap-3">
-                <a href="{{ route('client.flows.create') }}"
+                <a href="{{ route('client.org.tasks.new') }}"
                    class="hidden sm:inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold rounded-md bg-primary text-primary-fg hover:bg-primary-hover shadow-card transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-                    <x-icon name="plus" size="4" /> Създай нов Flow
+                    <x-icon name="plus" size="4" /> Нова задача
                 </a>
 
                 <div class="relative hidden md:block" @click.outside="menu = false">
@@ -114,7 +115,7 @@
                         {{ $label }}
                     </a>
                 @endforeach
-                <a href="{{ route('client.flows.create') }}" class="block px-3 py-2 rounded-md text-sm font-semibold bg-primary text-primary-fg">＋ Създай нов Flow</a>
+                <a href="{{ route('client.org.tasks.new') }}" class="block px-3 py-2 rounded-md text-sm font-semibold bg-primary text-primary-fg">＋ Нова задача</a>
                 <form action="{{ route('client.logout') }}" method="POST" class="pt-1">
                     @csrf
                     <button type="submit" class="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-danger hover:bg-danger-soft transition">Изход</button>

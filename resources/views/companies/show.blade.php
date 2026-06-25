@@ -25,9 +25,24 @@
     </div>
 </div>
 
+{{-- Вход към AI организацията: порталът е на отделен субдомейн с отделна сесия,
+     затова подписан auto-login като owner → право в org онбординга/roster-а. --}}
+<a href="{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('client.enter', now()->addMinutes(30), ['company' => $company->id]) }}"
+   target="_blank" rel="noopener"
+   class="group flex items-center gap-4 bg-primary text-primary-fg rounded-xl px-6 py-4 mb-6 hover:bg-primary-hover shadow-card transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+    <span class="flex items-center justify-center w-11 h-11 rounded-lg bg-white/15 shrink-0">
+        <x-icon name="users" size="6" />
+    </span>
+    <span class="min-w-0">
+        <span class="block font-display font-semibold text-base">Отвори организацията</span>
+        <span class="block text-sm text-primary-fg/80">Управител, директори, асистенти и задачи в клиентския портал →</span>
+    </span>
+    <x-icon name="arrow-right" size="5" class="ml-auto opacity-80 group-hover:translate-x-0.5 transition" />
+</a>
+
 @if($company->description)
 <div class="bg-surface border border-line rounded-xl px-6 py-4 mb-6">
-    <p class="text-sm text-muted max-w-prose">{{ $company->description }}</p>
+    <p class="text-sm text-muted">{{ $company->description }}</p>
 </div>
 @endif
 

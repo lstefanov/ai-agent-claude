@@ -14,7 +14,7 @@ class AuthController extends Controller
     public function showLogin()
     {
         if (session('client_company_id')) {
-            return redirect()->route('client.dashboard');
+            return redirect()->route('client.home');
         }
 
         $companies = Company::orderBy('name')->get(['id', 'name']);
@@ -51,7 +51,27 @@ class AuthController extends Controller
             'client_user_id' => (int) $validated['user_id'],
         ]);
 
-        return redirect()->route('client.dashboard');
+        return redirect()->route('client.home');
+    }
+
+    /**
+     * Подписан вход от админа: сетва клиентската сесия като owner на фирмата и влиза в
+     * org онбординга (client.home → casting/roster според състоянието). Подписът +
+     * изтичането пазят URL-а; auth моделът е същият passwordless preview вход.
+     */
+    public function enter(Company $company)
+    {
+        $owner = $company->users()->where('role', 'owner')->where('is_active', true)->first()
+            ?? $company->users()->where('is_active', true)->first();
+
+        abort_unless($owner, 404, 'Фирмата няма активен потребител.');
+
+        session([
+            'client_company_id' => $company->id,
+            'client_user_id' => $owner->id,
+        ]);
+
+        return redirect()->route('client.home');
     }
 
     public function logout()

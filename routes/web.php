@@ -248,4 +248,7 @@ Route::middleware('is_admin')->prefix('admin')->name('admin.')->group(function (
 // Home
 Route::get('/', [CompanyController::class, 'index'])->name('home');
 
+// Stripe webhook (§6.5) — извън client_auth, CSRF-exempt, валидиран по подпис.
+Route::post('stripe/webhook', [\App\Http\Controllers\Client\Org\BillingController::class, 'webhook'])->name('stripe.webhook');
+
 }); // край на основния домейн (APP_DOMAIN) group

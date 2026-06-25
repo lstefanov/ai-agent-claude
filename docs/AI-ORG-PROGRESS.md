@@ -6,15 +6,15 @@
 
 ## Фази (изпълни в този ред)
 
-- [ ] **Фаза 0** — Домейн модел + seed библиотеки (org-blueprints / persona-archetypes / plans) + билинг скелет
-- [ ] **Фаза 0.5** — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
-- [ ] **Фаза 1** — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
-- [ ] **Фаза 2** — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
-- [ ] **Фаза 3** — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)**
-- [ ] **Фаза 4** — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
-- [ ] **Фаза 5** — `act` задачи през конектори + интеграции рейл + политики на одобрение
-- [ ] **Фаза 6** — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
-- [ ] **Фаза 7** — Жива организация: периодично ревю, рефлексия/памет per член, динамично наемане/уволнение, хроника
+- [x] **Фаза 0** ✅ — Домейн модел + seed библиотеки (org-blueprints / persona-archetypes / plans) + билинг скелет
+- [x] **Фаза 0.5** ✅ — Изпълнение и билинг foundation (метеринг върху `llm_requests`, кредитна резервация+идемпотентност, persona injection в runtime, generation state machine, Decision Box адаптер, member memory по `org_member_id`, code-owned keys, avatar overrides, org queue)
+- [x] **Фаза 1** ✅ — Casting на Управителя + Intake + Проучване + Интервю → Бизнес профил
+- [x] **Фаза 2** ✅ — Дизайн на екипа с персони + Skill Tree/Roster UI → материализация
+- [x] **Фаза 3** ✅ — Задачи = flows; генериране per асистент; ръчно пускане; Текущ поток **(край на MVP-демо)** 🎉
+- [x] **Фаза 4** ✅ — Директор-агент (рутиране/ревю/отчети/препоръки) + график + Кутия за решения + чат с членове
+- [x] **Фаза 5** ✅ — `act` задачи през конектори + интеграции рейл + политики на одобрение
+- [x] **Фаза 6** ✅ — Stripe drop-in (заменя админ top-up) + планове/overage UI + отключване по план
+- [x] **Фаза 7** ✅ — Жива организация: периодично ревю, рефлексия/памет per член, динамично наемане/уволнение, хроника
 
 ## Проверка след всяка фаза (без тестове)
 
@@ -22,8 +22,77 @@
 
 ## Решения / бележки (Claude Code пише тук)
 
-- …
+**Фаза 0 (2026-06-24):**
+- 19 миграции `2026_06_24_100001..100019` (18 нови таблици + колона `companies.active_org_version_id`). FK ред: `credit_reservations` ПРЕДИ `credit_ledger` (ledger.reservation_id сочи натам).
+- `credit_ledger` + `org_events` са append-only (`const UPDATED_AT = null`, само `created_at`).
+- `OrgMember::allocateKey` = детерминистичен slug + суфикс `-2,-3…`; manager → фиксиран ключ `manager`. Никога LLM.
+- `AssistantTask::effectiveStarTier()` = `star_tier ?? member.default_star_tier`, после cap по `Plan::max_star_tier`. Добавени `ModelLevel::rank()/cappedAt()` (additive, non-breaking).
+- Планове: Starter=medium(1000кр/$29), Professional=high(5000/$99), Business=ultra(20000/$299), Enterprise=god(100000/$999). Стойностите са разумен default — подлежат на бизнес-настройка.
+- `.env`: `COMFYUI_PORTRAIT_*` са **коментирани** (празен env var презаписва config default-а с '' → коментар = важи face-friendly default-ът).
+- Проверка зелена: `migrate:fresh --seed` чисто; `Plan::count()=4`, fitness blueprint + 8 архетипа + 3 blueprints; tinker smoke (персона/плейсмънти/наследяване+cap/повишение→event/cascade) минава; `pint` чисто; `about`/`route:list` OK; логове чисти. (UI/`npm build` неприложимо — Фаза 0 е само схема.)
+
+**Фаза 0.5 (2026-06-24):**
+- Метеринг: миграция `100020` добавя `context_type/subject/reservation_id` към `llm_requests`; `LlmRequestRecorder` ги стампва от ambient `LlmContext`. `BillableUnit` = token формула (`base(level)×ceil(completion/1k)`) + flat config цени.
+- `CreditMeterService` (reserve→settle/refund/topup): атомарен conditional UPDATE (`balance >= ?`), идемпотентност по unique RESERVE ключ + operation-scoped ledger ключове (`{res}:settle/refund`). Тествано: atomic decrement, double-reserve no-op, settle+refund остатъка, double-settle no-op, full refund, topup, insufficient→`InsufficientCreditsException`.
+- `PaymentProvider` (binding → `AdminSimulatedPaymentProvider` в AppServiceProvider) + `BillingService::adminTopUp/grantMonthly`. Без Stripe.
+- Persona injection в `NodeExecutorService::runOnce` (след знание): `PersonaService::compileSystemPrompt`, кеширан per run; `shouldInjectPersona` изключва `qa_verifier/bg_text_corrector/translator/human_approval/mcp_action/decision` (под на компетентност). Не-org flow → no-op.
+- Билинг-атрибуция в изпълнението: node LLM повикванията четат `credit_*` от `flowRun.context`; `GraphFlowExecutor::finalize()` обвива FinalComposer в резервацията + `settleRunReservation` (success); `fail()` settle+refund (терминал, вкл. reject). `FlowPlannerService::runPhase` наследява `reservation_id` (generation атрибуция).
+- Generation state machine: `AgentGenerationLauncher::launch(+assistantTaskId)`; `GenerateAgentsCommand` callback връзва `flow_id`+`ready`/`failed` + settle/refund generation резервацията. `TaskRunService` (споделен от Фаза 3/4): `requestRun` (ready→reserve task_run+пусни; иначе reserve generation+generating+run_after_generate), `launchReadyRun`, `autoRunAfterGenerate`.
+- `ApprovalService::settle` = единният resume-after-approval boundary; `FlowRunController::approval` → тънка обвивка. `DecisionBoxService` агрегира `org_proposals(pending)` + паузирани runs; optimistic concurrency (остаряла `base_org_version_id` → `superseded`). Тествано.
+- Queue: `supervisor-org` (queue `org`, timeout 1200, tries 1) + `redis:org` wait; `QueueHeartbeat::orgAlive()` писан от `SupervisorLooped`. Потвърдено: трите супервайзора вървят, `orgAlive`=YES.
+
+**Фаза 1 (2026-06-24):**
+- `PersonaService` разширен: `seedTraitsFromDemographics` (24г→+риск/+креативност; 59г→+прецизност), `deriveKnobs` (temperature/star_tier-hint/approval), `attachTo` (upsert + regen на портрета само при смяна на gender/age/ethnicity), `archetypes`. Тествано: 20-vs-60 различни черти; regen-guard.
+- `AvatarService` (преизползва `ComfyUIService`): `portraitPrompt` (детерминистичен, само демография — без role/tone), `seedFor` (стабилен demography-hash), `generateFor` (overrides workflow → стабилен файл `avatars/member_{id}.png`; спрян ComfyUI → pending+инициали), `redispatchPending`. `ComfyUIService::buildWorkflow(+$overrides)` — обратно-съвместимо (image-агентите непокътнати).
+- `BusinessProfilerService` (services, не директни HTTP): `research` (сайт/Brave/Places, мек деградейшън) + `analyze` (Ollama синтез → анализ+pain_points). `OrgInterviewService` (по модела на wizard-а: chatJson + normalize + forceReady).
+- Jobs (`org` queue): `ResearchBusinessJob`, `OrgInterviewTurnJob`, `GenerateMemberAvatarJob` — best-effort билинг за онбординга.
+- UI: routes `org/*` в `routes/client.php`; nav „Моята организация"; контролери `Client\Org\{Onboarding,Interview}`; views `casting/research/interview` (token-poll чат като wizard-а). Всички рендерват валиден HTML; `npm build` минава.
+- **Runtime verify:** реален `ResearchBusinessJob` мина end-to-end през `supervisor-org` (Ollama) → анализ 894 знака, 6 болки, sources=website,web_search,google_reviews.
+- **Решение (§15 ambiguity — кой плаща онбординга):** онбордингът (research/interview) е **best-effort billable** — таксува при наличен баланс, иначе продължава безплатно (нова фирма се онбордва без top-up); само task runs + generation са hard-gated.
+- Браузър click-through изисква MAMP поддомейна `clients.flowai.local.com` + Ollama — проверено е чрез server-side render + реален job, не през хедлес браузър.
+
+**Фаза 2 (2026-06-24):**
+- `OrgPlannerService` (ПЛАНЕРЪТ ПРЕДЛАГА, КОДЪТ ГАРАНТИРА): `proposeOrganization` (закотвен на blueprint скелет + LLM персони/куестове, fallback при слаб модел), `finalizeOrganization` (валиден директор→асистент граф без сираци, legal act_mode/trigger, deriveKnobs, тавани), `materialize` (by-id реконсилация, нов OrgVersion + плейсмънти + персони upsert + задачи + org_events + active_org_version_id; retire на липсващите).
+- `OrgBlueprintLibraryService` (`bestMatch` по вертикал/proven, `snapshot`, `markProven`).
+- `ProposeOrganizationJob` (`org` queue, best-effort org_planning билинг). UI: `design-review` (auto-propose→poll→редактируем екип→одобри), `roster`, `skill-tree`, `member` (Карта на героя: ниво/повиши отдел/регенерирай аватар/per-task tier), `_persona-card` + `_lens-tabs`; контролери `Design/OrgGraph/Member/Persona/AssistantTask`.
+- **Char палитра safelist** в `app.css` (`@source inline(...)` за 7-те тона × bg/soft/strong/ring) — иначе динамичните `bg-char-{{ $c }}` се purge-ват. `npm build`=84KB OK.
+- **Runtime verify:** реален `proposeOrganization` (Ollama) → 6 директори/4 асистенти/3 задачи/2 куеста с LLM персони; `materialize` → version+плейсмънти+персони+задачи+4 hire events+active; **re-materialize пази члена по immutable id** (kept reused, dropped→retired); 3 лещи + design-review рендерват валиден HTML (звездите отразяват tier). pint/view:cache чисти.
+
+**Фаза 3 (2026-06-24) — MVP-демо завършено 🎉:**
+- `TaskRunService::generate` (само генерация, без авто-run) добавен; `requestRun`/`launchReadyRun` (Фаза 0.5) са ядрото. `AssistantTaskController` разширен: `generate` (launcher на **effective** ниво), `genStatus` (поллинг), `run` (wallet гейт → 402 при недостиг; org-контекст FlowRun). Никаква дублирана генерационна логика, никакво синхронно чакане.
+- `OrgGraphController::live` + latest-run в графа; `QuestController` (дневник). UI: `quests`/`live` views + 3-та леща в `_lens-tabs`; Картата на героя получи „Генерирай"/„Изпълни" бутони per задача (поллинг → Резултат екран).
+- tier_stale lazy re-pin е **Фаза 6** (колоната се добавя там); тук effectiveStarTier() се подава на генерацията.
+- **Runtime verify (пълен MVP happy-path):** материализиран екип → задача генерирана през реалния launcher (Ollama, status→ready, flow_id) → `launchReadyRun` (reservation+org_member context) → FlowRun изпълнен през Horizon (Ollama) → **completed, 649 знака output**. **Персона инжекция:** [ПЕРСОНА] блок в 4-те content възела, НЕ в `bg_text_corrector` (под на компетентност ✓). **Билинг:** task_run reservation `settled` (reserve→settle→refund, actual 13 < estimate 30 → refund на остатъка), 12 llm_requests атрибутирани, wallet дебитиран net actual. Всичко реконсилира.
+- **MVP (Фази 0–3) end-to-end:** наеми Управител → проучен → интервюиран → екип с персони/skill tree → одобрен (материализиран) → задача → резултат в браузъра. ✅
+
+**Фаза 4 (2026-06-24):**
+- `DirectorAgentService::tick` (чете състояние → пуска одобрени задачи на отдела през `TaskRunService` lazy-gen+wallet → отчет през персоната → `org_event` review) + `proposeDecision` (durable `org_proposal`). Персоната ОБАГРЯ преценката, не компетентността.
+- График: `org:director-ticks` команда (без флаг → due scheduled задачи по cron → `ScheduledTaskJob`; `--ticks` → `DirectorTickJob` за активните директори). Регистрирана: everyMinute + hourly. `ScheduledTaskJob` пази act hard gate (§B2).
+- Кутия за решения: `DecisionController` + `decisions` view над `DecisionBoxService` (агрегатор от 0.5; superseded guard). `MemberChatService` (персона-консистентен, scope по роля, KnowledgeService, може да предложи действие → `org_proposal`) + `MemberChatTurnJob` (`org` queue, best-effort member_chat билинг) + `ChatController` + `chat` view (аватар в хедъра/балончетата). Ръчен tick + „Чат" бутони на Картата на героя; Решения линк в лещите.
+- **Runtime verify:** директорски tick → 181-зн. отчет през персоната + `review` event + инициирана генерация на задача; чат с асистент → 272-зн. персона-консистентен отговор (Ollama); DecisionBox агрегира предложение (count=1) + `approveProposal` → ok + materialize=task + `approval` event. pint/views/build чисти; 35 org routes.
+
+**Фаза 5 (2026-06-24):**
+- **act HARD GATE (§B2)** в `NodeExecutorService::executeMcpAction`: org flow (има `assistant_task_id`) + `ORG_ACT_ENABLED=false` → „чернова на действието" (tool/аргументи/очакван ефект), без реален ефект и **без `connector_tool_logs` ред**. Не-org admin flows непокътнати. Тествано: false→draft (`mcp:draft`, no log), true→реален път (не draft).
+- Интеграции рейл: `IntegrationsController` + `integrations` view (конектори + статус + act задачи + act-гейт банер); линк в лещите.
+- Преизползва изцяло MCP слоя: `human_approval` пред write tools го вмъква съществуващият планер (`FlowPlannerService` gateWriteMcpActions — НЕ преписан); одобрението от Кутията продължава run-а през `ApprovalService` (Фаза 4). 
+- **Решение:** `approve_first_then_auto` per-connector skip е бъдещо подобрение; засега write действията винаги гейтват (approve_each, най-безопасно под preview без реален auth). Реалните write-ове чакат реален auth (Фаза 6).
+
+**Фаза 6 (2026-06-24):**
+- `tier_stale` колона (#21) + `AssistantTask` cast; `OrgMember::setDefaultStarTier` маркира задачите БЕЗ override като stale (override остава фиксиран). `TaskRunService::repinToEffectiveTier` — lazy server-side re-pin (assignModelsForLevel → flow_nodes.model) при следващо пускане, после `tier_stale=false`.
+- `CreditMeterService::reserve` overage гард: недостиг + активен абонамент + `overage_enabled` → безусловен дебит (реален дълг) + `overage_used`; иначе блок.
+- `StripePaymentProvider` (Http, без SDK) — drop-in; `AppServiceProvider` binding: Stripe при зададен `STRIPE_SECRET`, иначе AdminSimulated. `BillingService::subscribe/topUp/handleWebhook`. `BillingController` + `billing` view (баланс/планове/top-up/ledger) + `stripe/webhook` route (CSRF-exempt, HMAC подпис). Кредити линк в лещите.
+- **Runtime verify:** binding=AdminSimulated (без ключове); promote → само inherited задачи tier_stale; effectiveStarTier отразява новото ниво; subscribe starter → active + 1000 кредита grant; god override + starter cap → effective=medium; topUp 1000→1500; overage без абонамент → blocked, с абонамент → reserved (баланс −40, overage_used 50). pint/views/build чисти; 4 billing/stripe routes.
+- **Бележка:** реалните Stripe write-ове чакат `STRIPE_*` ключове + реален (парола) auth (задача на собственика). Сега всичко работи през AdminSimulated.
+
+**Фаза 7 (2026-06-24) — целият план завършен 🎉:**
+- `OrgReviewService::review` (KPI/памет/болки → предложения през персоната на Управителя → Кутията; детерминистичен под — винаги ≥1 действено предложение при болки) + `OrgReviewJob` (`org` queue) + `org:review` команда (седмично schedule).
+- `MemberMemoryService` — owner-scope памет per ЧЛЕН (през задачите→flows на стабилния член, преживява реорганизация; lessons/runStats/reflectionBlock). Закачена в `MemberChatService` (членовете „помнят").
+- `OrgMutationService` — динамично hire/fire: snapshot на активната версия → +/- член → `materialize` (by-id реконсилация пази персона/чат/памет/задачи на оцелелите). Закачено в `DecisionController` (hire/fire/task материализация при одобрение).
+- Хроника (`OrgGraphController::chronicle` + view) — `org_events` timeline; ръчно „Пусни ревю сега". markProven: успешен org run → `learnFromVersion` (proven blueprint) в `GraphFlowExecutor::finalize`.
+- §7.5 (персона демография→аватар regen, име/тон→не) вече в `PersonaService::attachTo` (Фаза 1, проверено).
+- **Runtime verify:** review → ≥1 предложение в Кутията; hire → нова версия +1 член + hire event; fire → член retired, оцелелите пазят immutable id; chronicle 12 события; memory query OK. pint/views/build чисти.
 
 ## ⚠ Решения за човек / блокери (липсващи credentials/услуги)
 
-- …
+- ~~Уеб проучване (Фаза 1) деградира~~ → **ОТМЕНЕНО (2026-06-24):** грешен env var в pre-flight. Истинският ключ е `BRAVE_SEARCH_API_KEY` (set) + Crawl4AI върви на :8189 + Google Places set. Реалният research job ползва и трите източника — пълно проучване работи, без деградация.
+- **Stripe (Фаза 6):** `STRIPE_*` празни — по план; ползва се `AdminSimulatedPaymentProvider`. Реален (парола) auth = задача на собственика, предусловие за Фаза 6.

@@ -17,9 +17,9 @@ class AgentTemplate extends Model
 
     protected $casts = [
         'capabilities' => 'array',
-        'config'       => 'array',
-        'is_verifier'  => 'boolean',
-        'is_active'    => 'boolean',
+        'config' => 'array',
+        'is_verifier' => 'boolean',
+        'is_active' => 'boolean',
     ];
 
     public function company(): BelongsTo

@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ClientWizardTurnJob;
+use App\Models\AssistantTask;
 use App\Models\Company;
 use App\Models\FlowDraft;
 use App\Models\FlowDraftMessage;
-use App\Services\AgentGenerationLauncher;
+use App\Models\OrgMember;
 use App\Services\ClientFlowWizardService;
 use App\Services\FlowDescriptionImprover;
-use App\Support\ModelLevel;
+use App\Services\Org\AssistantRouterService;
+use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\TaskRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -167,8 +170,11 @@ class FlowWizardController extends Controller
         ]);
     }
 
-    /** „Готово, Генерирай" → създава Flow и пуска генерацията на агенти. */
-    public function build(Request $request, FlowDraft $draft, AgentGenerationLauncher $launcher): JsonResponse
+    /**
+     * „Готово, Генерирай" → БЕЗ плаващи flows: Управителят възлага flow-а на най-подходящия
+     * асистент, който го генерира по своята персона (org=основното изживяване).
+     */
+    public function build(Request $request, FlowDraft $draft, AssistantRouterService $router, TaskRunService $runner): JsonResponse
     {
         $this->authorizeCompany($draft->company_id);
 
@@ -187,30 +193,59 @@ class FlowWizardController extends Controller
 
         $company = Company::findOrFail($draft->company_id);
 
-        $flow = $company->flows()->create([
-            'name' => $title,
+        // Възлагане на асистент (auto-routing от Управителя). Без екип → към онбординга.
+        $routed = $router->route($company, $description);
+        if (! $routed) {
+            return response()->json([
+                'message' => 'Първо създай организация с поне един асистент, който да поеме flow-а.',
+                'redirect_url' => route('client.org.start'),
+            ], 422);
+        }
+
+        $member = OrgMember::with('persona')->find($routed['member_id']);
+        if (! $member) {
+            return response()->json(['message' => 'Асистентът не е намерен.'], 422);
+        }
+
+        $task = AssistantTask::create([
+            'org_member_id' => $member->id,
+            'current_director_member_id' => $member->currentPlacement()?->director?->orgMember?->id,
+            'title' => $title,
             'description' => $description,
-            'status' => 'draft',
+            'trigger' => 'manual',
+            'act_mode' => 'draft',
+            'status' => 'proposed',
         ]);
 
-        $level = $this->resolveLevel($request->input('speed'), $company);
-        // A4: клиентските flows минават само с финален QA gate (без междинни).
-        // persist: клиентът няма builder — фоновата команда сама записва активната
-        // версия (иначе flow-ът остава без агенти/шаблон), и маркира черновата готова.
-        $token = $launcher->launch($company->id, $flow->id, $title, $description, $level, [], minimalQa: true, persist: true, draftId: $draft->id);
+        try {
+            // Клиентските flows минават само с финален QA gate (минимален) — запазено.
+            $gen = $runner->generate($task, runAfterGenerate: false, minimalQa: true);
+        } catch (InsufficientCreditsException $e) {
+            $task->delete();
+
+            return response()->json([
+                'message' => 'Недостатъчно кредити за генерация.',
+                'needed' => $e->needed,
+                'available' => $e->available,
+                'upsell' => true,
+            ], 402);
+        }
+
+        $task->refresh();
 
         $draft->update([
             'status' => 'building',
-            'flow_id' => $flow->id,
+            'flow_id' => $task->flow_id,
             'title' => $title,
             'description' => $description,
         ]);
 
         return response()->json([
-            'token' => $token,
-            'flow_id' => $flow->id,
-            'status_url' => route('client.wizard.generation-status', $token),
-            'redirect_url' => route('client.flows.show', $flow),
+            'token' => $gen['token'],
+            'flow_id' => $task->flow_id,
+            'assistant' => $member->persona->name ?? $member->display_name,
+            'status_url' => route('client.wizard.generation-status', $gen['token']),
+            'redirect_url' => route('client.org.member', $member->id),
         ]);
     }
 
@@ -248,23 +283,6 @@ class FlowWizardController extends Controller
             'stage' => $result['stage'] ?? null,
             'error' => $result['error'] ?? null,
         ]);
-    }
-
-    /**
-     * Клиентският избор „Скорост" → ModelLevel. „Бързо" = евтин cloud (паралелно,
-     * бързо); „Икономично" = предимно локално (по-бавно, по-евтино). Без избор:
-     * настройката на фирмата, иначе „бързо" по подразбиране. Капва се на high —
-     * клиентът не може да тригерне ultra/god (скъп flagship разход).
-     */
-    private function resolveLevel(?string $speed, Company $company): string
-    {
-        $map = ['fast' => 'high', 'balanced' => 'medium', 'economic' => 'low'];
-
-        if ($speed !== null && isset($map[$speed])) {
-            return $map[$speed];
-        }
-
-        return ModelLevel::fromRequest($company->settings['model_level'] ?? 'high')->value;
     }
 
     private function authorizeCompany(?int $companyId): void

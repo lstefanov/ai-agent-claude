@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\ClientAuth;
+use App\Http\Middleware\IsAdmin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -21,9 +23,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'is_admin' => \App\Http\Middleware\IsAdmin::class,
-            'client_auth' => \App\Http\Middleware\ClientAuth::class,
+            'is_admin' => IsAdmin::class,
+            'client_auth' => ClientAuth::class,
         ]);
+        // Stripe webhook идва без CSRF токен (валидира се по подпис, §6.5).
+        $middleware->validateCsrfTokens(except: ['stripe/webhook']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

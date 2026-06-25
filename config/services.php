@@ -512,6 +512,11 @@ return [
         'enabled' => env('COMFYUI_ENABLED', true),
         'checkpoint' => env('COMFYUI_CHECKPOINT', 'sd_xl_base_1.0.safetensors'),
         'negative_prompt' => env('COMFYUI_NEGATIVE_PROMPT', 'ugly, deformed, noisy, blurry, distorted, low quality, watermark, text, signature'),
+        // Портретен аватар над съществуващия ComfyUI блок (AvatarService ги чете;
+        // fallback към основния checkpoint/negative_prompt, не дублира клиента).
+        'portrait_checkpoint' => env('COMFYUI_PORTRAIT_CHECKPOINT', env('COMFYUI_CHECKPOINT')), // null → основният checkpoint
+        'portrait_negative' => env('COMFYUI_PORTRAIT_NEGATIVE',                                  // face-friendly негатив за портрети
+            'deformed face, distorted face, extra fingers, mutated hands, asymmetric eyes, cross-eyed, blurry, watermark, text, signature, cartoon, anime, 3d render'),
     ],
 
     'crawl' => [

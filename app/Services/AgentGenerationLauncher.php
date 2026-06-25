@@ -19,9 +19,11 @@ class AgentGenerationLauncher
      * @param  bool  $persist  клиентски flows: фоновата команда сама записва активна
      *                         версия в DB-то (админът записва ръчно през builder-а)
      * @param  int|null  $draftId  изходният FlowDraft — маркира се 'completed' след запис
+     * @param  int|null  $assistantTaskId  org задачата — flow_id ѝ се връзва + status='ready'
+     *                                     след запис (огледало на draft пътя, §0.5.6)
      * @return string токенът за поллинг на статуса
      */
-    public function launch(int $companyId, int $flowId, string $name, string $description, string $level, array $phases = [], bool $minimalQa = false, bool $persist = false, ?int $draftId = null): string
+    public function launch(int $companyId, int $flowId, string $name, string $description, string $level, array $phases = [], bool $minimalQa = false, bool $persist = false, ?int $draftId = null, ?int $assistantTaskId = null): string
     {
         $token = Str::uuid()->toString();
 
@@ -36,6 +38,7 @@ class AgentGenerationLauncher
             'minimal_qa' => $minimalQa,
             'persist' => $persist,
             'draft_id' => $draftId,
+            'assistant_task_id' => $assistantTaskId,
         ], now()->addMinutes(15));
 
         // Начален статус — поллерът веднага вижда 'pending'.

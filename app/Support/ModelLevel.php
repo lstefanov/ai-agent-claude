@@ -43,6 +43,27 @@ enum ModelLevel: string
         };
     }
 
+    /**
+     * Поредност за сравнение на нивото-цена (low=0 … god=4). Ползва се от
+     * org слоя за наследяване/cap на star_tier (AssistantTask::effectiveStarTier).
+     */
+    public function rank(): int
+    {
+        return match ($this) {
+            self::Low => 0,
+            self::Medium => 1,
+            self::High => 2,
+            self::Ultra => 3,
+            self::God => 4,
+        };
+    }
+
+    /** Ограничи нивото до най-много `$ceiling` (връща по-евтиното от двете). */
+    public function cappedAt(self $ceiling): self
+    {
+        return $this->rank() <= $ceiling->rank() ? $this : $ceiling;
+    }
+
     /** Max cheap-cloud pins (null = unlimited). */
     public function cheapMax(): ?int
     {

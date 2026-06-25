@@ -82,12 +82,12 @@ class FlowPlannerService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium): array
+    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, ?string $personaBlock = null): array
     {
         $intent = $this->analyzeIntent($flow, $onProgress, $logToken);
         $this->lastIntent = $intent;
 
-        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken);
+        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken, personaBlock: $personaBlock);
         $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
 
         // A strong planner rarely under-produces; a single transient short plan
@@ -99,7 +99,7 @@ class FlowPlannerService
             $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken,
                 'ВНИМАНИЕ: предишният опит върна само '.count($agents).' агента вместо пълен pipeline. '
                 .'Върни ПЪЛНИЯ DAG с ВСИЧКИ агенти (обикновено 7+), без съкращаване и без да '
-                .'прекъсваш текстовите полета по средата.');
+                .'прекъсваш текстовите полета по средата.', personaBlock: $personaBlock);
             $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
         }
 
@@ -218,7 +218,7 @@ PROMPT;
     // ──────────────────────────────────────────────────────────────────────
 
     /** @return array<string, mixed> */
-    private function designPipeline(Flow $flow, array $intent, ModelLevel $level, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null): array
+    private function designPipeline(Flow $flow, array $intent, ModelLevel $level, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null, ?string $personaBlock = null): array
     {
         if ($onProgress) {
             $onProgress('Генериране на агенти');
@@ -298,6 +298,17 @@ PROMPT;
 
         if ($retryFeedback !== null) {
             $user .= "\n\n".$retryFeedback;
+        }
+
+        // Org: персоната на асистента-автор оформя СТИЛА/ПОДХОДА на проектираните
+        // агенти (тон, акценти, предпазливост/смелост) — без да жертва покритие,
+        // структура или вярност. Празен блок (админ/не-org) → промптът е непроменен.
+        if ($personaBlock !== null && $personaBlock !== '') {
+            $user .= "\n\n[ПЕРСОНА НА АВТОРА — асистентът, който проектира и ще движи този flow]\n"
+                .$personaBlock
+                ."\n\nОтрази този характер и подход в стила и формулировките на агентите (system_prompt/"
+                .'prompt_template/role/name). Персоната оформя ПОДХОДА, не коректността — покритието на '
+                .'key_tasks, топологията на DAG-а и верността на фактите остават водещи.';
         }
 
         // 11 агента ≈ 8.5K изходни токена (кирилицата токенизира скъпо) —
@@ -1135,6 +1146,12 @@ PROMPT;
             'session_id' => $logToken,
             'company_id' => $flow->company_id ?? $flow->company?->id,
             'flow_id' => $flow->id,
+            // Билинг-атрибуция: наследяваме резервацията от обгръщащата рамка (org
+            // генерация), за да влязат planner редовете под нея (§0.5.6).
+            'context_type' => $prevCtx['context_type'] ?? null,
+            'subject_type' => $prevCtx['subject_type'] ?? null,
+            'subject_id' => $prevCtx['subject_id'] ?? null,
+            'reservation_id' => $prevCtx['reservation_id'] ?? null,
         ]);
 
         try {
