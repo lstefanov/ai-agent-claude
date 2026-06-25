@@ -35,10 +35,10 @@
                             </div>
                         </div>
                         <div class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
-                            @foreach (['risk' => 'Риск', 'creativity' => 'Креативност', 'precision' => 'Прецизност', 'tempo' => 'Темпо'] as $k => $label)
+                            @foreach (config('persona.traits') as $k => $tm)
                                 @if (isset($traits[$k]))
                                     <div>
-                                        <div class="flex justify-between text-[11px] text-muted"><span>{{ $label }}</span><span class="tabular-nums">{{ (int) $traits[$k] }}</span></div>
+                                        <div class="flex justify-between text-[11px] text-muted"><span>{{ $tm['label'] }}</span><span class="tabular-nums">{{ (int) $traits[$k] }}</span></div>
                                         <div class="h-1.5 rounded-full bg-surface-subtle overflow-hidden"><div class="h-full rounded-full bg-char-purple" style="width: {{ (int) $traits[$k] }}%"></div></div>
                                     </div>
                                 @endif
@@ -56,53 +56,7 @@
                 @csrf
                 <input type="hidden" name="archetype_key" :value="form.archetype_key">
 
-                <x-field label="Име" required>
-                    <x-input name="name" x-model="form.name" required maxlength="80" placeholder="напр. Алекс Иванов" />
-                </x-field>
-
-                <div class="grid grid-cols-2 gap-3">
-                    <x-field label="Възраст">
-                        <x-input type="number" name="age" x-model.number="form.age" @input="reseed()" min="18" max="90" placeholder="28" />
-                    </x-field>
-                    <x-field label="Пол">
-                        <x-select name="gender" x-model="form.gender">
-                            <option value="">—</option>
-                            <option value="мъж">Мъж</option>
-                            <option value="жена">Жена</option>
-                        </x-select>
-                    </x-field>
-                </div>
-
-                <div class="grid grid-cols-2 gap-3">
-                    <x-field label="Произход">
-                        <x-input name="ethnicity" x-model="form.ethnicity" maxlength="40" placeholder="напр. българин" />
-                    </x-field>
-                    <x-field label="Бекграунд">
-                        <x-input name="background" x-model="form.background" maxlength="120" placeholder="напр. growth маркетинг" />
-                    </x-field>
-                </div>
-
-                <x-field label="Тон">
-                    <x-input name="tone" x-model="form.tone" maxlength="80" placeholder="напр. амбициозен, стратегически" />
-                </x-field>
-
-                <x-field label="Кратко био">
-                    <x-textarea name="bio" x-model="form.bio" rows="2" maxlength="600" placeholder="Един-два реда за характера." />
-                </x-field>
-
-                {{-- Черти (барове) — авто-подсказани от възрастта, ръчно коригируеми --}}
-                <div>
-                    <p class="text-xs font-medium text-muted mb-2">Черти <span class="text-subtle">(подсказват тона — възрастта ги предлага)</span></p>
-                    <div class="space-y-2.5">
-                        <template x-for="t in traitDefs" :key="t.key">
-                            <div>
-                                <div class="flex justify-between text-xs"><span class="text-ink" x-text="t.label"></span><span class="tabular-nums text-muted" x-text="form.traits[t.key]"></span></div>
-                                <input type="range" min="0" max="100" x-model.number="form.traits[t.key]" :name="'traits[' + t.key + ']'"
-                                    class="w-full accent-[var(--color-char-purple)]">
-                            </div>
-                        </template>
-                    </div>
-                </div>
+                @include('client.org._persona-fields', ['modelPrefix' => 'form', 'withNames' => true])
 
                 <div class="flex justify-end pt-1">
                     <x-button type="submit" x-bind:disabled="!form.name.trim()">Наеми Управителя</x-button>
@@ -116,13 +70,14 @@
 <script>
 function casting() {
     return {
-        traitDefs: [
-            { key: 'risk', label: 'Риск' },
-            { key: 'creativity', label: 'Креативност' },
-            { key: 'precision', label: 'Прецизност' },
-            { key: 'autonomy', label: 'Автономност' },
-            { key: 'tempo', label: 'Темпо' },
-        ],
+        ...window.personaFormBase({
+            suggestUrl: '{{ route('client.org.personas.suggest-field') }}',
+            csrf: '{{ csrf_token() }}',
+            role: 'Управител',
+        }),
+        aiRole() { return 'Управител'; },
+        aiContext() { return this.form; },
+        aiApply(field, value) { this.form[field] = value; },
         form: {
             name: '', age: null, gender: '', ethnicity: '', background: '', tone: '', bio: '',
             archetype_key: '',

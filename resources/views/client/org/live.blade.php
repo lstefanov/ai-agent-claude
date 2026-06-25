@@ -11,12 +11,28 @@
         $recent = collect($a['tasks'])->filter(fn ($t) => ($t['run']['status'] ?? null) === 'completed');
         return ['member' => $a['member'], 'title' => $a['title'], 'active' => $active, 'recent' => $recent];
     })->filter(fn ($r) => $r['active']->isNotEmpty() || $r['recent']->isNotEmpty())->values();
+
+    // Обобщение: общо активни runs, общо flows, заети асистенти.
+    $totalActive = collect($graph['assistants'])->sum(fn ($a) => $a['stats']['active']);
+    $totalFlows = collect($graph['assistants'])->sum(fn ($a) => $a['stats']['flows_total']);
+    $busyAssistants = $rows->filter(fn ($r) => $r['active']->isNotEmpty())->count();
 @endphp
 <div class="max-w-5xl mx-auto px-6 py-8" x-data="{}" x-init="setTimeout(() => location.reload(), 6000)">
     @include('client.org._lens-tabs', ['active' => 'live'])
 
     <h1 class="text-2xl font-semibold text-ink mb-1">Текущ поток</h1>
-    <p class="text-muted mb-6">Кои асистенти работят в момента. Обновява се автоматично.</p>
+    <p class="text-muted mb-4">Кои асистенти работят в момента. Обновява се автоматично.</p>
+
+    <div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-sm">
+        <span class="inline-flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full {{ $totalActive > 0 ? 'bg-accent animate-pulse' : 'bg-subtle' }}"></span>
+            <span class="font-semibold text-ink tabular-nums">{{ $totalActive }}</span> <span class="text-muted">активни изпълнения</span>
+        </span>
+        <span class="text-subtle">·</span>
+        <span><span class="font-semibold text-ink tabular-nums">{{ $busyAssistants }}</span> <span class="text-muted">заети асистенти</span></span>
+        <span class="text-subtle">·</span>
+        <span><span class="font-semibold text-ink tabular-nums">{{ $totalFlows }}</span> <span class="text-muted">flows общо</span></span>
+    </div>
 
     @if ($rows->isEmpty())
         <x-empty-state title="Тихо е" description="Няма активни или скорошни изпълнения. Пусни задача от Картата на героя." />

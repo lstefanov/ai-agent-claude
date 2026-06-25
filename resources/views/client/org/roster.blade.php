@@ -32,10 +32,17 @@
                                 @include('client.org._persona-card', ['m' => $dir['member']])
                             </div>
                             <div>
-                                <p class="text-xs text-muted mb-2">{{ $assistants->count() }} {{ $assistants->count() === 1 ? 'асистент' : 'асистенти' }}</p>
+                                <p class="text-xs text-muted mb-2 flex flex-wrap items-center gap-x-2">
+                                    <span>{{ $dir['stats']['assistants_count'] }} {{ $dir['stats']['assistants_count'] === 1 ? 'асистент' : 'асистенти' }}</span>
+                                    <span class="text-subtle">·</span>
+                                    <span><span class="font-semibold text-ink tabular-nums">{{ $dir['stats']['flows_total'] }}</span> flows</span>
+                                    @if ($dir['stats']['active'] > 0)
+                                        <span class="inline-flex items-center gap-1 text-accent"><span class="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"></span>{{ $dir['stats']['active'] }} активни</span>
+                                    @endif
+                                </p>
                                 <div class="grid sm:grid-cols-2 gap-3">
                                     @forelse ($assistants as $a)
-                                        @include('client.org._persona-card', ['m' => $a['member']])
+                                        @include('client.org._persona-card', ['m' => $a['member'], 'stats' => $a['stats']])
                                     @empty
                                         <p class="text-sm text-subtle col-span-full">Няма асистенти.</p>
                                     @endforelse

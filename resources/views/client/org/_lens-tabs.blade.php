@@ -17,6 +17,10 @@
         @endforeach
     </div>
     <div class="flex items-center gap-4">
+        <a href="{{ route('client.org.tasks.new') }}"
+           class="inline-flex items-center gap-1 h-9 px-3 text-sm font-semibold rounded-md bg-primary text-primary-fg hover:bg-primary-hover transition">
+            <span class="text-base leading-none">＋</span> Нова задача
+        </a>
         <a href="{{ route('client.org.quests') }}" class="text-sm text-muted hover:text-ink">Куестове</a>
         <a href="{{ route('client.org.decisions') }}" class="text-sm text-muted hover:text-ink">Решения</a>
         <a href="{{ route('client.org.integrations') }}" class="text-sm text-muted hover:text-ink">Интеграции</a>

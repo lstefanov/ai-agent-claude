@@ -8,6 +8,18 @@
     $charColors = ['purple', 'teal', 'coral', 'blue', 'amber', 'pink', 'green'];
     $c = $charColors[$member->id % count($charColors)];
     $levels = ['low' => '★', 'medium' => '★★', 'high' => '★★★', 'ultra' => '★★★★', 'god' => '★★★★★'];
+    // Seed за редактора (всичките 5 черти гарантирани) + роля за AI контекста.
+    $personaSeed = $persona ? [
+        'name' => $persona->name,
+        'age' => $persona->age,
+        'gender' => $persona->gender,
+        'ethnicity' => $persona->ethnicity,
+        'background' => $persona->background,
+        'tone' => $persona->tone,
+        'bio' => $persona->bio,
+        'traits' => array_merge(['risk' => 50, 'creativity' => 50, 'precision' => 50, 'autonomy' => 60, 'tempo' => 55], (array) $persona->traits),
+    ] : null;
+    $personaRole = $member->kind === 'manager' ? 'Управител' : $member->display_name;
 @endphp
 <div class="max-w-4xl mx-auto px-6 py-8"
      x-data="memberCard({
@@ -21,6 +33,11 @@
         resultTpl: '{{ route('client.runs.result', ['run' => '__RUN__']) }}',
         tickUrl: '{{ route('client.org.member.tick-now', $member->id) }}',
         isDirector: {{ $member->kind === 'director' ? 'true' : 'false' }},
+        suggestUrl: '{{ route('client.org.personas.suggest-field') }}',
+        csrf: '{{ csrf_token() }}',
+        role: @js($personaRole),
+        updateUrl: '{{ $persona ? route('client.org.personas.update', $persona->id) : '' }}',
+        persona: @js($personaSeed),
      })">
     <a href="{{ route('client.org.roster') }}" class="text-sm text-muted hover:text-ink">← Към екипа</a>
 
@@ -66,6 +83,24 @@
 
         {{-- Контроли + задачи --}}
         <div class="space-y-5">
+            {{-- Редактирай персонажа (помощ/AI/черти) --}}
+            @if ($persona)
+                <div class="rounded-xl border border-line bg-surface p-5">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-semibold text-ink">Редактирай персонажа</h2>
+                        <x-button size="sm" variant="secondary" x-on:click="editing = !editing"
+                                  x-text="editing ? 'Скрий' : 'Редактирай'"></x-button>
+                    </div>
+                    <div x-show="editing" x-cloak class="mt-4 space-y-4">
+                        @include('client.org._persona-fields', ['modelPrefix' => 'persona'])
+                        <div class="flex items-center gap-3 pt-1">
+                            <x-button size="sm" x-on:click="savePersona()" x-bind:disabled="busy">Запази персонажа</x-button>
+                            <p x-show="saveMsg" x-text="saveMsg" class="text-xs text-success-strong"></p>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             {{-- Ниво на члена --}}
             <div class="rounded-xl border border-line bg-surface p-5">
                 <h2 class="text-sm font-semibold text-ink mb-1">Ниво на члена</h2>
@@ -87,7 +122,11 @@
             {{-- Задачи --}}
             @if ($member->kind === 'assistant')
                 <div class="rounded-xl border border-line bg-surface p-5">
-                    <h2 class="text-sm font-semibold text-ink mb-3">Задачи</h2>
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-semibold text-ink">Задачи</h2>
+                        <a href="{{ route('client.org.tasks.new', ['assistant' => $member->id]) }}"
+                           class="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover">＋ Нова задача</a>
+                    </div>
                     @forelse ($member->tasks as $task)
                         <div class="flex items-center justify-between gap-3 py-2 border-b border-line last:border-0"
                              x-data="{ st: '{{ $task->status }}', stage: '', running: false }">
@@ -98,6 +137,16 @@
                                     @if ($task->inheritsTier())<span class="text-subtle">(наследява)</span>@else<span class="text-primary">(override)</span>@endif
                                     <span x-show="stage" x-text="'· ' + stage" class="text-accent"></span>
                                 </p>
+                                @php($rinfo = $task->flow_id ? ($taskRuns[$task->flow_id] ?? null) : null)
+                                @if ($rinfo && ($rinfo['active'] || $rinfo['completed'] || $rinfo['failed'] || $rinfo['latest']))
+                                    <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+                                        @if ($rinfo['active'])<span class="inline-flex items-center gap-1 text-accent"><span class="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"></span>{{ $rinfo['active'] }} активни</span>@endif
+                                        @if ($rinfo['completed'])<span class="text-success-strong tabular-nums">{{ $rinfo['completed'] }} ✓</span>@endif
+                                        @if ($rinfo['failed'])<span class="text-danger tabular-nums">{{ $rinfo['failed'] }} ✗</span>@endif
+                                        @if (! empty($rinfo['last_run_at']))<span class="text-subtle">· {{ $rinfo['last_run_at']->diffForHumans() }}</span>@endif
+                                        @if ($rinfo['latest'])<a href="{{ route('client.runs.result', $rinfo['latest']['id']) }}" class="text-primary hover:text-primary-hover">Резултат →</a>@endif
+                                    </p>
+                                @endif
                             </div>
                             <div class="flex items-center gap-2 shrink-0">
                                 <select class="text-xs rounded-md border border-line bg-surface px-2 py-1"
@@ -128,7 +177,24 @@
 <script>
 function memberCard(cfg) {
     return {
+        ...window.personaFormBase(cfg),
         tier: '{{ $member->default_star_tier }}', busy: false, msg: '', isDirector: cfg.isDirector,
+        // Персона-редактор (помощ/AI/черти):
+        persona: cfg.persona || { traits: {} },
+        editing: false, saveMsg: '',
+        aiRole() { return cfg.role; },
+        aiContext() { return this.persona; },
+        aiApply(field, value) { this.persona[field] = value; },
+        savePersona() {
+            this.busy = true; this.saveMsg = '';
+            fetch(cfg.updateUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json' },
+                body: JSON.stringify(this.persona),
+            }).then(r => r.json()).then(d => { this.saveMsg = d.ok ? 'Персонажът е запазен.' : (d.message || 'Грешка при запис.'); })
+              .catch(() => { this.saveMsg = 'Грешка при запис.'; })
+              .finally(() => { this.busy = false; });
+        },
         post(url, body) {
             this.busy = true; this.msg = '';
             return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' }, body: JSON.stringify(body || {}) })

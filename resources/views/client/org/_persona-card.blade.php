@@ -41,4 +41,17 @@
             @endforeach
         </div>
     @endif
+
+    {{-- Натовареност (само за асистенти, когато се подаде $stats): брой flows + активни + статус --}}
+    @if (! empty($stats))
+        <div class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line pt-2 text-[11px] text-muted">
+            <span><span class="font-semibold text-ink tabular-nums">{{ $stats['flows_total'] }}</span> flows</span>
+            @if ($stats['active'] > 0)
+                <span class="inline-flex items-center gap-1 text-accent"><span class="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"></span>{{ $stats['active'] }} активни</span>
+            @endif
+            @if ($stats['completed'] > 0)<span class="text-success-strong tabular-nums">{{ $stats['completed'] }} ✓</span>@endif
+            @if ($stats['failed'] > 0)<span class="text-danger tabular-nums">{{ $stats['failed'] }} ✗</span>@endif
+            @if (! empty($stats['last_run_at']))<span class="ml-auto text-subtle">{{ $stats['last_run_at']->diffForHumans() }}</span>@endif
+        </div>
+    @endif
 </a>

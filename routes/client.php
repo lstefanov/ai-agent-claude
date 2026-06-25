@@ -20,9 +20,18 @@ Route::post('login', [Client\AuthController::class, 'login'])->name('client.logi
 Route::get('login/companies/{company}/users', [Client\AuthController::class, 'usersForCompany'])->name('client.login.users');
 Route::post('logout', [Client\AuthController::class, 'logout'])->name('client.logout');
 
+// Подписан вход от админа (админ и портал са на различни субдомейни с отделни сесии):
+// сетва клиентската сесия като owner и влиза в org онбординга. Auto-login по модела на
+// preview-auth — пази се с подпис + изтичане.
+Route::get('enter/{company}', [Client\AuthController::class, 'enter'])->name('client.enter')->middleware('signed');
+
 // Защитени (client_auth)
 Route::middleware('client_auth')->group(function () {
-    Route::get('/', [Client\DashboardController::class, 'index'])->name('client.dashboard');
+    // Org = основното изживяване: началото преизползва онбординг state machine-а
+    // (няма Управител → casting; профил недовършен → research/interview; активна
+    // версия → roster). Старото Flows-табло остава вторично на /overview.
+    Route::get('/', [Client\Org\OnboardingController::class, 'start'])->name('client.home');
+    Route::get('overview', [Client\DashboardController::class, 'index'])->name('client.dashboard');
 
     // Flows — „create" преди „{flow}", за да не се хване като id
     Route::get('flows', [Client\FlowController::class, 'index'])->name('client.flows.index');
@@ -65,7 +74,8 @@ Route::middleware('client_auth')->group(function () {
         Route::get('design/review', [Client\Org\DesignController::class, 'review'])->name('client.org.design.review');
         Route::post('design/approve', [Client\Org\DesignController::class, 'approve'])->name('client.org.design.approve');
 
-        // Персони (доуточняване/редакция).
+        // Персони (доуточняване/редакция + ✨ AI-генериране на поле).
+        Route::post('personas/suggest-field', [Client\Org\PersonaController::class, 'suggestField'])->name('client.org.personas.suggest-field');
         Route::post('personas/{persona}/refine', [Client\Org\PersonaController::class, 'refine'])->name('client.org.personas.refine');
         Route::put('personas/{persona}', [Client\Org\PersonaController::class, 'update'])->name('client.org.personas.update');
 
@@ -78,6 +88,10 @@ Route::middleware('client_auth')->group(function () {
         Route::post('members/{member}/tier', [Client\Org\MemberController::class, 'setTier'])->name('client.org.member.tier');
         Route::post('members/{member}/promote-department', [Client\Org\MemberController::class, 'promoteDepartment'])->name('client.org.member.promote-dept');
         Route::post('tasks/{task}/tier', [Client\Org\AssistantTaskController::class, 'setTier'])->name('client.org.tasks.tier');
+
+        // Нова задача (Фаза 3, и двата входа): опиши → авто-рутиране ИЛИ ръчен избор на асистент.
+        Route::get('tasks/new', [Client\Org\TaskCreationController::class, 'create'])->name('client.org.tasks.new');
+        Route::post('tasks/new', [Client\Org\TaskCreationController::class, 'store'])->name('client.org.tasks.create');
 
         // Задачи = flows (Фаза 3): генерация per асистент + ръчно пускане + Текущ поток.
         Route::post('tasks/{task}/generate', [Client\Org\AssistantTaskController::class, 'generate'])->name('client.org.tasks.generate');

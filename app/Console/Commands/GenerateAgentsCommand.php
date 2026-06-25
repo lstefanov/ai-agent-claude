@@ -12,6 +12,7 @@ use App\Services\AgentGeneratorService;
 use App\Services\FlowVersionService;
 use App\Services\GeneratorService;
 use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\PersonaService;
 use App\Services\Org\TaskRunService;
 use App\Support\LlmContext;
 use App\Support\ModelLevel;
@@ -48,6 +49,15 @@ class GenerateAgentsCommand extends Command
         $genReservation = $assistantTaskId
             ? $this->generationReservation((int) $assistantTaskId)
             : null;
+
+        // Org (§0.5.5 разширен): персоната на асистента-собственик оформя и
+        // ГЕНЕРАЦИЯТА — планерът пише агентите/промптовете в неговия стил. Същият
+        // блок като runtime injection (PersonaService) → консистентност. Не-org
+        // (без задача/персона) → null → промптът на планера е непроменен.
+        $personaBlock = null;
+        if ($assistantTaskId && ($owner = AssistantTask::with('orgMember.persona')->find((int) $assistantTaskId)?->orgMember)) {
+            $personaBlock = app(PersonaService::class)->compileSystemPrompt($owner);
+        }
 
         try {
             $company = Company::findOrFail($request['company_id']);
@@ -118,7 +128,7 @@ class GenerateAgentsCommand extends Command
                 ]);
             }
             try {
-                $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false));
+                $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false), $personaBlock);
             } finally {
                 if ($genReservation) {
                     LlmContext::clear();

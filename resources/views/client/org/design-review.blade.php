@@ -41,19 +41,27 @@
             </div>
         </template>
 
-        {{-- Директори + асистенти (редактируеми персони) --}}
+        {{-- Директори + асистенти (редактируеми персони — помощ/AI/черти) --}}
         <template x-for="(dir, di) in (design ? design.directors : [])" :key="dir.key">
             <div class="rounded-xl border border-line bg-surface-subtle/40 p-4">
-                <div class="grid lg:grid-cols-[320px_1fr] gap-5">
-                    <div x-html="''">
+                <div class="grid lg:grid-cols-[340px_1fr] gap-5">
+                    <div>
                         <p class="text-[11px] font-mono uppercase tracking-wider text-subtle mb-1" x-text="dir.domain"></p>
-                        <div x-html="personaCard(dir, 'char-purple')"></div>
+                        <div x-data="personaEditor(dir.persona, 'Директор ' + (dir.title || dir.domain || ''))"
+                             class="rounded-xl border border-line bg-surface p-4 space-y-4">
+                            <p class="text-xs font-medium text-muted" x-text="dir.title"></p>
+                            @include('client.org._persona-fields', ['modelPrefix' => 'persona'])
+                        </div>
                     </div>
                     <div>
                         <p class="text-xs text-muted mb-2" x-text="assistantsFor(dir.key).length + ' асистенти'"></p>
-                        <div class="grid sm:grid-cols-2 gap-3">
+                        <div class="grid xl:grid-cols-2 gap-3">
                             <template x-for="a in assistantsFor(dir.key)" :key="a.key">
-                                <div x-html="personaCard(a, 'char-teal')"></div>
+                                <div x-data="personaEditor(a.persona, 'Асистент ' + (a.title || ''))"
+                                     class="rounded-xl border border-line bg-surface p-3 space-y-3">
+                                    <p class="text-xs font-medium text-muted" x-text="a.title"></p>
+                                    @include('client.org._persona-fields', ['modelPrefix' => 'persona'])
+                                </div>
                             </template>
                         </div>
                     </div>
@@ -87,29 +95,20 @@ function design(cfg) {
                     const d = await (await fetch(url, { headers: { 'Accept': 'application/json' } })).json();
                     if (d.status === 'pending') { this.stage = d.stage || 'Композирам…'; return; }
                     clearInterval(this.timer); this.loading = false;
-                    if (d.status === 'completed' && d.design) { this.design = d.design; }
+                    if (d.status === 'completed' && d.design) { this.design = this.normalize(d.design); }
                     else { this.fail(d.error); }
                 } catch (e) {}
             };
             tick(); this.timer = setInterval(tick, 2500);
         },
         assistantsFor(dirKey) { return (this.design.assistants || []).filter(a => a.director === dirKey); },
-        // Лека редактируема карта (име/тон/черти) — данните са в this.design, мутират се директно.
-        personaCard(m, color) {
-            const p = m.persona || {};
-            const traits = p.traits || {};
-            const bars = ['risk', 'creativity', 'precision', 'tempo'].filter(k => k in traits).map(k =>
-                `<div><div class="flex justify-between text-[10px] text-muted"><span>${k}</span><span class="tabular-nums">${traits[k]}</span></div>
-                 <div class="h-1 rounded-full bg-surface-subtle overflow-hidden"><div class="h-full rounded-full bg-${color}" style="width:${traits[k]}%"></div></div></div>`).join('');
-            return `<div class="rounded-xl border border-line bg-surface p-3">
-                <div class="flex items-center gap-2">
-                    <span class="flex h-10 w-10 items-center justify-center rounded-full bg-${color}-soft text-${color}-strong font-semibold">${(p.name||'?')[0]}</span>
-                    <div class="min-w-0"><p class="font-medium text-ink text-sm truncate">${p.name||''}</p>
-                    <p class="text-xs text-muted truncate">${m.title||''}${p.age? ' · '+p.age+'г.':''}</p></div>
-                </div>
-                <p class="text-xs text-subtle mt-1 truncate">${p.tone||''}</p>
-                <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">${bars}</div>
-            </div>`;
+        // Гарантира persona обект + всичките 5 черти (LLM понякога пропуска autonomy).
+        normalize(design) {
+            const def = { risk: 50, creativity: 50, precision: 50, autonomy: 60, tempo: 55 };
+            const fix = (m) => { m.persona = m.persona || {}; m.persona.traits = Object.assign({}, def, m.persona.traits || {}); };
+            (design.directors || []).forEach(fix);
+            (design.assistants || []).forEach(fix);
+            return design;
         },
         approve() {
             if (!this.design) return;
@@ -121,6 +120,16 @@ function design(cfg) {
         fail(msg) { this.loading = false; this.error = msg || 'Дизайнът се провали. Опитай пак.'; },
     };
 }
+
+// Под-компонент за редактируема персона-карта: bind-ва партиала към persona обекта
+// (жива референция в this.design) + company-scoped ✨ AI-fill.
+window.personaEditor = (persona, role) => ({
+    ...window.personaFormBase({ suggestUrl: '{{ route('client.org.personas.suggest-field') }}', csrf: '{{ csrf_token() }}', role }),
+    persona,
+    aiRole() { return role; },
+    aiContext() { return this.persona; },
+    aiApply(field, value) { this.persona[field] = value; },
+});
 </script>
 @endpush
 @endsection

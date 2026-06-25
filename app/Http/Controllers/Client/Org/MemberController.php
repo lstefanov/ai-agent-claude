@@ -7,6 +7,7 @@ use App\Jobs\Org\DirectorTickJob;
 use App\Jobs\Org\GenerateMemberAvatarJob;
 use App\Models\OrgMember;
 use App\Services\Org\AvatarService;
+use App\Support\FlowRunStats;
 use App\Support\ModelLevel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,9 +27,17 @@ class MemberController extends Controller
             $avatars->redispatchPending($member->company);
         }
 
+        $member->load('persona', 'tasks');
+
+        // Run-статус per задача (последен run + броячи) за секцията „Задачи".
+        $taskRuns = FlowRunStats::forFlows(
+            $member->tasks->pluck('flow_id')->filter()->unique()->values()->all()
+        );
+
         return view('client.org.member', [
-            'member' => $member->load('persona', 'tasks'),
+            'member' => $member,
             'placement' => $member->currentPlacement(),
+            'taskRuns' => $taskRuns,
         ]);
     }
 

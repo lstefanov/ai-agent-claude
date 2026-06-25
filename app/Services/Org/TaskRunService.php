@@ -54,13 +54,13 @@ class TaskRunService
      *
      * @return array{status: string, token?: ?string}
      */
-    public function generate(AssistantTask $task, bool $runAfterGenerate = false): array
+    public function generate(AssistantTask $task, bool $runAfterGenerate = false, bool $minimalQa = false): array
     {
         if ($task->status === 'ready' && $task->flow_id) {
             return ['status' => 'ready'];
         }
 
-        $this->dispatchGeneration($task, $runAfterGenerate);
+        $this->dispatchGeneration($task, $runAfterGenerate, $minimalQa);
 
         return ['status' => 'generating', 'token' => $task->fresh()->gen_token];
     }
@@ -165,7 +165,7 @@ class TaskRunService
     }
 
     /** Резервира generation, осигурява Flow, маркира generating и пуска асинхронна генерация. */
-    private function dispatchGeneration(AssistantTask $task, bool $runAfterGenerate): void
+    private function dispatchGeneration(AssistantTask $task, bool $runAfterGenerate, bool $minimalQa = false): void
     {
         $member = $task->orgMember;
         if (! $member) {
@@ -192,7 +192,7 @@ class TaskRunService
         $token = $this->launcher->launch(
             $companyId, $flow->id, $task->title, $task->description,
             $task->effectiveStarTier()->value,
-            persist: true, assistantTaskId: $task->id,
+            minimalQa: $minimalQa, persist: true, assistantTaskId: $task->id,
         );
 
         $task->update(['gen_token' => $token]);

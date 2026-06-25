@@ -4,10 +4,9 @@ namespace App\Http\Controllers\Client\Org;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\Org\OrgReviewJob;
-use App\Models\AssistantTask;
 use App\Models\Company;
-use App\Models\FlowRun;
 use App\Models\OrgMember;
+use App\Support\FlowRunStats;
 use App\Support\ModelLevel;
 use Illuminate\Http\JsonResponse;
 
@@ -74,31 +73,76 @@ class OrgGraphController extends Controller
             return ['manager' => $manager, 'directors' => [], 'assistants' => [], 'version' => null];
         }
 
-        $directors = $version->directors()->with('orgMember.persona')->get()->map(fn ($d) => [
-            'placement_id' => $d->id,
-            'title' => $d->title,
-            'domain' => $d->domain,
-            'mandate' => $d->mandate,
-            'member' => $this->memberCard($d->orgMember),
-        ])->values();
+        $placements = $version->assistants()->with(['orgMember.persona', 'orgMember.tasks', 'director'])->get();
 
-        $assistants = $version->assistants()->with(['orgMember.persona', 'orgMember.tasks', 'director'])->get()->map(fn ($a) => [
-            'placement_id' => $a->id,
-            'director_id' => $a->director_id,
-            'title' => $a->title,
-            'mandate' => $a->mandate,
-            'member' => $this->memberCard($a->orgMember),
-            'tasks' => $a->orgMember->tasks->map(fn ($t) => [
-                'id' => $t->id,
-                'title' => $t->title,
-                'star_tier' => $t->effectiveStarTier()->value,
-                'stars' => $t->effectiveStarTier()->rank() + 1,
-                'inherits' => $t->inheritsTier(),
-                'status' => $t->status,
-                'act_mode' => $t->act_mode,
-                'run' => $this->latestRun($t),
-            ])->values(),
-        ])->values();
+        // Run-статистики за всички flow-ове на задачите наведнъж (без N+1).
+        $flowIds = $placements
+            ->flatMap(fn ($a) => $a->orgMember->tasks->pluck('flow_id'))
+            ->filter()->unique()->values()->all();
+        $flowStats = FlowRunStats::forFlows($flowIds);
+
+        $assistants = $placements->map(function ($a) use ($flowStats) {
+            $tasks = $a->orgMember->tasks;
+            $taskFlowIds = $tasks->pluck('flow_id')->filter();
+
+            $active = $completed = $failed = 0;
+            $lastRunAt = null;
+            foreach ($taskFlowIds as $fid) {
+                $s = $flowStats[$fid] ?? null;
+                if (! $s) {
+                    continue;
+                }
+                $active += $s['active'];
+                $completed += $s['completed'];
+                $failed += $s['failed'];
+                if ($s['last_run_at'] && (! $lastRunAt || $s['last_run_at']->gt($lastRunAt))) {
+                    $lastRunAt = $s['last_run_at'];
+                }
+            }
+
+            return [
+                'placement_id' => $a->id,
+                'director_id' => $a->director_id,
+                'title' => $a->title,
+                'mandate' => $a->mandate,
+                'member' => $this->memberCard($a->orgMember),
+                'tasks' => $tasks->map(fn ($t) => [
+                    'id' => $t->id,
+                    'title' => $t->title,
+                    'star_tier' => $t->effectiveStarTier()->value,
+                    'stars' => $t->effectiveStarTier()->rank() + 1,
+                    'inherits' => $t->inheritsTier(),
+                    'status' => $t->status,
+                    'act_mode' => $t->act_mode,
+                    'run' => $t->flow_id ? ($flowStats[$t->flow_id]['latest'] ?? null) : null,
+                ])->values(),
+                'stats' => [
+                    'tasks_total' => $tasks->count(),
+                    'flows_total' => $taskFlowIds->count(),
+                    'active' => $active,
+                    'completed' => $completed,
+                    'failed' => $failed,
+                    'last_run_at' => $lastRunAt,
+                ],
+            ];
+        })->values();
+
+        $directors = $version->directors()->with('orgMember.persona')->get()->map(function ($d) use ($assistants) {
+            $own = $assistants->where('director_id', $d->id);
+
+            return [
+                'placement_id' => $d->id,
+                'title' => $d->title,
+                'domain' => $d->domain,
+                'mandate' => $d->mandate,
+                'member' => $this->memberCard($d->orgMember),
+                'stats' => [
+                    'assistants_count' => $own->count(),
+                    'flows_total' => (int) $own->sum(fn ($a) => $a['stats']['flows_total']),
+                    'active' => (int) $own->sum(fn ($a) => $a['stats']['active']),
+                ],
+            ];
+        })->values();
 
         return ['manager' => $manager, 'directors' => $directors, 'assistants' => $assistants, 'version' => $version->version];
     }
@@ -127,18 +171,6 @@ class OrgGraphController extends Controller
             'avatar_status' => $persona->avatar_status ?? 'pending',
             'initial' => mb_substr($persona->name ?? $member->display_name, 0, 1),
         ];
-    }
-
-    /** Последният run на задачата (за „Текущ поток"/статус badge). */
-    private function latestRun(AssistantTask $task): ?array
-    {
-        if (! $task->flow_id) {
-            return null;
-        }
-
-        $run = FlowRun::where('flow_id', $task->flow_id)->latest('id')->first(['id', 'status']);
-
-        return $run ? ['id' => $run->id, 'status' => $run->status] : null;
     }
 
     private function company(): Company

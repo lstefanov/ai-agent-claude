@@ -46,9 +46,9 @@ class AgentGeneratorService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false): array
+    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false, ?string $personaBlock = null): array
     {
-        $planned = $this->planner->plan($flow, $onProgress, $logToken, $level);
+        $planned = $this->planner->plan($flow, $onProgress, $logToken, $level, $personaBlock);
 
         if (count($planned) < 3) {
             Log::warning('[AgentGenerator] Planner returned '.count($planned).' agents — nothing to build.');

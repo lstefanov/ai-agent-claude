@@ -40,10 +40,18 @@
                                     </span>
                                 </div>
                                 <p class="text-xs text-muted truncate">{{ $a['title'] }}</p>
+                                <p class="mt-1 flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted">
+                                    <span><span class="font-semibold text-ink tabular-nums">{{ $a['stats']['flows_total'] }}</span> flows</span>
+                                    @if ($a['stats']['active'] > 0)<span class="text-accent">· {{ $a['stats']['active'] }} активни</span>@endif
+                                    @if ($a['stats']['failed'] > 0)<span class="text-danger">· {{ $a['stats']['failed'] }} ✗</span>@endif
+                                </p>
                                 @if (count($a['tasks']))
                                     <ul class="mt-2 space-y-1">
                                         @foreach ($a['tasks'] as $t)
+                                            @php($rs = $t['run']['status'] ?? null)
+                                            @php($dot = in_array($rs, ['pending', 'running', 'waiting_approval'], true) ? 'bg-accent animate-pulse' : ($rs === 'completed' ? 'bg-success' : ($rs === 'failed' ? 'bg-danger' : 'bg-subtle')))
                                             <li class="flex items-center gap-1.5 text-xs text-ink">
+                                                <span class="h-1.5 w-1.5 shrink-0 rounded-full {{ $dot }}" title="{{ $rs ?? $t['status'] }}"></span>
                                                 <span class="text-{{ $t['inherits'] ? 'star' : 'primary' }}" title="{{ $t['inherits'] ? 'наследено ниво' : 'явен override' }}">{{ $t['inherits'] ? '★' : '⬩' }}</span>
                                                 <span class="truncate">{{ $t['title'] }}</span>
                                                 <span class="ml-auto text-[10px] text-subtle uppercase">{{ $t['act_mode'] }}</span>
