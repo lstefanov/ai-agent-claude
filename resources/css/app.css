@@ -114,6 +114,30 @@
     }
 }
 
+/* ============================================================
+   Brand „thinking" loader — анимирано лого (FlowAI болт). Болтът се
+   изчертава (trace), а три искри обикалят в орбита около него — без
+   мигане. Ползва се от <x-org.thinking> навсякъде, където има
+   thinking/loading състояние (чат, интервю, дизайн, casting).
+   ============================================================ */
+@keyframes faBoltTrace {
+    0%   { stroke-dashoffset: 100; }
+    55%  { stroke-dashoffset: 0; }
+    80%  { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: -100; }
+}
+@keyframes faBoltOrbit {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+.fa-bolt-trace { stroke-dasharray: 100; animation: faBoltTrace 1.8s ease-in-out infinite; }
+.fa-bolt-orbit { transform-origin: 12px 12px; animation: faBoltOrbit 3s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+    /* Спри движението и покажи болта напълно изчертан. */
+    .fa-bolt-trace { stroke-dasharray: none; stroke-dashoffset: 0; }
+    .fa-bolt-orbit { animation: none !important; }
+}
+
 /* Alpine cloak + line clamp helpers (moved out of inline <style> blocks) */
 [x-cloak] {
     display: none !important;
@@ -183,3 +207,28 @@
 .ts-wrapper .ts-dropdown .option:hover {
     background: color-mix(in srgb, var(--color-primary) 7%, white);
 }
+
+/* ============================================================
+   AI prose — рендиран markdown от генериран текст. Ползва се от
+   сървърния <x-prose> и от клиентския $md (x-html). Token-driven,
+   единен вид навсякъде в портала. (Обобщава по-старите .kb-prose /
+   .result-content style блокове.)
+   ============================================================ */
+.ai-prose { line-height: 1.55; }
+.ai-prose > *:first-child { margin-top: 0; }
+.ai-prose > *:last-child { margin-bottom: 0; }
+.ai-prose p { margin: 0 0 0.5rem; }
+.ai-prose ul, .ai-prose ol { margin: 0.25rem 0 0.6rem; padding-left: 1.15rem; }
+.ai-prose li { margin: 0.15rem 0; }
+.ai-prose ul { list-style: disc; }
+.ai-prose ol { list-style: decimal; }
+.ai-prose strong { font-weight: 600; color: var(--color-ink); }
+.ai-prose a { color: var(--color-primary); text-decoration: underline; }
+.ai-prose code { background: var(--color-info-soft); color: var(--color-primary-hover); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; font-family: var(--font-mono); }
+.ai-prose pre { background: var(--color-surface-subtle); border: 1px solid var(--color-line); border-radius: 8px; padding: 0.6rem 0.75rem; overflow-x: auto; margin: 0 0 0.6rem; }
+.ai-prose pre code { background: none; padding: 0; color: var(--color-muted); }
+.ai-prose h1, .ai-prose h2, .ai-prose h3, .ai-prose h4 { font-weight: 600; color: var(--color-ink); margin: 0.6rem 0 0.35rem; font-size: 0.95rem; line-height: 1.3; }
+.ai-prose blockquote { background: var(--color-surface-subtle); border-radius: 6px; padding: 0.4rem 0.7rem; color: var(--color-muted); font-style: italic; margin: 0 0 0.6rem; }
+.ai-prose table { border-collapse: collapse; width: 100%; margin: 0.25rem 0 0.7rem; font-size: 0.9em; }
+.ai-prose th, .ai-prose td { border: 1px solid var(--color-line); padding: 4px 8px; text-align: left; }
+.ai-prose th { background: var(--color-surface-subtle); font-weight: 600; }

@@ -5,9 +5,6 @@
 @push('head')
 <style>
     [x-cloak] { display: none !important; }
-    .iv-typing span { display:inline-block; width:5px; height:5px; border-radius:9999px; background: var(--color-muted); animation: ivBlink 1.2s infinite both; }
-    .iv-typing span:nth-child(2){ animation-delay:.2s } .iv-typing span:nth-child(3){ animation-delay:.4s }
-    @keyframes ivBlink { 0%,80%,100%{ opacity:.3 } 40%{ opacity:1 } }
 </style>
 @endpush
 
@@ -18,11 +15,15 @@
         sendUrl: '{{ route('client.org.interview.send') }}',
         statusTpl: '{{ route('client.org.interview.status', ['token' => 'TOKEN']) }}',
         ready: {{ $profile->status === 'ready' ? 'true' : 'false' }},
-     })" x-init="init()">
-    <header class="mb-6">
-        <p class="text-xs font-mono uppercase tracking-wider text-muted mb-1">Стъпка 3 от 3 · Интервю</p>
-        <h1 class="text-2xl font-semibold text-ink">{{ $persona?->name ?? 'Управителят' }} иска да разбере бизнеса</h1>
-        <p class="text-muted mt-1">Няколко въпроса, за да си състави ясна представа преди да проектира екипа.</p>
+        transcript: @js($transcript ?? []),
+     })">
+    <header class="mb-6 flex items-start justify-between gap-4">
+        <div>
+            <p class="text-xs font-mono uppercase tracking-wider text-muted mb-1">Стъпка 3 от 3 · Интервю</p>
+            <h1 class="text-2xl font-semibold text-ink">{{ $persona?->name ?? 'Управителят' }} иска да разбере бизнеса</h1>
+            <p class="text-muted mt-1">Няколко въпроса, за да си състави ясна представа преди да проектира екипа.</p>
+        </div>
+        @include('client.org._wizard-reset')
     </header>
 
     <div class="rounded-xl border border-line bg-surface flex flex-col" style="height: 68vh">
@@ -30,18 +31,30 @@
         <div class="flex-1 overflow-y-auto p-4 space-y-3" x-ref="scroll">
             <template x-for="msg in messages" :key="msg.uid">
                 <div>
-                    <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
-                        <div :class="msg.role === 'user'
-                            ? 'bg-primary text-primary-fg rounded-2xl rounded-br-sm px-4 py-2 max-w-[85%]'
-                            : (msg.failed ? 'bg-danger-soft text-danger-strong rounded-2xl rounded-bl-sm px-4 py-2 max-w-[90%]' : 'bg-surface-subtle text-ink rounded-2xl rounded-bl-sm px-4 py-2 max-w-[90%]')">
-                            <p class="text-sm whitespace-pre-line" x-text="msg.content"></p>
+                    {{-- Балонът се показва само при текст (празен reply + въпрос → само картата). --}}
+                    <template x-if="msg.content && msg.content.trim()">
+                        <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+                            <div :class="msg.role === 'user'
+                                ? 'bg-primary text-primary-fg rounded-2xl rounded-br-sm px-4 py-2 max-w-[85%]'
+                                : (msg.failed ? 'bg-danger-soft text-danger-strong rounded-2xl rounded-bl-sm px-4 py-2 max-w-[90%]' : 'bg-surface-subtle text-ink rounded-2xl rounded-bl-sm px-4 py-2 max-w-[90%]')">
+                                <template x-if="msg.role === 'assistant'">
+                                    <div class="text-sm ai-prose" x-html="$md(msg.content)"></div>
+                                </template>
+                                <template x-if="msg.role !== 'assistant'">
+                                    <p class="text-sm whitespace-pre-line" x-text="msg.content"></p>
+                                </template>
+                            </div>
                         </div>
-                    </div>
+                    </template>
 
-                    {{-- Въпрос с готови опции + „Друго" --}}
+                    {{-- Готови опции + „Друго" (текстът на въпроса е в балона по-горе). --}}
                     <template x-if="msg.question && !msg.answered">
                         <div class="mt-2 ml-1 border border-line rounded-xl p-3 space-y-2 bg-surface">
-                            <p class="text-sm font-medium text-ink" x-text="msg.question.text"></p>
+                            <template x-if="msg.question.input_type !== 'radio'">
+                                <p class="text-xs text-muted flex items-center gap-1">
+                                    <x-icon name="check-circle" size="4" class="text-accent" />Избери всички, които важат
+                                </p>
+                            </template>
                             <div class="space-y-1.5">
                                 <template x-for="opt in msg.question.options" :key="opt.value">
                                     <label class="flex items-start gap-2 text-sm cursor-pointer rounded-md px-2 py-1.5 hover:bg-surface-subtle">
@@ -69,14 +82,9 @@
                 </div>
             </template>
 
-            {{-- Индикатор „мисля" --}}
+            {{-- Индикатор „мисля" — анимирано лого + контекстен етикет --}}
             <template x-if="thinking">
-                <div class="flex justify-start">
-                    <div class="bg-surface-subtle text-muted rounded-2xl rounded-bl-sm px-4 py-2 text-sm inline-flex items-center gap-2">
-                        <span x-text="(stage || 'Мисля').replace(/[.…\s]+$/, '')"></span>
-                        <span class="iv-typing"><span></span><span></span><span></span></span>
-                    </div>
-                </div>
+                <x-org.thinking />
             </template>
         </div>
 
@@ -84,7 +92,7 @@
         <template x-if="ready">
             <div class="border-t border-line p-4 flex items-center justify-between gap-3" x-cloak>
                 <p class="text-sm text-success-strong">✓ Управителят има ясна представа.</p>
-                <x-button :href="route('client.org.design.review')">Проектирай екипа →</x-button>
+                <x-button :href="route('client.org.analysis')">Виж анализа →</x-button>
             </div>
         </template>
 
@@ -105,15 +113,51 @@
 <script>
 function interview(cfg) {
     return {
-        messages: [], input: '', thinking: false, stage: '', ready: cfg.ready, timer: null, uid: 0,
+        messages: [], input: '', thinking: false, stage: '', ready: cfg.ready, timer: null, uid: 0, started: false,
         init() {
+            if (this.started) return;   // Alpine може да извика init() повече от веднъж — пазим се.
+            this.started = true;
+
+            this.hydrate();             // възстанови предишния разговор (оцелява при refresh)
+
             if (this.ready) {
-                this.pushBot('Имам ясна представа за бизнеса. Готови сме за дизайна на екипа.');
+                // Транскриптът вече завършва с „готови сме"; статичното съобщение е само за празен профил.
+                if (this.messages.length === 0) {
+                    this.pushBot('Имам ясна представа за бизнеса. Готови сме за дизайна на екипа.');
+                }
                 return;
             }
-            // Авто-старт: празен ход → първият въпрос.
+
+            const t = cfg.transcript || [];
+            const last = t.length ? t[t.length - 1] : null;
+            // Има отворен въпрос → чакаме отговор. Иначе (празно или прекъснат ход) → продължи.
+            if (last && last.role === 'assistant' && last.question) {
+                return;
+            }
             this.thinking = true;
             this.dispatch({});
+        },
+        // Възстановяване на разговора от сървърния транскрипт. Ползва mkMsg → uid расте 1..N,
+        // така че следващите „живи" съобщения не се сблъскват по :key.
+        hydrate() {
+            const t = cfg.transcript || [];
+            for (const e of t) {
+                const role = e.role === 'user' ? 'user' : 'assistant';
+                const q = role === 'assistant' ? (e.question || null) : null;
+                // Празен reply + въпрос → балонът показва текста на въпроса (носи разговора при refresh).
+                const content = (e.content && e.content.trim()) ? e.content : (q && q.text ? q.text : (e.content || ''));
+                const m = this.mkMsg(role, content, q);
+                if (role === 'assistant') m.answered = true;   // минал въпрос → вече отговорен
+                this.messages.push(m);
+            }
+            // Последният въпрос на Управителя остава отворен, ако интервюто още тече.
+            if (!this.ready && t.length) {
+                const last = t[t.length - 1];
+                if (last.role === 'assistant' && last.question) {
+                    this.messages[this.messages.length - 1].answered = false;
+                }
+            }
+            this.scroll();
         },
         mkMsg(role, content, question = null) {
             return { uid: ++this.uid, role, content, question, answered: false, failed: false,
@@ -140,8 +184,9 @@ function interview(cfg) {
             msg.answered = true;
             const labels = msg.question.options.filter(o => values.includes(o.value)).map(o => o.label);
             if (other) labels.push(other);
-            this.pushUser(labels.join(', ')); this.thinking = true;
-            this.dispatch({ answer: { key: msg.question.key, values, other } });
+            const display = labels.join(', ');
+            this.pushUser(display); this.thinking = true;
+            this.dispatch({ answer: { key: msg.question.key, values, other }, display });
         },
         dispatch(body) {
             fetch(cfg.sendUrl, {
@@ -152,16 +197,23 @@ function interview(cfg) {
               .catch(() => { this.thinking = false; this.pushBot('Грешка. Опитай пак.', null, true); });
         },
         poll(token) {
+            if (this.timer) { clearInterval(this.timer); this.timer = null; }   // никога не оставяй сирак-интервал
             const url = cfg.statusTpl.replace('TOKEN', token);
+            let settled = false, fails = 0;
+            const stop = () => { settled = true; if (this.timer) { clearInterval(this.timer); this.timer = null; } this.thinking = false; };
             const tick = async () => {
+                if (settled) return;
                 try {
                     const d = await (await fetch(url, { headers: { 'Accept': 'application/json' } })).json();
-                    if (d.status === 'pending') { this.stage = d.stage || 'Мисля…'; return; }
-                    clearInterval(this.timer); this.thinking = false;
+                    if (settled) return;                                          // друг tick вече приключи
+                    if (d.status === 'pending') { this.stage = d.stage || 'Мисля…'; fails = 0; return; }
+                    stop();
                     if (d.status === 'failed' || d.status === 'expired') { this.pushBot(d.error || 'Грешка.', null, true); return; }
-                    this.pushBot(d.reply || '…', d.question || null);
+                    this.pushBot(d.reply || (d.question && d.question.text) || '', d.question || null);   // въпросът носи текста
                     if (d.phase === 'ready') this.ready = true;
-                } catch (e) { /* retry */ }
+                } catch (e) {
+                    if (++fails >= 8) { stop(); this.pushBot('Връзката се губи. Опитай пак.', null, true); }
+                }
             };
             tick(); this.timer = setInterval(tick, 1600);
         },

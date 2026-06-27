@@ -4,6 +4,7 @@ namespace App\Services\Org;
 
 use App\Models\Company;
 use App\Services\GeneratorService;
+use App\Support\PromptData;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -78,7 +79,7 @@ class AssistantRouterService
                     .'асистент според неговата роля/мандат/персона. Върни org_member_id САМО от подадения '
                     .'списък и кратка причина (едно изречение на български).';
                 $user = "НОВА ЗАДАЧА:\n\"{$taskText}\"\n\nАСИСТЕНТИ (избери org_member_id оттук):\n"
-                    .json_encode($list, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+                    .json_encode(PromptData::humanize($list), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
                 $schema = [
                     'type' => 'object',
                     'additionalProperties' => false,

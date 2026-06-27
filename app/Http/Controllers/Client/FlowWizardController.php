@@ -13,6 +13,7 @@ use App\Services\ClientFlowWizardService;
 use App\Services\FlowDescriptionImprover;
 use App\Services\Org\AssistantRouterService;
 use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\PersonaService;
 use App\Services\Org\TaskRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -174,7 +175,7 @@ class FlowWizardController extends Controller
      * „Готово, Генерирай" → БЕЗ плаващи flows: Управителят възлага flow-а на най-подходящия
      * асистент, който го генерира по своята персона (org=основното изживяване).
      */
-    public function build(Request $request, FlowDraft $draft, AssistantRouterService $router, TaskRunService $runner): JsonResponse
+    public function build(Request $request, FlowDraft $draft, AssistantRouterService $router, TaskRunService $runner, PersonaService $personas): JsonResponse
     {
         $this->authorizeCompany($draft->company_id);
 
@@ -206,6 +207,7 @@ class FlowWizardController extends Controller
         if (! $member) {
             return response()->json(['message' => 'Асистентът не е намерен.'], 422);
         }
+        $policy = $personas->runtimePolicy($member);
 
         $task = AssistantTask::create([
             'org_member_id' => $member->id,
@@ -214,6 +216,7 @@ class FlowWizardController extends Controller
             'description' => $description,
             'trigger' => 'manual',
             'act_mode' => 'draft',
+            'approval_policy' => (string) ($policy['approval_policy'] ?? 'approve_each'),
             'status' => 'proposed',
         ]);
 

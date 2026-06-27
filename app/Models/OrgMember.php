@@ -93,6 +93,69 @@ class OrgMember extends Model
         return $this->status === 'active';
     }
 
+    /** Двусловно човешко име (персона), без роля. */
+    public function fullName(): string
+    {
+        return $this->persona?->name ?: $this->display_name;
+    }
+
+    /** Ролята/длъжността — от плейсмънта (title), НИКОГА от името (§9.1). */
+    public function roleTitle(): string
+    {
+        $placement = $this->placement();
+        if ($placement && $placement->title) {
+            return (string) $placement->title;
+        }
+
+        return match ($this->kind) {
+            'manager' => 'Управител',
+            'director' => 'Директор',
+            default => 'Асистент',
+        };
+    }
+
+    /** Стабилен функционален цвят (домейн → цвят, §10.1) — не member.id % 7. */
+    public function functionColor(): string
+    {
+        $domain = mb_strtolower((string) $this->resolveDomain());
+        foreach ((array) config('organization.function_colors', []) as $needle => $color) {
+            if ($domain !== '' && str_contains($domain, mb_strtolower((string) $needle))) {
+                return (string) $color;
+            }
+        }
+
+        return (string) config('organization.default_function_color', 'blue');
+    }
+
+    /** Функционалният домейн на члена (директор: свой; асистент: на директора му). */
+    private function resolveDomain(): ?string
+    {
+        $placement = $this->placement();
+        if ($placement instanceof Director) {
+            return $placement->domain;
+        }
+        if ($placement instanceof Assistant) {
+            return $placement->director?->domain;
+        }
+
+        return null;   // управител
+    }
+
+    /** Memo-иран currentPlacement (избягва повторни заявки в списъци). */
+    private Director|Assistant|null $placementCache = null;
+
+    private bool $placementCached = false;
+
+    private function placement(): Director|Assistant|null
+    {
+        if (! $this->placementCached) {
+            $this->placementCache = $this->currentPlacement();
+            $this->placementCached = true;
+        }
+
+        return $this->placementCache;
+    }
+
     /**
      * Детерминистичен код-алокатор на стабилен `key` за НОВ член. Единственото място,
      * което ражда ключове — НИКОГА LLM. slug на името + суфикс за уникалност по (company, key).

@@ -21,9 +21,9 @@ window.personaFormBase = (cfg) => ({
         .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
         .then(({ ok, data }) => {
             if (ok && data.value) this.aiApply(field, data.value);
-            else this.aiError = data.error || 'AI не успя да генерира това поле.';
+            else this.aiError = data.error || 'Изкуственият интелект не успя да генерира това поле.';
         })
-        .catch(() => { this.aiError = 'AI услугата не отговори.'; })
+        .catch(() => { this.aiError = 'Услугата за изкуствен интелект не отговори.'; })
         .finally(() => { this._aiBusy[field] = false; });
     },
     // Override per повърхност:

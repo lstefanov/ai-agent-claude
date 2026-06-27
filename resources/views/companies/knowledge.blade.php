@@ -46,7 +46,7 @@
 @endpush
 
 @section('content')
-<div x-data="knowledgePage(@js($config))" x-init="init()">
+<div x-data="knowledgePage(@js($config))">
 
     {{-- Споделен tooltip за цитати (fixed → не се отрязва от scroll-кутията) --}}
     <div x-show="chat.tip.show" x-cloak class="kb-tip"
@@ -883,6 +883,7 @@ function knowledgePage(config) {
 
     return {
         config,
+        started: false,
         enabled: true, loading: true, error: '', busy: false,
         folders: [], stats: {}, factCategories: ['all'],
         tab: 'resources',
@@ -908,6 +909,8 @@ function knowledgePage(config) {
         chat: { messages: [], input: '', session: null, pending: false, stage: '', pollTimer: null, fullscreen: false, sessions: [], showSessions: false, tip: { show: false, text: '', x: 0, y: 0 } },
 
         init() {
+            if (this.started) return;   // Alpine може да извика init() повече от веднъж → без дублирани $watch/заявки.
+            this.started = true;
             this.$watch('tab', key => this.loadTab(key));
             this.$watch('rTab.search', debounce(() => { this.rTab.page = 1; this.loadResources(); }, 300));
             this.$watch('fTab.search', debounce(() => { this.fTab.page = 1; this.loadFacts(); }, 300));

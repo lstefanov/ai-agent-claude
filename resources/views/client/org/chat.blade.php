@@ -7,9 +7,8 @@
 @section('content')
 @php
     $persona = $member->persona;
-    $charColors = ['purple', 'teal', 'coral', 'blue', 'amber', 'pink', 'green'];
-    $c = $charColors[$member->id % count($charColors)];
-    $initial = mb_substr($persona->name ?? $member->display_name, 0, 1);
+    $c = $member->functionColor();   // цвят = функция/домейн (§10.1), не id % 7
+    $initial = mb_strtoupper(mb_substr($member->fullName(), 0, 1));
 @endphp
 <div class="max-w-3xl mx-auto px-6 py-8"
      x-data="memberChat({
@@ -21,7 +20,7 @@
         initial: @js($initial),
         color: 'char-{{ $c }}',
      })" x-init="init()">
-    <a href="{{ route('client.org.member', $member->id) }}" class="text-sm text-muted hover:text-ink">← Към героя</a>
+    <a href="{{ route('client.org.member', $member->id) }}" class="text-sm text-muted hover:text-ink">← Към служителя</a>
 
     <div class="mt-3 flex items-center gap-3 mb-4">
         @if ($persona?->hasReadyAvatar())
@@ -31,7 +30,7 @@
         @endif
         <div>
             <h1 class="font-semibold text-ink">{{ $persona?->name ?? $member->display_name }}</h1>
-            <p class="text-xs text-muted">{{ $member->display_name }}@if ($persona?->tone) · {{ $persona->tone }}@endif</p>
+            <p class="text-xs text-muted">{{ $member->display_name }}@if ($persona?->tone) · <x-prose :text="$persona->tone" inline />@endif</p>
         </div>
     </div>
 
@@ -40,7 +39,11 @@
             @foreach ($messages as $msg)
                 <div class="flex {{ $msg->role === 'user' ? 'justify-end' : 'justify-start' }}">
                     <div class="{{ $msg->role === 'user' ? 'bg-primary text-primary-fg rounded-2xl rounded-br-sm' : 'bg-surface-subtle text-ink rounded-2xl rounded-bl-sm' }} px-4 py-2 max-w-[85%]">
-                        <p class="text-sm whitespace-pre-line">{{ $msg->content }}</p>
+                        @if ($msg->role === 'assistant')
+                            <x-prose :text="$msg->content" class="text-sm" />
+                        @else
+                            <p class="text-sm whitespace-pre-line">{{ $msg->content }}</p>
+                        @endif
                         @if ($msg->role === 'assistant' && ($msg->payload['proposal'] ?? null))
                             <p class="text-xs text-char-{{ $c }}-strong mt-1">💡 Предложение → в <a href="{{ route('client.org.decisions') }}" class="underline">Кутията</a></p>
                         @endif
@@ -51,7 +54,12 @@
             <template x-for="msg in messages" :key="msg.uid">
                 <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
                     <div :class="msg.role === 'user' ? 'bg-primary text-primary-fg rounded-2xl rounded-br-sm' : (msg.failed ? 'bg-danger-soft text-danger-strong' : 'bg-surface-subtle text-ink') + ' rounded-2xl rounded-bl-sm'" class="px-4 py-2 max-w-[85%]">
-                        <p class="text-sm whitespace-pre-line" x-text="msg.content"></p>
+                        <template x-if="msg.role === 'assistant'">
+                            <div class="text-sm ai-prose" x-html="$md(msg.content)"></div>
+                        </template>
+                        <template x-if="msg.role !== 'assistant'">
+                            <p class="text-sm whitespace-pre-line" x-text="msg.content"></p>
+                        </template>
                         <template x-if="msg.proposal">
                             <p class="text-xs text-{{ 'char-'.$c }}-strong mt-1">💡 Предложение → в <a href="{{ route('client.org.decisions') }}" class="underline">Кутията</a></p>
                         </template>
@@ -60,7 +68,7 @@
             </template>
 
             <template x-if="thinking">
-                <div class="flex justify-start"><div class="bg-surface-subtle text-muted rounded-2xl rounded-bl-sm px-4 py-2 text-sm" x-text="stage || 'Мисля…'"></div></div>
+                <x-org.thinking />
             </template>
         </div>
 
@@ -89,15 +97,20 @@ function memberChat(cfg) {
                 .then(r => r.json()).then(d => d.token ? this.poll(d.token) : this.fail()).catch(() => this.fail());
         },
         poll(token) {
+            if (this.timer) { clearInterval(this.timer); this.timer = null; }   // никога не оставяй сирак-интервал
             const url = cfg.statusTpl.replace('TOKEN', token);
+            let settled = false, fails = 0;
+            const stop = () => { settled = true; if (this.timer) { clearInterval(this.timer); this.timer = null; } this.thinking = false; };
             const tick = async () => {
+                if (settled) return;
                 try {
                     const d = await (await fetch(url, { headers: { 'Accept': 'application/json' } })).json();
-                    if (d.status === 'pending') { this.stage = d.stage || 'Мисля…'; return; }
-                    clearInterval(this.timer); this.thinking = false;
+                    if (settled) return;
+                    if (d.status === 'pending') { this.stage = d.stage || 'Мисля…'; fails = 0; return; }
+                    stop();
                     if (d.status === 'completed') { this.messages.push({ uid: ++this.uid, role: 'assistant', content: d.reply || '…', proposal: d.proposal, failed: false }); this.scroll(); }
                     else { this.messages.push({ uid: ++this.uid, role: 'assistant', content: d.error || 'Грешка.', proposal: null, failed: true }); }
-                } catch (e) {}
+                } catch (e) { if (++fails >= 8) { stop(); this.messages.push({ uid: ++this.uid, role: 'assistant', content: 'Връзката се губи. Опитай пак.', proposal: null, failed: true }); } }
             };
             tick(); this.timer = setInterval(tick, 1600);
         },

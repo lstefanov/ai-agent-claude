@@ -3,7 +3,7 @@
 @section('title', 'Екип')
 
 @section('content')
-<div class="max-w-6xl mx-auto px-6 py-8">
+<div>
     @include('client.org._lens-tabs', ['active' => 'roster'])
 
     @if (! $graph['version'])

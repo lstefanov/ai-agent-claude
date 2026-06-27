@@ -17,11 +17,11 @@
     $totalFlows = collect($graph['assistants'])->sum(fn ($a) => $a['stats']['flows_total']);
     $busyAssistants = $rows->filter(fn ($r) => $r['active']->isNotEmpty())->count();
 @endphp
-<div class="max-w-5xl mx-auto px-6 py-8" x-data="{}" x-init="setTimeout(() => location.reload(), 6000)">
+<div>
     @include('client.org._lens-tabs', ['active' => 'live'])
 
     <h1 class="text-2xl font-semibold text-ink mb-1">Текущ поток</h1>
-    <p class="text-muted mb-4">Кои асистенти работят в момента. Обновява се автоматично.</p>
+    <p class="text-muted mb-4">Снимка на текущата работа. За живо проследяване без презареждане виж <a href="{{ route('client.org.dashboard') }}" class="text-primary hover:text-primary-hover">Табло</a>.</p>
 
     <div class="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-sm">
         <span class="inline-flex items-center gap-2">
@@ -35,7 +35,7 @@
     </div>
 
     @if ($rows->isEmpty())
-        <x-empty-state title="Тихо е" description="Няма активни или скорошни изпълнения. Пусни задача от Картата на героя." />
+        <x-empty-state title="Тихо е" description="Няма активни или скорошни изпълнения. Пусни задача от Задачи или Профил на служителя." />
     @else
         <div class="space-y-3">
             @foreach ($rows as $row)

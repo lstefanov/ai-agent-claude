@@ -31,6 +31,7 @@ class InterviewController extends Controller
         return view('client.org.interview', [
             'profile' => $profile,
             'manager' => $company->manager,
+            'transcript' => $profile->interview_transcript ?? [],
         ]);
     }
 
@@ -41,6 +42,7 @@ class InterviewController extends Controller
         $request->validate([
             'message' => ['nullable', 'string', 'max:4000'],
             'answer' => ['nullable', 'array'],
+            'display' => ['nullable', 'string', 'max:4000'],
         ]);
 
         $profile = BusinessProfile::firstOrCreate(
@@ -62,6 +64,13 @@ class InterviewController extends Controller
             $userInput = 'Отговор на «'.$answer['key'].'»: '.(implode(', ', $values) ?: '—');
         } else {
             $userInput = trim((string) $request->input('message'));
+        }
+
+        // Запис на хода на собственика в транскрипта (но НЕ за празния старт `dispatch({})`).
+        // Човешко-четим текст: етикетите, които потребителят видя (`display`), иначе суровия вход.
+        if ($userInput !== '') {
+            $display = trim((string) $request->input('display'));
+            $profile->appendTranscript(['role' => 'user', 'content' => $display !== '' ? $display : $userInput]);
         }
 
         $token = (string) Str::uuid();

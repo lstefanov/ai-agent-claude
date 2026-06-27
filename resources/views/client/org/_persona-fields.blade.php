@@ -1,11 +1,14 @@
 {{-- Споделени персона-полета (casting/member/design-review). Bind-ват се към обект
-     с конфигурируем префикс: $modelPrefix (по подразбиране 'form'). 4-те текстови полета
-     имат ⓘ помощ + ✨ AI; всяка черта има ⓘ описание. Изисква обграждащ Alpine компонент,
+     с конфигурируем префикс: $modelPrefix (по подразбиране 'form'). Текстовите полета
+     имат ⓘ помощ + ✨ генериране; всяка черта има ⓘ описание. Изисква обграждащ Alpine компонент,
      който spread-ва window.personaFormBase(cfg).
      Опции: $withNames=true → добавя name-атрибути за нативен form POST (casting); без него
      полетата се записват през JS. Възрастта подсказва черти само където има reseed() (casting). --}}
 @php($m = $modelPrefix ?? 'form')
 @php($names = $withNames ?? false)
+{{-- Цвят на чертите = цветът на отдела (char-* токен). Подава се през $color; иначе
+     обектът може да носи `.color` (design-review го сетва per домейн). Fallback: purple. --}}
+@php($defaultColor = $color ?? 'purple')
 @include('client.org._persona-form-js')
 
 {{-- Име (2/3) + Пол (1/3) --}}
@@ -46,7 +49,7 @@
     </div>
 </div>
 
-{{-- Бекграунд (ⓘ помощ + ✨ AI) --}}
+{{-- Професионален опит (ⓘ помощ + ✨ генериране) --}}
 <div>
     <div class="flex items-center gap-1.5 mb-1">
         <label class="text-sm font-medium text-ink">{{ config('persona.fields.background.label') }}</label>
@@ -91,11 +94,12 @@
                 </div>
                 <input type="range" min="0" max="100" x-model.number="{{ $m }}.traits.{{ $key }}"
                        @if ($names) name="traits[{{ $key }}]" @endif
-                       class="w-full accent-[var(--color-char-purple)]">
+                       class="w-full"
+                       :style="'accent-color: var(--color-char-' + (({{ $m }}.color) || '{{ $defaultColor }}') + ')'">
             </div>
         @endforeach
     </div>
 </div>
 
-{{-- AI грешка --}}
+{{-- Грешка от генерирането --}}
 <p x-show="aiError" x-text="aiError" x-cloak class="text-xs text-danger"></p>

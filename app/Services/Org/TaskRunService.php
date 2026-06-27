@@ -27,6 +27,7 @@ class TaskRunService
     public function __construct(
         private CreditMeterService $meter,
         private AgentGenerationLauncher $launcher,
+        private PersonaService $personas,
     ) {}
 
     /**
@@ -38,15 +39,25 @@ class TaskRunService
      */
     public function requestRun(AssistantTask $task, bool $runAfterGenerate = true): array
     {
+        $task = $this->applyPersonaDefaults($task);
+
+        // Явна status-машина (ревизиран lifecycle): само одобрена (ready) задача се пуска;
+        // само нова (proposed) се генерира. Решените/в процес статуси НЕ харчат и НЕ
+        // регенерират при директен POST към run endpoint-а.
         if ($task->status === 'ready' && $task->flow_id) {
             $run = $this->launchReadyRun($task);
 
             return ['status' => 'running', 'run_id' => $run->id];
         }
 
-        $this->dispatchGeneration($task, $runAfterGenerate);
+        if ($task->status === 'proposed') {
+            $this->dispatchGeneration($task, $runAfterGenerate);
 
-        return ['status' => 'generating'];
+            return ['status' => 'generating'];
+        }
+
+        // pending_approval / rejected / disabled / failed / generating → отказ.
+        throw new RuntimeException('Задачата не може да се пусне в състояние «'.$task->status.'».');
     }
 
     /**
@@ -56,8 +67,17 @@ class TaskRunService
      */
     public function generate(AssistantTask $task, bool $runAfterGenerate = false, bool $minimalQa = false): array
     {
+        $task = $this->applyPersonaDefaults($task);
+
         if ($task->status === 'ready' && $task->flow_id) {
             return ['status' => 'ready'];
+        }
+
+        // Само нова (proposed) или провалена (retry) задача се генерира. Иначе no-op —
+        // без повторно резервиране/диспечиране и без клобване на вече решен статус
+        // (pending_approval/rejected/disabled/generating).
+        if (! in_array($task->status, ['proposed', 'failed'], true)) {
+            return ['status' => $task->status];
         }
 
         $this->dispatchGeneration($task, $runAfterGenerate, $minimalQa);
@@ -72,10 +92,18 @@ class TaskRunService
      */
     public function launchReadyRun(AssistantTask $task): FlowRun
     {
+        $task = $this->applyPersonaDefaults($task);
+
         $flow = $task->flow;
         $member = $task->orgMember;
         if (! $flow || ! $member) {
             throw new RuntimeException('Задачата няма готов flow или член-собственик.');
+        }
+
+        // Run-safety (ранен изход преди резервация): само активен flow се пуска. Дублира
+        // централния гейт в GraphFlowExecutor, но спестява осиротяла кредитна резервация.
+        if ($flow->status !== 'active') {
+            throw new RuntimeException('Flow-ът на задачата не е активен — изисква одобрение.');
         }
 
         // Lazy re-pin (§6.1): stale задача → re-pin server-side към effectiveStarTier() ПРЕДИ старт.
@@ -119,25 +147,6 @@ class TaskRunService
     }
 
     /**
-     * Callback от генерацията: при ready + run_after_generate + наличен баланс → авто-пуска;
-     * иначе остава ready (нищо не се харчи), а намерението може да се изпълни по-късно ръчно.
-     */
-    public function autoRunAfterGenerate(AssistantTask $task): void
-    {
-        if (! $task->run_after_generate || $task->status !== 'ready' || ! $task->flow_id) {
-            return;
-        }
-
-        try {
-            $this->launchReadyRun($task);
-            $task->update(['run_after_generate' => false]);   // намерението е изпълнено
-        } catch (InsufficientCreditsException) {
-            Log::info("[TaskRun] auto-run skipped (no credits) task {$task->id}");
-            // остава ready + run_after_generate=true → човек пуска по-късно
-        }
-    }
-
-    /**
      * Server-side relevel на flow-а на stale задача към effectiveStarTier() (§6.1) —
      * пинва моделите в flow_nodes (записано), после tier_stale=false. Flow-ът е ексклузивен
      * за задачата, така че мутацията е безопасна. Грешка → чисти stale, за да не зацикля.
@@ -167,6 +176,8 @@ class TaskRunService
     /** Резервира generation, осигурява Flow, маркира generating и пуска асинхронна генерация. */
     private function dispatchGeneration(AssistantTask $task, bool $runAfterGenerate, bool $minimalQa = false): void
     {
+        $task = $this->applyPersonaDefaults($task);
+
         $member = $task->orgMember;
         if (! $member) {
             throw new RuntimeException('Задачата няма член-собственик.');
@@ -196,5 +207,36 @@ class TaskRunService
         );
 
         $task->update(['gen_token' => $token]);
+    }
+
+    /**
+     * Черти → default настройки на задачата. Прилага се преди оценка, генерация и пускане,
+     * за да не остане approval_policy само записана идея без runtime ефект.
+     */
+    private function applyPersonaDefaults(AssistantTask $task): AssistantTask
+    {
+        if (! in_array($task->status, ['proposed', 'generating', 'failed'], true)) {
+            return $task;
+        }
+
+        $task->loadMissing('orgMember.persona');
+        $member = $task->orgMember;
+        if (! $member || ! $member->persona) {
+            return $task;
+        }
+
+        $policy = $this->personas->runtimePolicy($member);
+        $approval = (string) ($policy['approval_policy'] ?? $task->approval_policy);
+        if (! in_array($approval, ['auto', 'approve_first_then_auto', 'approve_each'], true)) {
+            return $task;
+        }
+
+        if ($task->approval_policy !== $approval) {
+            $task->update(['approval_policy' => $approval]);
+
+            return $task->fresh(['orgMember.persona']);
+        }
+
+        return $task;
     }
 }
