@@ -10,10 +10,12 @@ use App\Models\FlowEdge;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
 use App\Models\NodeRun;
+use App\Models\OrgMember;
 use App\Services\Execution\AdaptiveReplanner;
 use App\Services\Execution\FlowNodeAgentBridge;
 use App\Services\Execution\NodePromptBuilder;
 use App\Services\Execution\StepQaGate;
+use App\Services\Org\PersonaService;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use App\Support\NodeDeadline;
@@ -57,6 +59,13 @@ class NodeExecutorService
     // изхода на трансформерен възел срещу него (run 102: коректорът върна
     // 85-знакова „присъда" върху 26K доклад).
     private int $lastUpstreamMaxLen = 0;
+
+    // Кеш на ПЕРСОНА БЛОКА per run (org-flow) — резолвира се веднъж, не на всеки възел.
+    /** @var array<int, string> */
+    private array $personaBlockCache = [];
+
+    /** @var array<int, array<string, mixed>> */
+    private array $personaPolicyCache = [];
 
     public function __construct(
         private AgentFactory $factory,
@@ -116,6 +125,14 @@ class NodeExecutorService
                 'node_run_id' => $nodeRun->id,
                 'agent_name' => $node->name,
                 'agent_type' => $node->type,
+                // Билинг-атрибуция (§0.5.1): за org-flow run-овете контролерът/
+                // executor-ът слага reservation_id+context в context — node LLM
+                // повикванията се атрибутират към task_run резервацията. Не-org
+                // flow → null → без атрибуция (непроменено поведение).
+                'context_type' => $flowRun->context['credit_context_type'] ?? null,
+                'subject_type' => $flowRun->context['credit_subject_type'] ?? null,
+                'subject_id' => $flowRun->context['credit_subject_id'] ?? null,
+                'reservation_id' => $flowRun->context['credit_reservation_id'] ?? null,
             ]);
 
             // Human-in-the-loop: the node never executes an agent — it pauses the
@@ -241,6 +258,31 @@ class NodeExecutorService
             if (($flowRun->context['failure_policy'] ?? 'fail_fast') !== 'best_effort') {
                 $this->failFlowRun($flowRun, $message);
             }
+
+            return;
+        }
+
+        // act HARD GATE под preview (§B2): org flow (има assistant_task_id) + ORG_ACT_ENABLED=false
+        // → произвежда „чернова на действието" (tool/аргументи/очакван ефект), БЕЗ реален
+        // страничен ефект и БЕЗ ред в connector_tool_logs. Реалният act иска реален auth (Фаза 6).
+        if (isset($flowRun->context['assistant_task_id']) && ! config('organization.act.enabled')) {
+            $params = (array) ($node->config['tool_params'] ?? []);
+            $connectorId = (int) ($node->config['connector_id'] ?? 0);
+            $draft = "ЧЕРНОВА НА ДЕЙСТВИЕ (act изключен под preview — без реален ефект)\n"
+                ."Инструмент: {$tool}\nКонектор: #{$connectorId}\n"
+                .'Аргументи: '.json_encode($params, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)."\n"
+                .'Очакван ефект: действието БИ било изпълнено при включен реален auth (ORG_ACT_ENABLED=true).';
+            $nodeRun->fill([
+                'node_key' => $node->node_key,
+                'status' => 'completed',
+                'input' => "MCP draft: {$tool}",
+                'output' => $draft,
+                'model_used' => 'mcp:draft',
+                'error' => null,
+                'started_at' => $nodeRun->started_at ?? now(),
+                'completed_at' => now(),
+            ])->save();
+            RunLog::append($flowRun->id, "[MCP] {$node->name}: act изключен → чернова на действието (без реален страничен ефект)");
 
             return;
         }
@@ -408,6 +450,7 @@ class NodeExecutorService
     private function runWithQaRetry(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun): void
     {
         $qaConfig = $this->qaGate->configFor($node);
+        $qaConfig = $this->applyPersonaQaPolicy($flowRun, $node, $qaConfig);
         $maxQaRetries = $qaConfig ? min(10, max(0, (int) ($qaConfig['max_retries'] ?? 3))) : 0;
         $qaRetriesUsed = 0;
         // Фаза 3: revision applied for THIS RUN only (the saved graph stays
@@ -622,6 +665,117 @@ class NodeExecutorService
     }
 
     /**
+     * Персона блок се инжектира навсякъде ОСВЕН в persona-неутралните възли — същият
+     * под на компетентност като знанието (§5.3): „импулсивен" член мени КАК, не дали QA минава.
+     */
+    private function shouldInjectPersona(FlowNode $node): bool
+    {
+        $excluded = ['bg_text_corrector', 'translator', 'human_approval', 'mcp_action', 'decision', 'qa_verifier'];
+
+        return ! in_array($node->type, $excluded, true);
+    }
+
+    /**
+     * ПЕРСОНА БЛОКЪТ на члена-собственик на run-а (резолвиран веднъж и кеширан per run,
+     * за да не удря БД на всеки възел). Празен низ за не-org flow (без org_member_id).
+     */
+    private function personaBlock(FlowRun $flowRun): string
+    {
+        $memberId = $flowRun->context['org_member_id'] ?? null;
+        if (! $memberId) {
+            return '';
+        }
+
+        if (array_key_exists($flowRun->id, $this->personaBlockCache)) {
+            return $this->personaBlockCache[$flowRun->id];
+        }
+
+        $member = OrgMember::with('persona')->find($memberId);
+        $block = $member ? app(PersonaService::class)->compileSystemPrompt($member) : '';
+
+        return $this->personaBlockCache[$flowRun->id] = $block;
+    }
+
+    /** @return array<string, mixed> */
+    private function personaPolicy(FlowRun $flowRun): array
+    {
+        $memberId = $flowRun->context['org_member_id'] ?? null;
+        if (! $memberId) {
+            return [];
+        }
+
+        if (array_key_exists($flowRun->id, $this->personaPolicyCache)) {
+            return $this->personaPolicyCache[$flowRun->id];
+        }
+
+        $member = OrgMember::with('persona')->find($memberId);
+        $policy = $member ? app(PersonaService::class)->runtimePolicy($member) : [];
+
+        return $this->personaPolicyCache[$flowRun->id] = $policy;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @param  array<string, mixed>  $policy
+     */
+    private function applyPersonaRuntimeConfig(array $config, FlowNode $node, array $policy): array
+    {
+        $current = is_numeric($config['temperature'] ?? null) ? (float) $config['temperature'] : null;
+        $target = $this->personaTemperatureForNode($node, $policy);
+        $config['temperature'] = round(max(0.0, min(1.2, ($current ?? $target) * 0.25 + $target * 0.75)), 2);
+
+        return $config;
+    }
+
+    /** @param  array<string, mixed>  $policy */
+    private function personaTemperatureForNode(FlowNode $node, array $policy): float
+    {
+        $type = mb_strtolower((string) $node->type);
+        $role = mb_strtolower((string) $node->output_role);
+
+        if (in_array($role, ['body', 'appendix'], true)
+            || preg_match('/writer|content|caption|hook|copy|email|newsletter|post|story|video|hashtag|image_prompt|offer|translator/u', $type)) {
+            return (float) ($policy['creative_temperature'] ?? $policy['temperature'] ?? 0.7);
+        }
+
+        if (preg_match('/research|analy|extract|classifier|review|sentiment|scraper|ocr|profiler|price|data|qa|verifier/u', $type)) {
+            return (float) ($policy['factual_temperature'] ?? $policy['temperature'] ?? 0.3);
+        }
+
+        return (float) ($policy['temperature'] ?? 0.6);
+    }
+
+    /**
+     * Прецизността на служителя затяга inline проверките на работните възли. Отделните
+     * QA/контролни възли не получават персона и остават неутрални.
+     *
+     * @param  array{threshold: int, max_retries: int, verifier_node_key: string, custom_prompt: string}|null  $qaConfig
+     * @return array{threshold: int, max_retries: int, verifier_node_key: string, custom_prompt: string}|null
+     */
+    private function applyPersonaQaPolicy(FlowRun $flowRun, FlowNode $node, ?array $qaConfig): ?array
+    {
+        if (! $qaConfig || ! $this->shouldInjectPersona($node)) {
+            return $qaConfig;
+        }
+
+        $policy = $this->personaPolicy($flowRun);
+        if ($policy === []) {
+            return $qaConfig;
+        }
+
+        $traits = (array) ($policy['traits'] ?? []);
+        $precision = (int) ($traits['precision'] ?? 50);
+        $qaConfig['threshold'] = max((int) $qaConfig['threshold'], (int) ($policy['qa_threshold'] ?? $qaConfig['threshold']));
+        if ($precision >= 80) {
+            $qaConfig['max_retries'] = min(10, max((int) $qaConfig['max_retries'], 4));
+        } elseif ($precision <= 35) {
+            $qaConfig['max_retries'] = min((int) $qaConfig['max_retries'], 2);
+        }
+
+        return $qaConfig;
+    }
+
+    /**
      * Execute the node exactly once. Returns the cleaned output string.
      * Throws RuntimeException after MAX_ATTEMPTS technical failures.
      *
@@ -675,6 +829,14 @@ class NodeExecutorService
             }
         }
 
+        // Персона: за org-flow нодовете добавяме ПЕРСОНА БЛОК на члена-собственик
+        // (характер/стил, НЕ компетентност), за да „действат като себе си" (§0.5.5).
+        // Персона-неутралните възли (QA/трансформъри/контрол) са изключени (под на
+        // компетентност, §5.3). Не-org flow (без org_member_id) → no-op.
+        if ($this->shouldInjectPersona($node) && ($personaBlock = $this->personaBlock($flowRun)) !== '') {
+            $input .= "\n\n".$personaBlock;
+        }
+
         if ($dedupFeedback !== null) {
             $input .= "\n\n".$dedupFeedback;
         }
@@ -699,6 +861,9 @@ class NodeExecutorService
         RunLog::append($flowRun->id, "STEP {$stepNo}/{$totalSteps}: {$node->name}");
 
         $agent = $this->bridge->bridgeAgent($node);
+        if ($this->shouldInjectPersona($node) && ($policy = $this->personaPolicy($flowRun)) !== []) {
+            $agent->config = $this->applyPersonaRuntimeConfig((array) $agent->config, $node, $policy);
+        }
         // Eval Suite: run-scoped model override — позволява една и съща версия
         // да се пуска на различно ниво (моделите за нивото са пресметнати при
         // eval и сложени в context['model_overrides']). '' = локален авто.

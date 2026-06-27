@@ -82,12 +82,12 @@ class FlowPlannerService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium): array
+    public function plan(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, ?string $personaBlock = null, ?array $personaPolicy = null): array
     {
         $intent = $this->analyzeIntent($flow, $onProgress, $logToken);
         $this->lastIntent = $intent;
 
-        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken);
+        $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken, personaBlock: $personaBlock, personaPolicy: $personaPolicy);
         $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
 
         // A strong planner rarely under-produces; a single transient short plan
@@ -99,7 +99,7 @@ class FlowPlannerService
             $plan = $this->designPipeline($flow, $intent, $level, $onProgress, $logToken,
                 'ВНИМАНИЕ: предишният опит върна само '.count($agents).' агента вместо пълен pipeline. '
                 .'Върни ПЪЛНИЯ DAG с ВСИЧКИ агенти (обикновено 7+), без съкращаване и без да '
-                .'прекъсваш текстовите полета по средата.');
+                .'прекъсваш текстовите полета по средата.', personaBlock: $personaBlock, personaPolicy: $personaPolicy);
             $agents = is_array($plan['agents'] ?? null) ? $plan['agents'] : [];
         }
 
@@ -218,7 +218,7 @@ PROMPT;
     // ──────────────────────────────────────────────────────────────────────
 
     /** @return array<string, mixed> */
-    private function designPipeline(Flow $flow, array $intent, ModelLevel $level, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null): array
+    private function designPipeline(Flow $flow, array $intent, ModelLevel $level, ?callable $onProgress, ?string $logToken, ?string $retryFeedback = null, ?string $personaBlock = null, ?array $personaPolicy = null): array
     {
         if ($onProgress) {
             $onProgress('Генериране на агенти');
@@ -300,11 +300,33 @@ PROMPT;
             $user .= "\n\n".$retryFeedback;
         }
 
+        // Org: персоната на асистента-автор оформя СТИЛА/ПОДХОДА на проектираните
+        // агенти (тон, акценти, предпазливост/смелост) — без да жертва покритие,
+        // структура или вярност. Празен блок (админ/не-org) → промптът е непроменен.
+        if ($personaBlock !== null && $personaBlock !== '') {
+            $user .= "\n\n[ПЕРСОНА НА АВТОРА — асистентът, който проектира и ще движи този flow]\n"
+                .$personaBlock
+                ."\n\nОтрази този характер и подход в стила и формулировките на агентите (system_prompt/"
+                .'prompt_template/role/name). Персоната оформя ПОДХОДА, не коректността — покритието на '
+                .'key_tasks, топологията на DAG-а и верността на фактите остават водещи.';
+        }
+
+        if (is_array($personaPolicy) && $personaPolicy !== []) {
+            $user .= "\n\n[РЕАЛНИ НАСТРОЙКИ ОТ ЧЕРТИТЕ]\n"
+                .'Политика за одобрение: '.($personaPolicy['approval_policy'] ?? 'approve_each').".\n"
+                .'Ниво за модел при наследяване: '.($personaPolicy['star_tier'] ?? 'medium').".\n"
+                .'Подход към инструменти: '.($personaPolicy['tool_bias'] ?? 'analytical').".\n"
+                .'Едновременни задачи в директорски цикъл: '.(int) ($personaPolicy['parallelism'] ?? 1).".\n"
+                .'Праг за проверка на качество: '.(int) ($personaPolicy['qa_threshold'] ?? self::DEFAULT_QA_THRESHOLD).".\n"
+                .'Използвай тези настройки при избора на стъпки: по-креативен служител може да има повече варианти и формулировки; '
+                .'по-прецизен служител трябва да има повече фактологична проверка и по-строги инструкции.';
+        }
+
         // 11 агента ≈ 8.5K изходни токена (кирилицата токенизира скъпо) —
         // medium трябва да носи 13-14 агента с margin. Провайдерският
         // max_output_cap клампва, ако моделът поддържа по-малко.
         return $this->runPhase('pipeline_design', $system, $user, $this->planSchema($flow), [
-            'temperature' => 0.3,
+            'temperature' => is_numeric($personaPolicy['planner_temperature'] ?? null) ? (float) $personaPolicy['planner_temperature'] : 0.3,
             'num_predict' => $this->numPredictFor($intent, simple: 8000, medium: 12000, complex: 16000),
         ], $flow, $logToken);
     }
@@ -1135,6 +1157,12 @@ PROMPT;
             'session_id' => $logToken,
             'company_id' => $flow->company_id ?? $flow->company?->id,
             'flow_id' => $flow->id,
+            // Билинг-атрибуция: наследяваме резервацията от обгръщащата рамка (org
+            // генерация), за да влязат planner редовете под нея (§0.5.6).
+            'context_type' => $prevCtx['context_type'] ?? null,
+            'subject_type' => $prevCtx['subject_type'] ?? null,
+            'subject_id' => $prevCtx['subject_id'] ?? null,
+            'reservation_id' => $prevCtx['reservation_id'] ?? null,
         ]);
 
         try {

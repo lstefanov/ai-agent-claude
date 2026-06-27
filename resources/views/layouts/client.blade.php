@@ -16,6 +16,35 @@
     <script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/focus@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    {{-- Markdown рендиране на генерирания текст (същият модел като client/runs/result + knowledge).
+         marked/dompurify са обикновени (НЕ defer) → window.renderMarkdown съществува преди Alpine;
+         $md (блок) / $mdInline (inline) са Alpine magics, регистрирани на alpine:init. --}}
+    <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <script>
+        function aiEscapeHtml(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+        // LLM понякога слага двоен списъчен маркер на ред ("- - текст") → вложен списък (двойни bullet-и).
+        function aiNormalizeMd(s) { return String(s).replace(/^([ \t]*)(?:[-*+][ \t]+){2,}/gm, '$1- '); }
+        window.renderMarkdown = (raw) => {
+            if (!raw) return '';
+            const text = aiNormalizeMd(raw);
+            if (typeof marked === 'undefined') return aiEscapeHtml(text).replace(/\n/g, '<br>');
+            const html = marked.parse(text, { breaks: true, gfm: true });
+            return (typeof DOMPurify !== 'undefined') ? DOMPurify.sanitize(html) : html;
+        };
+        window.renderMarkdownInline = (raw) => {
+            if (!raw) return '';
+            const text = aiNormalizeMd(raw);
+            if (typeof marked === 'undefined') return aiEscapeHtml(text);
+            const html = marked.parseInline(text, { gfm: true });
+            return (typeof DOMPurify !== 'undefined') ? DOMPurify.sanitize(html) : html;
+        };
+        document.addEventListener('alpine:init', () => {
+            Alpine.magic('md', () => (t) => window.renderMarkdown(t));
+            Alpine.magic('mdInline', () => (t) => window.renderMarkdownInline(t));
+        });
+    </script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @stack('head')
 </head>
@@ -29,14 +58,18 @@
     {{-- Navigation --}}
     @php
         $navItems = [
-            'Табло'       => ['route' => 'client.dashboard',   'match' => 'client.dashboard'],
-            'Моите Flows' => ['route' => 'client.flows.index', 'match' => 'client.flows.*'],
+            'Табло'      => ['route' => 'client.org.dashboard',    'match' => 'client.org.dashboard'],
+            'Задачи'     => ['route' => 'client.org.tasks.index',  'match' => 'client.org.tasks.*'],
+            'Решения'    => ['route' => 'client.org.decisions',    'match' => 'client.org.decisions*'],
+            'Интеграции' => ['route' => 'client.org.integrations', 'match' => 'client.org.integrations'],
+            'Кредити'    => ['route' => 'client.org.billing',      'match' => 'client.org.billing*'],
+            'Хроника'    => ['route' => 'client.org.chronicle',    'match' => 'client.org.chronicle'],
         ];
     @endphp
     <nav class="bg-surface border-b border-line sticky top-0 z-40" x-data="{ open: false, menu: false }">
         <div class="max-w-7xl mx-auto px-6 flex items-stretch justify-between h-16">
             <div class="flex items-stretch gap-6">
-                <a href="{{ route('client.dashboard') }}"
+                <a href="{{ route('client.home') }}"
                    class="flex items-center gap-2 text-primary font-display font-bold text-lg tracking-tight hover:text-primary-hover transition rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
                     <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
                     FlowAI
@@ -59,9 +92,9 @@
 
             {{-- Right: изпъкващ CTA + фирма dropdown --}}
             <div class="flex items-center gap-3">
-                <a href="{{ route('client.flows.create') }}"
+                <a href="{{ route('client.org.tasks.new') }}"
                    class="hidden sm:inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold rounded-md bg-primary text-primary-fg hover:bg-primary-hover shadow-card transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-                    <x-icon name="plus" size="4" /> Създай нов Flow
+                    <x-icon name="plus" size="4" /> Нова задача
                 </a>
 
                 <div class="relative hidden md:block" @click.outside="menu = false">
@@ -81,6 +114,7 @@
                                 <p class="text-xs text-subtle">{{ $currentUser->role === 'owner' ? 'Собственик' : 'Потребител' }}</p>
                             </div>
                         @endif
+                        <a href="{{ route('client.flows.index') }}" class="block px-3 py-2 text-sm text-muted hover:text-ink hover:bg-surface-subtle transition">Моите Flows</a>
                         <a href="{{ route('client.login') }}" class="block px-3 py-2 text-sm text-muted hover:text-ink hover:bg-surface-subtle transition">Смени фирма/потребител</a>
                         <form action="{{ route('client.logout') }}" method="POST">
                             @csrf
@@ -114,7 +148,7 @@
                         {{ $label }}
                     </a>
                 @endforeach
-                <a href="{{ route('client.flows.create') }}" class="block px-3 py-2 rounded-md text-sm font-semibold bg-primary text-primary-fg">＋ Създай нов Flow</a>
+                <a href="{{ route('client.org.tasks.new') }}" class="block px-3 py-2 rounded-md text-sm font-semibold bg-primary text-primary-fg">＋ Нова задача</a>
                 <form action="{{ route('client.logout') }}" method="POST" class="pt-1">
                     @csrf
                     <button type="submit" class="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-danger hover:bg-danger-soft transition">Изход</button>

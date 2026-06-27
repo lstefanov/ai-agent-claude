@@ -4,11 +4,13 @@ namespace App\Console\Commands;
 
 use App\Jobs\ExecuteFlowJob;
 use App\Models\Flow;
+use Cron\CronExpression;
 use Illuminate\Console\Command;
 
 class RunScheduledFlows extends Command
 {
-    protected $signature   = 'flows:run-scheduled';
+    protected $signature = 'flows:run-scheduled';
+
     protected $description = 'Dispatch execution for all flows whose cron schedule matches now';
 
     public function handle(): int
@@ -28,13 +30,15 @@ class RunScheduledFlows extends Command
         }
 
         $this->info("Scheduled flows dispatched: {$dispatched}");
+
         return Command::SUCCESS;
     }
 
     private function cronMatches(string $cron): bool
     {
         // Use Laravel's CronExpression via the scheduler
-        $expression = new \Cron\CronExpression($cron);
+        $expression = new CronExpression($cron);
+
         return $expression->isDue(new \DateTime('now'));
     }
 }

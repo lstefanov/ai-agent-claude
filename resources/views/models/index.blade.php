@@ -86,7 +86,6 @@
     <div class="bg-surface rounded-xl border border-line divide-y divide-line">
         @foreach($categoryModels as $model)
         <div x-data="modelRow({{ $model->id }}, '{{ addslashes($model->ollama_tag) }}', '{{ $model->pull_status ?? 'idle' }}', {{ $model->pull_progress ?? 0 }}, {{ $model->is_available ? 'true' : 'false' }}, @js($model->pull_error))"
-             x-init="init()"
              :class="!{{ $model->is_enabled ? 'true' : 'false' }} ? 'opacity-50' : ''"
              class="px-6 py-4 transition-opacity">
 

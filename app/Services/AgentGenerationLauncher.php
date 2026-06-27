@@ -2,14 +2,15 @@
 
 namespace App\Services;
 
+use App\Jobs\GenerateAgentsJob;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
  * Пуска фоновата генерация на агенти (`flows:generate-agents`) и връща token.
- * Единствената точка, която сглобява `agent_gen_request_{token}` кеша и стартира
- * процеса — ползва се и от админ builder-а, и от клиентския wizard. Поллингът
- * става през `flows.generation-status/{token}` (FlowController::generationStatus).
+ * Единствената точка, която сглобява `agent_gen_request_{token}` кеша и диспечира
+ * Horizon job-а (`org` queue) — ползва се и от админ builder-а, и от клиентския wizard.
+ * Поллингът става през `flows.generation-status/{token}` (FlowController::generationStatus).
  */
 class AgentGenerationLauncher
 {
@@ -19,9 +20,11 @@ class AgentGenerationLauncher
      * @param  bool  $persist  клиентски flows: фоновата команда сама записва активна
      *                         версия в DB-то (админът записва ръчно през builder-а)
      * @param  int|null  $draftId  изходният FlowDraft — маркира се 'completed' след запис
+     * @param  int|null  $assistantTaskId  org задачата — flow_id ѝ се връзва + status='ready'
+     *                                     след запис (огледало на draft пътя, §0.5.6)
      * @return string токенът за поллинг на статуса
      */
-    public function launch(int $companyId, int $flowId, string $name, string $description, string $level, array $phases = [], bool $minimalQa = false, bool $persist = false, ?int $draftId = null): string
+    public function launch(int $companyId, int $flowId, string $name, string $description, string $level, array $phases = [], bool $minimalQa = false, bool $persist = false, ?int $draftId = null, ?int $assistantTaskId = null): string
     {
         $token = Str::uuid()->toString();
 
@@ -36,6 +39,7 @@ class AgentGenerationLauncher
             'minimal_qa' => $minimalQa,
             'persist' => $persist,
             'draft_id' => $draftId,
+            'assistant_task_id' => $assistantTaskId,
         ], now()->addMinutes(15));
 
         // Начален статус — поллерът веднага вижда 'pending'.
@@ -47,11 +51,9 @@ class AgentGenerationLauncher
             'updated_at' => now()->timestamp,
         ], now()->addMinutes(15));
 
-        // Фонов artisan процес (не го убива HTTP timeout-ът).
-        $php = env('PHP_CLI_BINARY', PHP_BINARY);
-        $artisan = base_path('artisan');
-        $tok = escapeshellarg($token);
-        exec("{$php} {$artisan} flows:generate-agents {$tok} >> ".escapeshellarg(storage_path('logs/agent-gen.log')).' 2>&1 &');
+        // Horizon job на `org` queue (supervisor-org) — наблюдаемо, без detached exec (§8.3).
+        // Не го убива HTTP timeout-ът; не конкурира node execution на supervisor-flows.
+        GenerateAgentsJob::dispatch($token)->onQueue('org');
 
         return $token;
     }

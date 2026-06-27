@@ -15,9 +15,9 @@ class LlmModel extends Model
     ];
 
     protected $casts = [
-        'strengths'      => 'array',
+        'strengths' => 'array',
         'is_default_for' => 'array',
-        'is_available'   => 'boolean',
-        'is_enabled'     => 'boolean',
+        'is_available' => 'boolean',
+        'is_enabled' => 'boolean',
     ];
 }

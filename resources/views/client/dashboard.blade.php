@@ -48,9 +48,9 @@
     <x-card>
         <x-empty-state icon="bolt" title="Още нямаш Flows"
                        message="Създай първия си Flow с разговорния асистент — само за минути.">
-            <a href="{{ route('client.flows.create') }}"
+            <a href="{{ route('client.org.tasks.new') }}"
                class="inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold rounded-md bg-primary text-primary-fg hover:bg-primary-hover transition">
-                <x-icon name="plus" size="4" /> Създай нов Flow
+                <x-icon name="plus" size="4" /> Нова задача
             </a>
         </x-empty-state>
     </x-card>

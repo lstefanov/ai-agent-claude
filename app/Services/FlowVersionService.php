@@ -30,11 +30,11 @@ class FlowVersionService
      * @param  array<int, array<string, mixed>>  $agents
      * @param  array{intent?: ?array, generator?: ?array, model_level?: ?string, cost_usd?: ?float, duration_ms?: ?int}  $meta
      */
-    public function createFromAgents(Flow $flow, array $agents, string $name, bool $isActive, array $meta = []): FlowVersion
+    public function createFromAgents(Flow $flow, array $agents, string $name, bool $isActive, array $meta = [], bool $captureLibrary = true): FlowVersion
     {
         $layout = $this->graphBuilder->build($agents, $flow->company_id);
 
-        return $this->create($flow, $layout, $name, $isActive, $agents, $meta);
+        return $this->create($flow, $layout, $name, $isActive, $agents, $meta, $captureLibrary);
     }
 
     /**
@@ -143,7 +143,7 @@ class FlowVersionService
      * @param  array<int, array<string, mixed>>|null  $agents
      * @param  array{intent?: ?array, generator?: ?array, model_level?: ?string, cost_usd?: ?float, duration_ms?: ?int}  $meta
      */
-    private function create(Flow $flow, array $layout, string $name, bool $isActive, ?array $agents, array $meta): FlowVersion
+    private function create(Flow $flow, array $layout, string $name, bool $isActive, ?array $agents, array $meta, bool $captureLibrary = true): FlowVersion
     {
         $version = null;
 
@@ -168,7 +168,9 @@ class FlowVersionService
             $this->materialize($version);
         });
 
-        if ($isActive) {
+        // Org draft предложения подават captureLibrary:false — plan library трябва да
+        // съдържа само РЕАЛНО одобрени планове (capture се мести в approveTask()).
+        if ($isActive && $captureLibrary) {
             $this->captureForPlanLibrary($version);
         }
 

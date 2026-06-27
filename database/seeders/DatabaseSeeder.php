@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -18,6 +17,10 @@ class DatabaseSeeder extends Seeder
         $this->call([
             LlmModelSeeder::class,
             AgentTemplateSeeder::class,
+            // AI Организация — seed библиотеки + планове (Фаза 0).
+            PlanSeeder::class,
+            PersonaArchetypeSeeder::class,
+            OrgBlueprintSeeder::class,
         ]);
     }
 }

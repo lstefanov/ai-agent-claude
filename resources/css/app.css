@@ -5,6 +5,14 @@
 @source '../**/*.blade.php';
 @source '../**/*.js';
 
+/* Safelist: character-палитрата (RPG персона карти) се избира ДИНАМИЧНО по член
+   (bg-char-{{ $c }}-soft в Blade / bg-${color} в JS) → Tailwind не я вижда като
+   литерал и я purge-ва. Форсираме всичките 7 тона тук (§DESIGN „Components — RPG слой"). */
+@source inline("bg-char-{purple,teal,coral,blue,amber,pink,green}");
+@source inline("bg-char-{purple,teal,coral,blue,amber,pink,green}-soft");
+@source inline("text-char-{purple,teal,coral,blue,amber,pink,green}-strong");
+@source inline("ring-char-{purple,teal,coral,blue,amber,pink,green}-soft");
+
 /* ============================================================
    FlowAI — Design System tokens (Modern SaaS / Linear·Vercel)
    Light theme. Single source of truth — no hardcoded hex in Blade.
@@ -57,6 +65,20 @@
     --color-neutral-soft: #f4f4f5;
     --color-neutral-strong: #52525b;
 
+    /* Character / category palette (RPG layer) — persona/department/skill-tree identity.
+       Each: -soft (≈50 fill), base (rings/stat-bars), -strong (≈800 text, ≥4.5:1 on its soft bg).
+       Use via static utilities only (PHP match-map), never dynamic class names. */
+    --color-char-purple: #7f77dd;  --color-char-purple-soft: #eeedfe;  --color-char-purple-strong: #3c3489;
+    --color-char-teal:   #1d9e75;  --color-char-teal-soft:   #e1f5ee;  --color-char-teal-strong:   #0f6e56;
+    --color-char-coral:  #d85a30;  --color-char-coral-soft:  #faece7;  --color-char-coral-strong:  #993c1d;
+    --color-char-blue:   #378add;  --color-char-blue-soft:   #e6f1fb;  --color-char-blue-strong:   #0c447c;
+    --color-char-amber:  #ba7517;  --color-char-amber-soft:  #faeeda;  --color-char-amber-strong:  #854f0b;
+    --color-char-pink:   #d4537e;  --color-char-pink-soft:   #fbeaf0;  --color-char-pink-strong:   #993556;
+    --color-char-green:  #639922;  --color-char-green-soft:  #eaf3de;  --color-char-green-strong:  #3b6d11;
+
+    /* RPG accents: star/tier gold. Credits reuse the primary azure meter (no new hue). */
+    --color-star: #c8881a;  --color-star-soft: #faeeda;
+
     /* Layered shadows (ambient + direct) — additive, do not clobber Tailwind defaults */
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
     --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.1);
@@ -90,6 +112,30 @@
             scroll-behavior: auto !important;
         }
     }
+}
+
+/* ============================================================
+   Brand „thinking" loader — анимирано лого (FlowAI болт). Болтът се
+   изчертава (trace), а три искри обикалят в орбита около него — без
+   мигане. Ползва се от <x-org.thinking> навсякъде, където има
+   thinking/loading състояние (чат, интервю, дизайн, casting).
+   ============================================================ */
+@keyframes faBoltTrace {
+    0%   { stroke-dashoffset: 100; }
+    55%  { stroke-dashoffset: 0; }
+    80%  { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: -100; }
+}
+@keyframes faBoltOrbit {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+.fa-bolt-trace { stroke-dasharray: 100; animation: faBoltTrace 1.8s ease-in-out infinite; }
+.fa-bolt-orbit { transform-origin: 12px 12px; animation: faBoltOrbit 3s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+    /* Спри движението и покажи болта напълно изчертан. */
+    .fa-bolt-trace { stroke-dasharray: none; stroke-dashoffset: 0; }
+    .fa-bolt-orbit { animation: none !important; }
 }
 
 /* Alpine cloak + line clamp helpers (moved out of inline <style> blocks) */
@@ -161,3 +207,28 @@
 .ts-wrapper .ts-dropdown .option:hover {
     background: color-mix(in srgb, var(--color-primary) 7%, white);
 }
+
+/* ============================================================
+   AI prose — рендиран markdown от генериран текст. Ползва се от
+   сървърния <x-prose> и от клиентския $md (x-html). Token-driven,
+   единен вид навсякъде в портала. (Обобщава по-старите .kb-prose /
+   .result-content style блокове.)
+   ============================================================ */
+.ai-prose { line-height: 1.55; }
+.ai-prose > *:first-child { margin-top: 0; }
+.ai-prose > *:last-child { margin-bottom: 0; }
+.ai-prose p { margin: 0 0 0.5rem; }
+.ai-prose ul, .ai-prose ol { margin: 0.25rem 0 0.6rem; padding-left: 1.15rem; }
+.ai-prose li { margin: 0.15rem 0; }
+.ai-prose ul { list-style: disc; }
+.ai-prose ol { list-style: decimal; }
+.ai-prose strong { font-weight: 600; color: var(--color-ink); }
+.ai-prose a { color: var(--color-primary); text-decoration: underline; }
+.ai-prose code { background: var(--color-info-soft); color: var(--color-primary-hover); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; font-family: var(--font-mono); }
+.ai-prose pre { background: var(--color-surface-subtle); border: 1px solid var(--color-line); border-radius: 8px; padding: 0.6rem 0.75rem; overflow-x: auto; margin: 0 0 0.6rem; }
+.ai-prose pre code { background: none; padding: 0; color: var(--color-muted); }
+.ai-prose h1, .ai-prose h2, .ai-prose h3, .ai-prose h4 { font-weight: 600; color: var(--color-ink); margin: 0.6rem 0 0.35rem; font-size: 0.95rem; line-height: 1.3; }
+.ai-prose blockquote { background: var(--color-surface-subtle); border-radius: 6px; padding: 0.4rem 0.7rem; color: var(--color-muted); font-style: italic; margin: 0 0 0.6rem; }
+.ai-prose table { border-collapse: collapse; width: 100%; margin: 0.25rem 0 0.7rem; font-size: 0.9em; }
+.ai-prose th, .ai-prose td { border: 1px solid var(--color-line); padding: 4px 8px; text-align: left; }
+.ai-prose th { background: var(--color-surface-subtle); font-weight: 600; }
