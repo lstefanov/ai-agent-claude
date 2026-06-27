@@ -8,6 +8,7 @@ use App\Models\Company;
 use App\Models\OrgMember;
 use App\Services\Org\AssistantRouterService;
 use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\PersonaService;
 use App\Services\Org\TaskRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,7 +40,7 @@ class TaskCreationController extends Controller
         ]);
     }
 
-    public function store(Request $request, AssistantRouterService $router, TaskRunService $runner): JsonResponse
+    public function store(Request $request, AssistantRouterService $router, TaskRunService $runner, PersonaService $personas): JsonResponse
     {
         $company = $this->company();
 
@@ -71,6 +72,7 @@ class TaskCreationController extends Controller
 
         $member = OrgMember::with('persona')->findOrFail($memberId);
         abort_unless($member->company_id === $company->id, 403);
+        $policy = $personas->runtimePolicy($member);
 
         // Текущото подчинение (директор) от плейсмънта на асистента.
         $directorMemberId = $member->currentPlacement()?->director?->orgMember?->id;
@@ -82,6 +84,7 @@ class TaskCreationController extends Controller
             'description' => $description,
             'trigger' => 'manual',
             'act_mode' => 'draft',
+            'approval_policy' => (string) ($policy['approval_policy'] ?? 'approve_each'),
             'status' => 'proposed',
         ]);
 

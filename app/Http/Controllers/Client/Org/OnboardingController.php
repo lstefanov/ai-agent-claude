@@ -35,12 +35,13 @@ class OnboardingController extends Controller
             return redirect()->route('client.org.research');
         }
 
-        // Има активна организация → екипа; иначе → дизайн/ревю (Фаза 2).
+        // Има активна организация → Табло (§4); иначе → дизайн/ревю (Фаза 2).
         if ($company->active_org_version_id) {
-            return redirect()->route('client.org.roster');
+            return redirect()->route('client.org.dashboard');
         }
 
-        return redirect()->route($profile->status === 'ready' ? 'client.org.design.review' : 'client.org.interview');
+        // Интервюто приключено → анализ екран (проблеми/нужди/възможности) → после дизайн.
+        return redirect()->route($profile->status === 'ready' ? 'client.org.analysis' : 'client.org.interview');
     }
 
     /** Casting на Управителя — кандидати-архетипи + „създай свой". */
@@ -80,13 +81,61 @@ class OnboardingController extends Controller
             ['key' => OrgMember::allocateKey($company, 'manager', $data['name']), 'display_name' => 'Управител', 'default_star_tier' => config('organization.manager.level', 'ultra')],
         );
 
-        $this->personas->attachTo($manager, $data);
+        $persona = $this->personas->attachTo($manager, $data);
 
         // Wallet гарантирано съществува (онбордингът е best-effort безплатен; runs са hard-gated).
         CreditWallet::firstOrCreate(['company_id' => $company->id]);
 
+        // AJAX (стъпка 1): връщаме статуса на аватара за поллинг + прогрес бар, преди
+        // да преминем към проучването — портретът се рендира на 'org' опашката.
+        if ($request->wantsJson()) {
+            return response()->json([
+                'ok' => true,
+                'status' => $persona->avatar_status,
+                'poll_url' => route('client.org.casting.avatar-status'),
+                'redirect' => route('client.org.research'),
+            ]);
+        }
+
         return redirect()->route('client.org.research')
-            ->with('status', 'Управителят е нает. Да проучим бизнеса.');
+            ->with('success', 'Управителят е нает. Да проучим бизнеса.');
+    }
+
+    /** Поллинг на портрета на Управителя (стъпка 1) — pending|ready|failed. */
+    public function avatarStatus(): JsonResponse
+    {
+        $persona = $this->company()->manager?->persona;
+        $status = $persona?->avatar_status ?? 'failed';
+
+        return response()->json([
+            'status' => $status,
+            'url' => $status === 'ready' ? $persona?->avatar_url : null,
+        ]);
+    }
+
+    /**
+     * Нулира организацията (бързи експерименти): трие Управителя + всички членове
+     * (CASCADE → персони/директори/асистенти/задачи/чатове), бизнес профила, версиите
+     * и хрониката. Билингът (wallet/subscription) се пази. → връща в casting.
+     */
+    public function reset(Request $request)
+    {
+        $company = $this->company();
+
+        // Освобождаваме FK-а първо, за да може да трием версиите и рутирането да падне на casting.
+        $company->update(['active_org_version_id' => null]);
+
+        $company->members()->delete();          // CASCADE: персони, директори, асистенти, задачи, чатове
+        $company->businessProfile()->delete();   // проучване + отговори от интервюто
+        $company->orgVersions()->delete();       // CASCADE: директори/асистенти от минали дизайни
+        $company->orgEvents()->delete();         // чиста хроника
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'redirect' => route('client.org.casting')]);
+        }
+
+        return redirect()->route('client.org.casting')
+            ->with('success', 'Организацията е нулирана. Започни отначало.');
     }
 
     /** Страница на проучването (прогрес + старт). */

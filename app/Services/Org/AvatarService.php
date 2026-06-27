@@ -5,6 +5,7 @@ namespace App\Services\Org;
 use App\Jobs\Org\GenerateMemberAvatarJob;
 use App\Models\Company;
 use App\Models\Persona;
+use App\Models\PersonaArchetype;
 use App\Services\ComfyUIService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -140,6 +141,105 @@ class AvatarService
         }
 
         return $count;
+    }
+
+    /**
+     * Генерира готов портрет за casting-архетип (примерен Управител) и го запазва на стабилен
+     * път ($arch->avatar_path) на public диска. Преизползва същия демография-промпт като членовете.
+     * Спрян ComfyUI / липсващ път / провал → false (no-op, без хвърляне). Идемпотентен (презапис).
+     */
+    public function generateArchetype(PersonaArchetype $arch): bool
+    {
+        if (! $arch->avatar_path || ! $this->comfy->isAvailable()) {
+            return false;
+        }
+
+        try {
+            // Транзитна персона само за да преизползваме portraitPrompt() (демография → промпт).
+            $proxy = new Persona([
+                'age' => $arch->age,
+                'gender' => $arch->gender,
+                'ethnicity' => $arch->ethnicity,
+            ]);
+
+            $prompt = $this->portraitPrompt($proxy);
+            $seed = (int) (hexdec(substr(md5('archetype|'.$arch->name.'|'.$arch->gender.'|'.$arch->age.'|'.$arch->ethnicity), 0, 7)) % 999_999_999) + 1;
+
+            $workflow = $this->comfy->buildWorkflow($prompt, [
+                'seed' => $seed,
+                'checkpoint' => (string) config('services.comfyui.portrait_checkpoint'),
+                'negative' => (string) config('services.comfyui.portrait_negative'),
+            ]);
+
+            $promptId = $this->comfy->generate($workflow);
+            $url = $this->comfy->getResult($promptId);
+
+            if (! $url) {
+                return false;
+            }
+
+            $disk = Storage::disk('public');
+            $src = "generated/{$promptId}.png";
+            if ($disk->exists($src)) {
+                $disk->put($arch->avatar_path, $disk->get($src));
+
+                return true;
+            }
+
+            return false;
+        } catch (\Throwable $e) {
+            Log::warning('[Avatar] archetype generate failed for '.$arch->name.': '.$e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * Наемане от готов кандидат → преизползваме готовия портрет вместо нов ComfyUI рендер.
+     * Намираме архетипа по archetype_key; ако демографията съвпада (gender/age/ethnicity) И
+     * файлът съществува → копираме archetypes/...png → avatars/member_{id}.png и сетваме 'ready'.
+     * Иначе false → извикващият пуска нормалната генерация.
+     */
+    public function reuseArchetypeAvatar(Persona $p): bool
+    {
+        if (! $p->archetype_key) {
+            return false;
+        }
+
+        $arch = PersonaArchetype::where('name', $p->archetype_key)
+            ->whereNotNull('avatar_path')
+            ->first();
+        if (! $arch) {
+            return false;
+        }
+
+        // Демографията трябва да съвпада — иначе готовият портрет вече не отговаря → рендираме наново.
+        $same = (int) $p->age === (int) $arch->age
+            && mb_strtolower(trim((string) $p->gender)) === mb_strtolower(trim((string) $arch->gender))
+            && mb_strtolower(trim((string) $p->ethnicity)) === mb_strtolower(trim((string) $arch->ethnicity));
+        if (! $same) {
+            return false;
+        }
+
+        $disk = Storage::disk('public');
+        if (! $disk->exists($arch->avatar_path)) {
+            return false;
+        }
+
+        $dst = "avatars/member_{$p->org_member_id}.png";
+        $disk->put($dst, $disk->get($arch->avatar_path));
+        $url = $disk->url($dst);
+
+        $p->update([
+            'avatar_url' => $url,
+            'avatar_prompt' => $this->portraitPrompt($p),
+            'avatar_seed' => $this->seedFor($p),
+            'avatar_status' => 'ready',
+            'avatar_meta' => ['source' => 'archetype', 'archetype' => $arch->name],
+        ]);
+        $p->orgMember?->update(['avatar_url' => $url]);
+
+        return true;
     }
 
     /** Превежда пол → английска дума за промпта (whitelist). */

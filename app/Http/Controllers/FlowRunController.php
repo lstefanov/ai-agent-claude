@@ -62,7 +62,8 @@ class FlowRunController extends Controller
             'context' => $inputs ? ['inputs' => $inputs] : [],
         ]);
 
-        $executor->run($flow, 'manual', $flowRun);
+        // Admin builder run-popup — позволено е да тества и draft шаблон (dev контекст).
+        $executor->run($flow, 'manual', $flowRun, allowDraft: true);
 
         // Land back in the Graph Editor, which detects the active run and switches
         // into locked "run" mode with live per-node progress/result/log.

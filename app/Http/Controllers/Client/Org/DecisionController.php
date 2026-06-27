@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\AssistantTask;
 use App\Models\Company;
 use App\Models\FlowRun;
-use App\Models\OrgMember;
 use App\Models\OrgProposal;
 use App\Models\User;
 use App\Services\Org\DecisionBoxService;
@@ -41,10 +40,18 @@ class DecisionController extends Controller
             return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
         }
 
+        // Предложена задача (draft flow) → активиране (+ optional „Одобри и пусни").
+        if ($kind === 'assistant_task') {
+            $task = $this->companyTask((int) $request->input('id'));
+            $result = $box->approveTask($task, $this->user(), run: $request->boolean('run'));
+
+            return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+        }
+
         $proposal = $this->companyProposal((int) $request->input('id'));
         $result = $box->approveProposal($proposal, $this->user());
 
-        // Материализация на одобреното предложение (§7.3): задача / наемане / уволнение.
+        // Материализация на одобреното СТРУКТУРНО предложение (§7.3): наемане / уволнение.
         if ($result['ok'] ?? false) {
             $this->materializeProposal($proposal, $result['materialize'] ?? null);
         }
@@ -63,6 +70,14 @@ class DecisionController extends Controller
             return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
         }
 
+        // Отказ на предложена задача — изисква причина (DecisionBoxService валидира).
+        if ($kind === 'assistant_task') {
+            $task = $this->companyTask((int) $request->input('id'));
+            $result = $box->rejectTask($task, $this->user(), $request->input('reason') ?? $request->input('comment'));
+
+            return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+        }
+
         $proposal = $this->companyProposal((int) $request->input('id'));
         $result = $box->rejectProposal($proposal, $this->user(), $request->input('comment'));
 
@@ -77,33 +92,14 @@ class DecisionController extends Controller
         $mutator = app(OrgMutationService::class);
 
         match ($type) {
-            'task' => $this->materializeTaskProposal($proposal),
             'hire' => $mutator->hireFromProposal($company, $payload, $this->user()),
             'fire' => filled($payload['target_member_id'] ?? null)
                 ? $mutator->fireMember($company, (int) $payload['target_member_id'], $this->user())
                 : null,
             default => null,   // mandate и др. — само одобрено + одит (event вече записан)
         };
-    }
-
-    /** Одобрено „task" предложение → нова assistant_task (status=proposed). */
-    private function materializeTaskProposal(OrgProposal $proposal): void
-    {
-        $p = (array) $proposal->payload;
-        $memberId = $p['org_member_id'] ?? null;
-        if (! $memberId || ! OrgMember::where('company_id', $proposal->company_id)->whereKey($memberId)->exists()) {
-            return;
-        }
-
-        AssistantTask::firstOrCreate(
-            ['org_member_id' => $memberId, 'title' => $p['title'] ?? 'Нова задача'],
-            [
-                'description' => $p['description'] ?? ($p['title'] ?? ''),
-                'act_mode' => in_array($p['act_mode'] ?? 'draft', ['draft', 'act', 'mixed'], true) ? $p['act_mode'] : 'draft',
-                'trigger' => 'manual',
-                'status' => 'proposed',
-            ],
-        );
+        // NB: 'task' предложенията вече НЕ минават оттук — те са директни AssistantTask+draft
+        // (ревизиран §6.1), одобряват се през approveTask().
     }
 
     private function company(): Company
@@ -122,6 +118,14 @@ class DecisionController extends Controller
         abort_unless($proposal->company_id === (int) session('client_company_id'), 403);
 
         return $proposal;
+    }
+
+    private function companyTask(int $id): AssistantTask
+    {
+        $task = AssistantTask::with('orgMember')->findOrFail($id);
+        abort_unless($task->orgMember?->company_id === (int) session('client_company_id'), 403);
+
+        return $task;
     }
 
     private function companyRun(int $id): FlowRun

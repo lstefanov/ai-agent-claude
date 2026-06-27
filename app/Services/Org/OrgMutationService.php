@@ -65,7 +65,7 @@ class OrgMutationService
     {
         $version = $company->activeOrgVersion;
         if (! $version) {
-            return ['directors' => [], 'assistants' => [], 'tasks' => [], 'quests' => []];
+            return ['directors' => [], 'assistants' => [], 'tasks' => [], 'priorities' => []];
         }
 
         $directors = $version->directors()->with('orgMember.persona')->get()->map(fn ($d) => [
@@ -89,7 +89,7 @@ class OrgMutationService
         ])->all();
 
         // tasks=[] — задачите висят на стабилния член и оцеляват; не ги пресъздаваме.
-        return ['blueprint_key' => $version->blueprint_key, 'directors' => $directors, 'assistants' => $assistants, 'tasks' => [], 'quests' => []];
+        return ['blueprint_key' => $version->blueprint_key, 'directors' => $directors, 'assistants' => $assistants, 'tasks' => [], 'priorities' => []];
     }
 
     /** Персона полета (същата демография → attachTo не регенерира аватара). */
@@ -109,6 +109,7 @@ class OrgMutationService
             'bio' => $persona->bio,
             'tone' => $persona->tone,
             'traits' => (array) $persona->traits,
+            'skills' => (array) $persona->skills,
             'archetype_key' => $persona->archetype_key,
         ];
     }

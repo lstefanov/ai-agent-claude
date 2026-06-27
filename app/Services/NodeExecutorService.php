@@ -64,6 +64,9 @@ class NodeExecutorService
     /** @var array<int, string> */
     private array $personaBlockCache = [];
 
+    /** @var array<int, array<string, mixed>> */
+    private array $personaPolicyCache = [];
+
     public function __construct(
         private AgentFactory $factory,
         private FlowMemoryService $memory,
@@ -447,6 +450,7 @@ class NodeExecutorService
     private function runWithQaRetry(FlowRun $flowRun, FlowNode $node, NodeRun $nodeRun): void
     {
         $qaConfig = $this->qaGate->configFor($node);
+        $qaConfig = $this->applyPersonaQaPolicy($flowRun, $node, $qaConfig);
         $maxQaRetries = $qaConfig ? min(10, max(0, (int) ($qaConfig['max_retries'] ?? 3))) : 0;
         $qaRetriesUsed = 0;
         // Фаза 3: revision applied for THIS RUN only (the saved graph stays
@@ -692,6 +696,85 @@ class NodeExecutorService
         return $this->personaBlockCache[$flowRun->id] = $block;
     }
 
+    /** @return array<string, mixed> */
+    private function personaPolicy(FlowRun $flowRun): array
+    {
+        $memberId = $flowRun->context['org_member_id'] ?? null;
+        if (! $memberId) {
+            return [];
+        }
+
+        if (array_key_exists($flowRun->id, $this->personaPolicyCache)) {
+            return $this->personaPolicyCache[$flowRun->id];
+        }
+
+        $member = OrgMember::with('persona')->find($memberId);
+        $policy = $member ? app(PersonaService::class)->runtimePolicy($member) : [];
+
+        return $this->personaPolicyCache[$flowRun->id] = $policy;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @param  array<string, mixed>  $policy
+     */
+    private function applyPersonaRuntimeConfig(array $config, FlowNode $node, array $policy): array
+    {
+        $current = is_numeric($config['temperature'] ?? null) ? (float) $config['temperature'] : null;
+        $target = $this->personaTemperatureForNode($node, $policy);
+        $config['temperature'] = round(max(0.0, min(1.2, ($current ?? $target) * 0.25 + $target * 0.75)), 2);
+
+        return $config;
+    }
+
+    /** @param  array<string, mixed>  $policy */
+    private function personaTemperatureForNode(FlowNode $node, array $policy): float
+    {
+        $type = mb_strtolower((string) $node->type);
+        $role = mb_strtolower((string) $node->output_role);
+
+        if (in_array($role, ['body', 'appendix'], true)
+            || preg_match('/writer|content|caption|hook|copy|email|newsletter|post|story|video|hashtag|image_prompt|offer|translator/u', $type)) {
+            return (float) ($policy['creative_temperature'] ?? $policy['temperature'] ?? 0.7);
+        }
+
+        if (preg_match('/research|analy|extract|classifier|review|sentiment|scraper|ocr|profiler|price|data|qa|verifier/u', $type)) {
+            return (float) ($policy['factual_temperature'] ?? $policy['temperature'] ?? 0.3);
+        }
+
+        return (float) ($policy['temperature'] ?? 0.6);
+    }
+
+    /**
+     * Прецизността на служителя затяга inline проверките на работните възли. Отделните
+     * QA/контролни възли не получават персона и остават неутрални.
+     *
+     * @param  array{threshold: int, max_retries: int, verifier_node_key: string, custom_prompt: string}|null  $qaConfig
+     * @return array{threshold: int, max_retries: int, verifier_node_key: string, custom_prompt: string}|null
+     */
+    private function applyPersonaQaPolicy(FlowRun $flowRun, FlowNode $node, ?array $qaConfig): ?array
+    {
+        if (! $qaConfig || ! $this->shouldInjectPersona($node)) {
+            return $qaConfig;
+        }
+
+        $policy = $this->personaPolicy($flowRun);
+        if ($policy === []) {
+            return $qaConfig;
+        }
+
+        $traits = (array) ($policy['traits'] ?? []);
+        $precision = (int) ($traits['precision'] ?? 50);
+        $qaConfig['threshold'] = max((int) $qaConfig['threshold'], (int) ($policy['qa_threshold'] ?? $qaConfig['threshold']));
+        if ($precision >= 80) {
+            $qaConfig['max_retries'] = min(10, max((int) $qaConfig['max_retries'], 4));
+        } elseif ($precision <= 35) {
+            $qaConfig['max_retries'] = min((int) $qaConfig['max_retries'], 2);
+        }
+
+        return $qaConfig;
+    }
+
     /**
      * Execute the node exactly once. Returns the cleaned output string.
      * Throws RuntimeException after MAX_ATTEMPTS technical failures.
@@ -778,6 +861,9 @@ class NodeExecutorService
         RunLog::append($flowRun->id, "STEP {$stepNo}/{$totalSteps}: {$node->name}");
 
         $agent = $this->bridge->bridgeAgent($node);
+        if ($this->shouldInjectPersona($node) && ($policy = $this->personaPolicy($flowRun)) !== []) {
+            $agent->config = $this->applyPersonaRuntimeConfig((array) $agent->config, $node, $policy);
+        }
         // Eval Suite: run-scoped model override — позволява една и съща версия
         // да се пуска на различно ниво (моделите за нивото са пресметнати при
         // eval и сложени в context['model_overrides']). '' = локален авто.

@@ -60,6 +60,9 @@ Route::middleware('client_auth')->group(function () {
         Route::get('start', [Client\Org\OnboardingController::class, 'start'])->name('client.org.start');
         Route::get('casting', [Client\Org\OnboardingController::class, 'casting'])->name('client.org.casting');
         Route::post('casting', [Client\Org\OnboardingController::class, 'hireManager'])->name('client.org.casting.hire');
+        Route::get('casting/avatar-status', [Client\Org\OnboardingController::class, 'avatarStatus'])->name('client.org.casting.avatar-status');
+        // Нулиране на онбординга (бързи експерименти) — трие org state, връща в casting.
+        Route::post('reset', [Client\Org\OnboardingController::class, 'reset'])->name('client.org.reset');
         Route::get('research', [Client\Org\OnboardingController::class, 'research'])->name('client.org.research');
         Route::post('research/start', [Client\Org\OnboardingController::class, 'startResearch'])->name('client.org.research.start');
         Route::get('research/status/{token}', [Client\Org\OnboardingController::class, 'researchStatus'])->name('client.org.research.status');
@@ -67,6 +70,11 @@ Route::middleware('client_auth')->group(function () {
         Route::get('interview', [Client\Org\InterviewController::class, 'show'])->name('client.org.interview');
         Route::post('interview/send', [Client\Org\InterviewController::class, 'send'])->name('client.org.interview.send');
         Route::get('interview/status/{token}', [Client\Org\InterviewController::class, 'status'])->name('client.org.interview.status');
+
+        // Анализ след интервюто (§3-part): проблеми/нужди/възможности → после дизайн.
+        Route::get('analysis', [Client\Org\AnalysisController::class, 'show'])->name('client.org.analysis');
+        Route::post('analysis/run', [Client\Org\AnalysisController::class, 'run'])->name('client.org.analysis.run');
+        Route::get('analysis/status/{token}', [Client\Org\AnalysisController::class, 'status'])->name('client.org.analysis.status');
 
         // Дизайн на екипа (Фаза 2): предложи → ревю → одобри (материализация).
         Route::post('design/propose', [Client\Org\DesignController::class, 'propose'])->name('client.org.design.propose');
@@ -97,8 +105,12 @@ Route::middleware('client_auth')->group(function () {
         Route::post('tasks/{task}/generate', [Client\Org\AssistantTaskController::class, 'generate'])->name('client.org.tasks.generate');
         Route::get('tasks/{task}/gen-status/{token}', [Client\Org\AssistantTaskController::class, 'genStatus'])->name('client.org.tasks.gen-status');
         Route::post('tasks/{task}/run', [Client\Org\AssistantTaskController::class, 'run'])->name('client.org.tasks.run');
-        Route::get('quests', [Client\Org\QuestController::class, 'index'])->name('client.org.quests');
+        Route::get('tasks', [Client\Org\TaskLogController::class, 'index'])->name('client.org.tasks.index');
         Route::get('live', [Client\Org\OrgGraphController::class, 'live'])->name('client.org.live');
+
+        // Табло (§4) — първи екран при активна организация + JSON state за live поллинг.
+        Route::get('dashboard', [Client\Org\OrgDashboardController::class, 'index'])->name('client.org.dashboard');
+        Route::get('dashboard/state', [Client\Org\OrgDashboardController::class, 'state'])->name('client.org.dashboard.state');
 
         // Фаза 4: Кутия за решения + чат с членове + ръчен директорски tick.
         Route::get('decisions', [Client\Org\DecisionController::class, 'index'])->name('client.org.decisions');

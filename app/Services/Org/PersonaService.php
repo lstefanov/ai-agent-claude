@@ -15,6 +15,8 @@ use Illuminate\Support\Collection;
  */
 class PersonaService
 {
+    private const DEFAULT_TRAITS = ['risk' => 50, 'creativity' => 50, 'precision' => 50, 'autonomy' => 60, 'tempo' => 55];
+
     /** Български етикети на познатите черти (0–100). */
     private const TRAIT_LABELS = [
         'risk' => 'риск',
@@ -23,6 +25,8 @@ class PersonaService
         'autonomy' => 'автономност',
         'tempo' => 'темпо',
     ];
+
+    public function __construct(private AvatarService $avatars) {}
 
     /**
      * Демография → стартови черти (0–100). Само ПОДСКАЗВА (§5.3): 24 г. → +креативност/
@@ -33,7 +37,7 @@ class PersonaService
     public function seedTraitsFromDemographics(?int $age, ?string $gender, ?string $background): array
     {
         // Неутрална база.
-        $t = ['risk' => 50, 'creativity' => 50, 'precision' => 50, 'autonomy' => 60, 'tempo' => 55];
+        $t = self::DEFAULT_TRAITS;
 
         if ($age !== null) {
             if ($age <= 30) {
@@ -96,7 +100,11 @@ class PersonaService
 
         $traits = $this->formatTraits((array) $persona->traits);
         if ($traits !== '') {
-            $lines[] = "Черти (как подхождаш, не дали си компетентен): {$traits}.";
+            $lines[] = "Черти (как подхождаш, не колко си компетентен): {$traits}.";
+        }
+
+        if (($runtime = $this->runtimePrompt($member)) !== '') {
+            $lines[] = $runtime;
         }
 
         // Инвариант: характерът оформя КАК, не качеството/верността на резултата.
@@ -107,14 +115,14 @@ class PersonaService
     }
 
     /**
-     * Черти → runtime knobs (§5.2). star_tier е само ПОДСКАЗВА (авторитетното ниво е на
-     * члена); finalizeOrganization го ползва при сетването на default_star_tier.
+     * Черти → реални runtime настройки (§5.2). Тези стойности се четат от задачите,
+     * планера, директорските цикли, чата и изпълнението на възлите.
      *
      * @return array<string, mixed>
      */
     public function deriveKnobs(Persona $persona): array
     {
-        $tr = (array) $persona->traits;
+        $tr = $this->normalizeTraits((array) $persona->traits);
         $creativity = (int) ($tr['creativity'] ?? 50);
         $precision = (int) ($tr['precision'] ?? 50);
         $risk = (int) ($tr['risk'] ?? 50);
@@ -123,21 +131,87 @@ class PersonaService
 
         // Температура от креативност (clamp 0.4..1.0).
         $temperature = round(max(0.4, min(1.0, 0.4 + $creativity / 100 * 0.6)), 2);
+        $creativeTemperature = round(max(0.45, min(1.1, $temperature + (($risk - 50) / 100 * 0.12))), 2);
+        $factualTemperature = round(max(0.1, min(0.65, $temperature - ($precision / 100 * 0.45))), 2);
+        $plannerTemperature = round(max(0.2, min(0.8, ($creativeTemperature + $factualTemperature) / 2)), 2);
 
-        // star_tier ПОДСКАЗВА: висока прецизност → по-високо ниво за критичните.
+        // Висока прецизност реално повишава наследеното ниво на задачите.
         $starHint = $precision >= 80 ? 'high' : ($precision >= 55 ? 'medium' : 'low');
 
-        // Агресивност на одобренията от риск/автономност (по-смел → по-автономен).
+        // Агресивност на одобренията от риск/автономност (по-смел → по-самостоятелен).
         $boldness = ($risk + $autonomy) / 2;
         $approval = $boldness >= 70 ? 'auto' : ($boldness >= 45 ? 'approve_first_then_auto' : 'approve_each');
+        $parallelism = $tempo >= 70 ? 3 : ($tempo >= 45 ? 2 : 1);
+        $qaThreshold = $precision >= 85 ? 75 : ($precision >= 65 ? 68 : ($precision <= 35 ? 55 : 60));
+        $proposalLimit = $risk >= 70 ? 3 : ($risk >= 45 ? 2 : 1);
 
         return [
             'temperature' => $temperature,
+            'creative_temperature' => $creativeTemperature,
+            'factual_temperature' => $factualTemperature,
+            'planner_temperature' => $plannerTemperature,
             'star_tier' => $starHint,
             'tool_bias' => $creativity >= $precision ? 'creative' : 'analytical',
-            'parallelism' => $tempo >= 70 ? 3 : ($tempo >= 45 ? 2 : 1),
+            'parallelism' => $parallelism,
+            'director_task_limit' => $parallelism,
+            'qa_threshold' => $qaThreshold,
+            'proposal_limit' => $proposalLimit,
             'approval_aggressiveness' => $approval,
+            'approval_policy' => $approval,
         ];
+    }
+
+    /**
+     * Runtime policy за член. Връща същите ключове като derived_knobs плюс нормализирани
+     * traits; изчислява се от текущите traits, за да няма разминаване при редакция.
+     *
+     * @return array<string, mixed>
+     */
+    public function runtimePolicy(OrgMember $member): array
+    {
+        $persona = $member->persona;
+        if (! $persona) {
+            return $this->neutralPolicy();
+        }
+
+        return $this->deriveKnobs($persona) + [
+            'traits' => $this->normalizeTraits((array) $persona->traits),
+        ];
+    }
+
+    /** Структуриран prompt блок за реалното влияние на чертите. */
+    public function runtimePrompt(OrgMember $member): string
+    {
+        $persona = $member->persona;
+        if (! $persona) {
+            return '';
+        }
+
+        $policy = $this->runtimePolicy($member);
+        $traits = (array) $policy['traits'];
+
+        $risk = (int) $traits['risk'];
+        $creativity = (int) $traits['creativity'];
+        $precision = (int) $traits['precision'];
+        $autonomy = (int) $traits['autonomy'];
+        $tempo = (int) $traits['tempo'];
+
+        $approval = match ($policy['approval_policy']) {
+            'auto' => 'при ясна задача действа самостоятелно и активира позволеното без излишно чакане',
+            'approve_first_then_auto' => 'за нови задачи иска първо одобрение, после работи по-самостоятелно',
+            default => 'пита често и чака потвърждение преди нова посока',
+        };
+        $toolBias = ($policy['tool_bias'] ?? 'analytical') === 'creative'
+            ? 'търси повече варианти, формулировки и творчески решения'
+            : 'предпочита проверени факти, подредени аргументи и по-строга проверка';
+
+        return "[ПОВЕДЕНИЕ ОТ ЧЕРТИ]\n"
+            ."- Риск {$risk}/100: ".($risk >= 70 ? 'смело предлага промени и инициативи' : ($risk <= 35 ? 'избягва несигурни ходове' : 'балансира предпазливост и инициатива')).".\n"
+            ."- Креативност {$creativity}/100: ".($creativity >= 70 ? 'пише по-свободно и предлага повече варианти' : ($creativity <= 35 ? 'следва по-стриктно формата' : 'смесва яснота с умерена изобретателност')).".\n"
+            ."- Прецизност {$precision}/100: ".($precision >= 70 ? 'проверява фактите и формата по-строго' : ($precision <= 35 ? 'предпочита бързина пред подробна проверка' : 'пази разумна точност')).".\n"
+            ."- Автономност {$autonomy}/100: {$approval}.\n"
+            ."- Темпо {$tempo}/100: ".($tempo >= 70 ? 'движи няколко неща в един цикъл' : ($tempo <= 35 ? 'работи последователно и внимателно' : 'поддържа умерен ритъм')).".\n"
+            ."- Инструменти и подход: {$toolBias}.";
     }
 
     /**
@@ -170,7 +244,9 @@ class PersonaService
                 'education' => $fields['education'] ?? ($existing->education ?? null),
                 'bio' => $fields['bio'] ?? ($existing->bio ?? null),
                 'tone' => $fields['tone'] ?? ($existing->tone ?? null),
-                'traits' => array_map(fn ($v) => max(0, min(100, (int) $v)), (array) $traits),
+                'traits' => $this->normalizeTraits((array) $traits),
+                // Стабилни умения (§10.2) — генерирани при дизайн, редактируеми после.
+                'skills' => array_key_exists('skills', $fields) ? array_values((array) $fields['skills']) : ($existing->skills ?? null),
                 'archetype_key' => $fields['archetype_key'] ?? ($existing->archetype_key ?? null),
             ],
         );
@@ -178,11 +254,15 @@ class PersonaService
         // Runtime knobs от чертите.
         $persona->update(['derived_knobs' => $this->deriveKnobs($persona)]);
 
-        // Портрет: регенерирай само при нова/променена демография (§1.1/§7.5).
+        // Портрет: регенерирай само при нова/променена демография (§1.1/§7.5). Ако членът е
+        // нает от готов casting-кандидат (archetype_key + съвпадаща демография) → копираме
+        // готовия портрет вместо нов ComfyUI рендер.
         $newSignature = $this->demographicSignature($persona);
         if (config('organization.persona.portraits') && $newSignature !== $oldSignature) {
-            $persona->update(['avatar_status' => 'pending']);
-            GenerateMemberAvatarJob::dispatch($persona->id)->onQueue('org');
+            if (! $this->avatars->reuseArchetypeAvatar($persona)) {
+                $persona->update(['avatar_status' => 'pending']);
+                GenerateMemberAvatarJob::dispatch($persona->id)->onQueue('org');
+            }
         }
 
         return $persona->fresh();
@@ -211,12 +291,31 @@ class PersonaService
     private function formatTraits(array $traits): string
     {
         $parts = [];
-        foreach (self::TRAIT_LABELS as $key => $label) {
-            if (isset($traits[$key]) && is_numeric($traits[$key])) {
-                $parts[] = "{$label} ".(int) $traits[$key].'/100';
-            }
+        foreach ($this->normalizeTraits($traits) as $key => $value) {
+            $label = self::TRAIT_LABELS[$key] ?? $key;
+            $parts[] = "{$label} {$value}/100";
         }
 
         return implode(', ', $parts);
+    }
+
+    /** @return array<string, int> */
+    private function normalizeTraits(array $traits): array
+    {
+        $normalized = [];
+        foreach (self::DEFAULT_TRAITS as $key => $default) {
+            $value = $traits[$key] ?? $default;
+            $normalized[$key] = max(0, min(100, (int) $value));
+        }
+
+        return $normalized;
+    }
+
+    /** @return array<string, mixed> */
+    private function neutralPolicy(): array
+    {
+        $persona = new Persona(['traits' => self::DEFAULT_TRAITS]);
+
+        return $this->deriveKnobs($persona) + ['traits' => self::DEFAULT_TRAITS];
     }
 }
