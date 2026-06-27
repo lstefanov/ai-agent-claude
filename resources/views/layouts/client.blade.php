@@ -16,6 +16,35 @@
     <script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/focus@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    {{-- Markdown рендиране на генерирания текст (същият модел като client/runs/result + knowledge).
+         marked/dompurify са обикновени (НЕ defer) → window.renderMarkdown съществува преди Alpine;
+         $md (блок) / $mdInline (inline) са Alpine magics, регистрирани на alpine:init. --}}
+    <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <script>
+        function aiEscapeHtml(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+        // LLM понякога слага двоен списъчен маркер на ред ("- - текст") → вложен списък (двойни bullet-и).
+        function aiNormalizeMd(s) { return String(s).replace(/^([ \t]*)(?:[-*+][ \t]+){2,}/gm, '$1- '); }
+        window.renderMarkdown = (raw) => {
+            if (!raw) return '';
+            const text = aiNormalizeMd(raw);
+            if (typeof marked === 'undefined') return aiEscapeHtml(text).replace(/\n/g, '<br>');
+            const html = marked.parse(text, { breaks: true, gfm: true });
+            return (typeof DOMPurify !== 'undefined') ? DOMPurify.sanitize(html) : html;
+        };
+        window.renderMarkdownInline = (raw) => {
+            if (!raw) return '';
+            const text = aiNormalizeMd(raw);
+            if (typeof marked === 'undefined') return aiEscapeHtml(text);
+            const html = marked.parseInline(text, { gfm: true });
+            return (typeof DOMPurify !== 'undefined') ? DOMPurify.sanitize(html) : html;
+        };
+        document.addEventListener('alpine:init', () => {
+            Alpine.magic('md', () => (t) => window.renderMarkdown(t));
+            Alpine.magic('mdInline', () => (t) => window.renderMarkdownInline(t));
+        });
+    </script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @stack('head')
 </head>
@@ -29,9 +58,12 @@
     {{-- Navigation --}}
     @php
         $navItems = [
-            'Организация'        => ['route' => 'client.org.start',   'match' => 'client.org.*'],
-            'Моите Flows'        => ['route' => 'client.flows.index', 'match' => 'client.flows.*'],
-            'Табло'              => ['route' => 'client.dashboard',   'match' => 'client.dashboard'],
+            'Табло'      => ['route' => 'client.org.dashboard',    'match' => 'client.org.dashboard'],
+            'Задачи'     => ['route' => 'client.org.tasks.index',  'match' => 'client.org.tasks.*'],
+            'Решения'    => ['route' => 'client.org.decisions',    'match' => 'client.org.decisions*'],
+            'Интеграции' => ['route' => 'client.org.integrations', 'match' => 'client.org.integrations'],
+            'Кредити'    => ['route' => 'client.org.billing',      'match' => 'client.org.billing*'],
+            'Хроника'    => ['route' => 'client.org.chronicle',    'match' => 'client.org.chronicle'],
         ];
     @endphp
     <nav class="bg-surface border-b border-line sticky top-0 z-40" x-data="{ open: false, menu: false }">
@@ -82,6 +114,7 @@
                                 <p class="text-xs text-subtle">{{ $currentUser->role === 'owner' ? 'Собственик' : 'Потребител' }}</p>
                             </div>
                         @endif
+                        <a href="{{ route('client.flows.index') }}" class="block px-3 py-2 text-sm text-muted hover:text-ink hover:bg-surface-subtle transition">Моите Flows</a>
                         <a href="{{ route('client.login') }}" class="block px-3 py-2 text-sm text-muted hover:text-ink hover:bg-surface-subtle transition">Смени фирма/потребител</a>
                         <form action="{{ route('client.logout') }}" method="POST">
                             @csrf

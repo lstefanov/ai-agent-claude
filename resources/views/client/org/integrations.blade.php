@@ -17,12 +17,12 @@
     <h1 class="text-2xl font-semibold text-ink mb-1">Интеграции · Инвентар</h1>
     <p class="text-muted mb-6">Свързаните системи, които екипът ползва за реални действия.</p>
 
-    {{-- act гейт статус (§B2) --}}
+    {{-- Статус на реалните действия (§B2) --}}
     @if (! $actEnabled)
         <x-alert class="mb-6">
-            <strong>Реалните действия (act) са изключени</strong> в preview режим. Задачите тип
-            „act" произвеждат <em>чернова на действието</em> за преглед, без реален страничен ефект.
-            Реалните write-ове се отключват с истински вход (Фаза 6).
+            <strong>Реалните действия са изключени</strong> в режим за преглед. Задачите с реални действия
+            произвеждат <em>чернова на действието</em> за преглед, без реален страничен ефект.
+            Реалното писане към външни системи се отключва с истински вход.
         </x-alert>
     @endif
 
@@ -47,18 +47,22 @@
         @endif
     </section>
 
-    {{-- act задачи, които ще ги ползват --}}
+    {{-- Задачи с реални действия, които ще ги ползват --}}
     <section>
-        <h2 class="text-sm font-semibold text-ink mb-3">Задачи с реални действия (act)</h2>
+        <h2 class="text-sm font-semibold text-ink mb-3">Задачи с реални действия</h2>
         @if ($actTasks->isEmpty())
-            <p class="text-sm text-subtle">Няма act задачи. Всички задачи са в режим „чернова".</p>
+            <p class="text-sm text-subtle">Няма задачи с реални действия. Всички задачи са в режим „чернова".</p>
         @else
             <div class="rounded-xl border border-line bg-surface divide-y divide-line">
                 @foreach ($actTasks as $task)
+                    @php
+                        $actLabels = ['draft' => 'чернова', 'act' => 'действие', 'mixed' => 'смесен режим'];
+                        $approvalLabels = ['auto' => 'самостоятелно', 'approve_first_then_auto' => 'първо одобрение', 'approve_each' => 'всяко действие с одобрение'];
+                    @endphp
                     <div class="flex items-center justify-between gap-4 p-4">
                         <div>
                             <p class="font-medium text-ink">{{ $task->title }}</p>
-                            <p class="text-xs text-muted">{{ $task->orgMember->persona?->name ?? $task->orgMember->display_name }} · {{ $task->act_mode }} · {{ $task->approval_policy }}</p>
+                            <p class="text-xs text-muted">{{ $task->orgMember->persona?->name ?? $task->orgMember->display_name }} · {{ $actLabels[$task->act_mode] ?? $task->act_mode }} · {{ $approvalLabels[$task->approval_policy] ?? $task->approval_policy }}</p>
                         </div>
                         <a href="{{ route('client.org.member', $task->org_member_id) }}" class="text-sm text-primary font-medium">Отвори →</a>
                     </div>

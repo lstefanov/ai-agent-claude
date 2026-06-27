@@ -34,6 +34,8 @@ class PersonaController extends Controller
             'bio' => ['nullable', 'string', 'max:600'],
             'traits' => ['nullable', 'array'],
             'traits.*' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'skills' => ['nullable', 'array'],
+            'skills.*' => ['nullable', 'string', 'max:60'],
         ]);
 
         $fresh = $this->personas->attachTo($persona->orgMember, array_filter($data, fn ($v) => $v !== null));

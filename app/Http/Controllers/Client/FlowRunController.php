@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgentGenerationLog;
+use App\Models\AssistantTask;
 use App\Models\Flow;
 use App\Models\FlowRun;
 use App\Services\GraphFlowExecutor;
@@ -50,11 +52,14 @@ class FlowRunController extends Controller
         $this->authorizeCompany($run->flow->company_id);
 
         // Активни възли на изпълняваната версия, без inline qa_verifier гейтовете
-        // (изпълнителят също ги изключва от вълните).
-        $nodes = $run->flowVersion->nodes()
-            ->where('is_active', true)
-            ->where('type', '!=', 'qa_verifier')
-            ->get(['node_key', 'name']);
+        // (изпълнителят също ги изключва от вълните). flow_version_id е nullable
+        // (nullOnDelete) → null guard, иначе изтрита версия → 500 при поллинг.
+        $nodes = $run->flowVersion
+            ? $run->flowVersion->nodes()
+                ->where('is_active', true)
+                ->where('type', '!=', 'qa_verifier')
+                ->get(['node_key', 'name'])
+            : collect();
 
         $total = $nodes->count();
 
@@ -93,13 +98,43 @@ class FlowRunController extends Controller
         ]);
     }
 
-    /** Изчистен изглед на крайния резултат. */
+    /** Краен резултат + техническа прозрачност (§12): node timeline, цена, planner логове. */
     public function result(FlowRun $run)
     {
         $this->authorizeCompany($run->flow->company_id);
-        $run->load('flow');
+        $run->load('flow', 'flowVersion');
 
-        return view('client.runs.result', compact('run'));
+        // Node timeline: всички node_runs групирани по node_key (опити = брой редове;
+        // текущ = последният по id). NodeRun няма `retries` колона — извежда се оттук.
+        $nodeRuns = $run->nodeRuns()->orderBy('started_at')->orderBy('id')->get();
+        $nodeNames = $run->flowVersion
+            ? $run->flowVersion->nodes()->pluck('name', 'node_key')
+            : collect();
+        $timeline = $nodeRuns->groupBy('node_key')->map(fn ($runs, $key) => [
+            'node_key' => $key,
+            'name' => $nodeNames[$key] ?? $key,
+            'attempts' => $runs->count(),
+            'run' => $runs->sortByDesc('id')->first(),
+        ])->values();
+
+        // Агрегати — FlowRun няма cost/token колони, сумираме node_runs.
+        $qa = $nodeRuns->whereNotNull('qa_score');
+        $totals = [
+            'cost_usd' => round((float) $nodeRuns->sum('cost_usd'), 4),
+            'tokens' => (int) $nodeRuns->sum('tokens_used'),
+            'avg_qa' => $qa->isNotEmpty() ? round((float) $qa->avg('qa_score'), 1) : null,
+            'attempts' => $nodeRuns->count(),
+        ];
+
+        // Org контекст: задача + служител + ориентировъчна цена (от proposal).
+        $task = AssistantTask::with('orgMember.persona')->find($run->context['assistant_task_id'] ?? null);
+
+        // Planner прозрачност: agent_generation_logs за този flow (групирани по token; няма phase).
+        $plannerLogs = AgentGenerationLog::where('flow_id', $run->flow_id)
+            ->orderBy('id')
+            ->get(['token', 'provider', 'model', 'cost_usd', 'duration_ms', 'status', 'error']);
+
+        return view('client.runs.result', compact('run', 'timeline', 'totals', 'task', 'plannerLogs'));
     }
 
     /** Приятелски етикет за текущата стъпка (без вътрешна конфигурация). */

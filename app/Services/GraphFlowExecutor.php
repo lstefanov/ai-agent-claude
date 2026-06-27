@@ -6,6 +6,7 @@ use App\Jobs\DistillFlowMemoryJob;
 use App\Jobs\ExecuteNodeJob;
 use App\Jobs\HarvestRunKnowledgeJob;
 use App\Jobs\JudgeEvalRunJob;
+use App\Models\AssistantTask;
 use App\Models\CreditReservation;
 use App\Models\Flow;
 use App\Models\FlowEdge;
@@ -38,7 +39,7 @@ use Throwable;
  */
 class GraphFlowExecutor
 {
-    public function run(Flow $flow, string $triggeredBy = 'manual', ?FlowRun $flowRun = null): FlowRun
+    public function run(Flow $flow, string $triggeredBy = 'manual', ?FlowRun $flowRun = null, bool $allowDraft = false): FlowRun
     {
         $flowRun ??= FlowRun::create([
             'flow_id' => $flow->id,
@@ -46,6 +47,17 @@ class GraphFlowExecutor
             'status' => 'pending',
             'triggered_by' => $triggeredBy,
         ]);
+
+        // ЦЕНТРАЛЕН run-safety гейт: draft (неодобрено предложение) и inactive
+        // (отказана/изключена задача) НЕ се изпълняват — независимо от входа (client
+        // launchReadyRun, admin run-popup, flows:execute, webhook). Това е истинската
+        // защита (UI/controller guard-овете са само за UX). $allowDraft=true се подава
+        // САМО от admin builder run-popup-а (тест на чернова), никога от клиент/cron/webhook.
+        if (! $allowDraft && in_array($flow->status, ['draft', 'inactive'], true)) {
+            $this->fail($flowRun, 'Flow-ът не е активен (status='.$flow->status.') — изисква одобрение.');
+
+            return $flowRun;
+        }
 
         // The run is PINNED to one template (version) — its materialized graph
         // is all this run ever reads, so several versions can run in parallel.
@@ -277,6 +289,9 @@ class GraphFlowExecutor
         }
 
         $flowRun->flow->update(['last_run_at' => now()]);
+
+        // Хроника (§11.4): завършена org задача.
+        $this->recordOrgTaskEvent($flowRun, 'task_completed', 'Изпълнена задача');
 
         // Eval runs са СИНТЕТИЧНИ тестове — оценяват се и спират дотук, БЕЗ
         // странични ефекти (не учат plan library/паметта, не жънат знание, не
@@ -626,6 +641,37 @@ class GraphFlowExecutor
         $this->settleRunReservation($flowRun->fresh());
 
         RunLog::append($flowRun->id, "FLOW RUN #{$flowRun->id} FAILED — {$message}");
+
+        // Хроника (§11.4): провалена org задача (eval/approval-reject не са org task → no-op).
+        $this->recordOrgTaskEvent($flowRun, 'task_failed', 'Провалена задача');
+    }
+
+    /** Хроника за org задача при край на run (§11.4). No-op за не-org runs. */
+    private function recordOrgTaskEvent(FlowRun $flowRun, string $type, string $label): void
+    {
+        try {
+            $taskId = $flowRun->context['assistant_task_id'] ?? null;
+            if (! $taskId) {
+                return;
+            }
+            $task = AssistantTask::with('orgMember')->find($taskId);
+            $company = $task?->orgMember?->company;
+            if (! $task || ! $company) {
+                return;
+            }
+            $company->orgEvents()->create([
+                'type' => $type,
+                'org_version_id' => $company->active_org_version_id,
+                'org_member_id' => $task->org_member_id,
+                'subject_type' => $task->getMorphClass(),
+                'subject_id' => $task->id,
+                'summary' => $label.': '.$task->title,
+                'meta' => ['task_id' => $task->id, 'flow_run_id' => $flowRun->id],
+                'actor' => 'system',
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /**

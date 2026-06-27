@@ -8,6 +8,7 @@ use App\Services\BraveSearchService;
 use App\Services\CrawlService;
 use App\Services\GeneratorService;
 use App\Services\GooglePlacesService;
+use App\Support\PromptData;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -95,9 +96,9 @@ class BusinessProfilerService
         $system = 'Ти си бизнес анализатор. Върху подадените данни направи КРАТЪК ситуационен '
             .'анализ на бизнеса на български: силни и слаби страни, и 3–5 КОНКРЕТНИ болки (pain points), '
             .'всяка на отделен ред с тире. Бъди конкретен, без вода. Ако данните са оскъдни, кажи кои '
-            .'въпроси трябва да се изяснят с интервю.';
+            .'въпроси трябва да се изяснят с интервю. '.PromptData::NO_TECH_TERMS;
         $user = "Фирма: {$company->name}\nБранш: ".((string) $company->industry ?: 'неуточнен')
-            ."\nДанни от проучването:\n".json_encode($research, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            ."\nДанни от проучването:\n".json_encode(PromptData::humanize($research), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
         $analysis = $this->generator->chat($system, $user, ['temperature' => 0.4, 'num_predict' => 1200]);
 
@@ -125,5 +126,69 @@ class BusinessProfilerService
         }
 
         return array_slice($pains, 0, 6);
+    }
+
+    /**
+     * Задължителният синтез след интервюто (§3-part understanding): над research +
+     * ситуационния анализ + интервюто извежда ВСИЧКИ проблеми, ВСИЧКИ нужди и НЯКОЛКО
+     * НОВИ възможности за растеж. Идемпотентен (прескача при вече направен синтез).
+     * Записва на профила; маркерът `synthesis_completed_at` се вдига САМО при успех
+     * (провал не блокира онбординга — пробва се пак при дизайна).
+     */
+    public function synthesizeFeedback(BusinessProfile $profile, ?callable $onStage = null): void
+    {
+        if ($profile->synthesis_completed_at) {
+            return;
+        }
+
+        $onStage && $onStage('Обобщавам проблемите, нуждите и възможностите…');
+        $company = $profile->company;
+
+        $system = 'Ти си бизнес консултант. Върху проучването, ситуационния анализ и интервюто извлечи на '
+            .'български ТРИ изчерпателни списъка: (1) ПРОБЛЕМИ — всички конкретни проблеми, които бизнесът '
+            .'трябва да реши; (2) НУЖДИ — всичко, от което бизнесът има нужда, за да работи и расте; '
+            .'(3) ВЪЗМОЖНОСТИ — НЯКОЛКО НОВИ, конкретни идеи, които биха помогнали на бизнеса да се доразвие '
+            .'(предложи нови неща, не просто преповтаряй проблемите). Всяка точка — кратка и конкретна. '
+            .'Върни САМО валиден JSON по схемата. '.PromptData::NO_TECH_TERMS;
+
+        $user = "Фирма: {$company?->name} ({$company?->industry})\n"
+            .'Ситуационен анализ:'."\n".((string) $profile->situational_analysis ?: '(няма)')
+            ."\n\n".'Болки от анализа:'."\n".implode("\n", array_map(fn ($p) => '- '.$p, (array) $profile->pain_points))
+            ."\n\n".'Проучване:'."\n".json_encode(PromptData::humanize((array) $profile->research), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            ."\n\n".'Интервю (въпроси + отговори):'."\n".json_encode(PromptData::humanize((array) $profile->interview_transcript), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+        try {
+            $raw = $this->generator->chatJson($system, $user, 'org_synthesis', $this->synthesisSchema(), [
+                'temperature' => 0.5, 'num_predict' => 1800,
+            ]);
+        } catch (\Throwable $e) {
+            Log::info('[Profiler] synthesis failed: '.$e->getMessage());
+
+            return;
+        }
+
+        $clean = fn ($list) => array_values(array_filter(array_map(fn ($s) => trim((string) $s), (array) $list)));
+
+        $profile->update([
+            'problems' => $clean($raw['problems'] ?? []),
+            'needs' => $clean($raw['needs'] ?? []),
+            'opportunities' => $clean($raw['opportunities'] ?? []),
+            'synthesis_completed_at' => now(),
+        ]);
+    }
+
+    /** Строга схема (OpenAI strict Structured Outputs): три списъка от низове. */
+    private function synthesisSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'problems' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'needs' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'opportunities' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+            'required' => ['problems', 'needs', 'opportunities'],
+        ];
     }
 }

@@ -5,6 +5,7 @@ namespace App\Jobs\Org;
 use App\Models\Company;
 use App\Services\Org\Billing\CreditMeterService;
 use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\BusinessProfilerService;
 use App\Services\Org\OrgPlannerService;
 use App\Support\BillableUnit;
 use App\Support\LlmContext;
@@ -32,7 +33,7 @@ class ProposeOrganizationJob implements ShouldQueue
 
     public function __construct(public int $companyId, public string $token) {}
 
-    public function handle(OrgPlannerService $planner, CreditMeterService $meter): void
+    public function handle(OrgPlannerService $planner, CreditMeterService $meter, BusinessProfilerService $profiler): void
     {
         $key = "org_design_{$this->token}";
         $company = Company::find($this->companyId);
@@ -65,6 +66,12 @@ class ProposeOrganizationJob implements ShouldQueue
 
         try {
             $onStage = fn (string $s) => Cache::put($key, ['status' => 'pending', 'stage' => $s, 'updated_at' => now()->timestamp], now()->addMinutes(20));
+
+            // Застраховка: ако анализ екранът е прескочен, синтезът се прави тук (идемпотентно),
+            // за да има проблеми/нужди за композицията и възможности за приоритетите.
+            if ($profile = $company->businessProfile) {
+                $profiler->synthesizeFeedback($profile, $onStage);
+            }
 
             $proposed = $planner->proposeOrganization($company, $onStage);
             $finalized = $planner->finalizeOrganization($proposed, $company->activeOrgVersion);

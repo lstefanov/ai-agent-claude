@@ -39,6 +39,10 @@
         'waiting_approval' => ['Изчаква преглед', 'warning'],
     ];
     [$statusLabel, $statusColor] = $statusMap[$run->status] ?? [$run->status, 'neutral'];
+    $nodeDot = [
+        'completed' => 'bg-success', 'failed' => 'bg-danger', 'running' => 'bg-accent animate-pulse',
+        'paused' => 'bg-warning', 'skipped' => 'bg-subtle', 'pending' => 'bg-subtle',
+    ];
 @endphp
 
 <div class="max-w-3xl mx-auto"
@@ -71,6 +75,90 @@
             <x-empty-state icon="document-text" title="Няма резултат" message="Това изпълнение няма краен резултат." />
         @endif
     </x-card>
+
+    {{-- Техническа прозрачност (§12): node timeline + цена + planner. Видимо по подразбиране;
+         само суровите изходи/промптове са в свиваем drawer. --}}
+    @isset($timeline)
+        <div class="mt-8">
+            <h2 class="text-sm font-semibold text-ink mb-3">Детайли за изпълнението</h2>
+
+            @if ($task)
+                <p class="text-xs text-muted mb-3">Задача: <span class="text-ink">{{ $task->title }}</span> · {{ $task->orgMember?->fullName() }} ({{ $task->orgMember?->roleTitle() }})</p>
+            @endif
+
+            {{-- Агрегати --}}
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                <div class="rounded-lg border border-line bg-surface p-3"><p class="text-xs text-muted">Цена</p><p class="text-lg font-semibold text-ink tabular-nums">${{ number_format($totals['cost_usd'], 4) }}</p></div>
+                <div class="rounded-lg border border-line bg-surface p-3"><p class="text-xs text-muted">Токени</p><p class="text-lg font-semibold text-ink tabular-nums">{{ number_format($totals['tokens']) }}</p></div>
+                <div class="rounded-lg border border-line bg-surface p-3"><p class="text-xs text-muted">Среден QA</p><p class="text-lg font-semibold text-ink tabular-nums">{{ $totals['avg_qa'] ?? '—' }}</p></div>
+                <div class="rounded-lg border border-line bg-surface p-3"><p class="text-xs text-muted">Възли / опити</p><p class="text-lg font-semibold text-ink tabular-nums">{{ $timeline->count() }} / {{ $totals['attempts'] }}</p></div>
+            </div>
+
+            @php($est = $task?->proposal['estimated_cost']['credits'] ?? null)
+            @if ($est)<p class="text-xs text-subtle mb-3">Ориентировъчно при предложението: ~{{ $est }} кредита · реално: ${{ number_format($totals['cost_usd'], 4) }}.</p>@endif
+
+            {{-- Node timeline --}}
+            @if ($timeline->isNotEmpty())
+                <div class="rounded-xl border border-line bg-surface divide-y divide-line" x-data="{ open: null }">
+                    @foreach ($timeline as $i => $t)
+                        @php($nr = $t['run'])
+                        <div>
+                            <button type="button" x-on:click="open = open === {{ $i }} ? null : {{ $i }}" class="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-surface-subtle transition">
+                                <span class="min-w-0 flex items-center gap-2">
+                                    <span class="h-2 w-2 shrink-0 rounded-full {{ $nodeDot[$nr->status] ?? 'bg-subtle' }}"></span>
+                                    <span class="text-sm text-ink truncate">{{ $t['name'] }}</span>
+                                    @if ($t['attempts'] > 1)<span class="text-xs text-warning-strong" title="опити">×{{ $t['attempts'] }}</span>@endif
+                                </span>
+                                <span class="flex items-center gap-3 text-xs text-subtle tabular-nums shrink-0">
+                                    @if ($nr->model_used)<span class="font-mono hidden sm:inline">{{ $nr->model_used }}</span>@endif
+                                    @if ($nr->qa_score !== null)<span>QA {{ (int) $nr->qa_score }}</span>@endif
+                                    <span>${{ number_format((float) $nr->cost_usd, 4) }}</span>
+                                    @if ($nr->duration_ms)<span>{{ round($nr->duration_ms / 1000, 1) }}s</span>@endif
+                                </span>
+                            </button>
+                            <div x-show="open === {{ $i }}" x-cloak class="px-3 pb-3 space-y-2 text-xs">
+                                <div class="flex flex-wrap gap-x-3 gap-y-1 text-muted tabular-nums">
+                                    <span>статус: {{ $nr->status }}</span>
+                                    <span>модел: <span class="font-mono">{{ $nr->model_used ?? '—' }}</span></span>
+                                    <span>токени: {{ number_format((int) $nr->tokens_used) }} ({{ (int) $nr->prompt_tokens }}+{{ (int) $nr->completion_tokens }})</span>
+                                </div>
+                                @if ($nr->output)
+                                    <div class="rounded-lg bg-surface-subtle p-2 text-ink whitespace-pre-wrap max-h-48 overflow-y-auto">{{ \Illuminate\Support\Str::limit($nr->output, 1200) }}</div>
+                                @endif
+                                @if ($nr->error)<p class="text-danger">{{ $nr->error }}</p>@endif
+                                @if ($nr->raw_output && $nr->raw_output !== $nr->output)
+                                    <details><summary class="cursor-pointer text-subtle">Суров изход / промпт</summary><pre class="mt-1 rounded-lg bg-surface-subtle p-2 overflow-x-auto max-h-64 overflow-y-auto">{{ \Illuminate\Support\Str::limit($nr->raw_output, 4000) }}</pre></details>
+                                @endif
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+
+            {{-- Planner прозрачност (групирано по token) --}}
+            @if ($plannerLogs->isNotEmpty())
+                <details class="mt-4 rounded-xl border border-line bg-surface">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-muted hover:text-ink">Технически детайли (планер)</summary>
+                    <div class="border-t border-line p-3 overflow-x-auto">
+                        <table class="w-full text-xs">
+                            <thead><tr class="text-subtle text-left"><th class="pr-3 pb-1">Провайдър</th><th class="pr-3 pb-1">Модел</th><th class="pr-3 pb-1 text-right">Цена</th><th class="pr-3 pb-1 text-right">Време</th><th class="pb-1">Статус</th></tr></thead>
+                            <tbody>
+                                @foreach ($plannerLogs as $log)
+                                    <tr class="border-t border-line">
+                                        <td class="pr-3 py-1 font-mono">{{ $log->provider }}</td>
+                                        <td class="pr-3 py-1 font-mono">{{ $log->model }}</td>
+                                        <td class="pr-3 py-1 text-right tabular-nums">${{ number_format((float) $log->cost_usd, 4) }}</td>
+                                        <td class="pr-3 py-1 text-right tabular-nums">{{ (int) $log->duration_ms }}ms</td>
+                                        <td class="py-1">{{ $log->status }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            @endif
+        </div>
+    @endisset
 
     {{-- Inline re-run --}}
     <div x-show="state==='running'" x-cloak class="mt-4">

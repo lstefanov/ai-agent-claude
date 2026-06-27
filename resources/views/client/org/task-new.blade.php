@@ -66,13 +66,17 @@
     {{-- Възлагане + генерация --}}
     <div x-show="phase !== 'form'" x-cloak class="rounded-xl border border-line bg-surface p-6">
         <div class="flex items-start gap-3">
-            <span class="mt-0.5 h-2.5 w-2.5 rounded-full"
-                  :class="phase === 'working' ? 'bg-accent animate-pulse' : (phase === 'ready' ? 'bg-success' : 'bg-danger')"></span>
+            <template x-if="phase === 'working'">
+                <span class="mt-0.5"><x-org.bolt-spinner size="18" /></span>
+            </template>
+            <template x-if="phase !== 'working'">
+                <span class="mt-0.5 h-2.5 w-2.5 rounded-full" :class="phase === 'ready' ? 'bg-success' : 'bg-danger'"></span>
+            </template>
             <div class="min-w-0">
                 <p class="text-sm text-ink">
                     Възложено на <a :href="assignment.member_url" class="font-semibold text-primary hover:text-primary-hover" x-text="assignment.member_name"></a>
                 </p>
-                <p class="text-xs text-muted mt-0.5" x-text="assignment.reason"></p>
+                <p class="text-xs text-muted mt-0.5" x-html="$mdInline(assignment.reason)"></p>
                 <p class="text-sm mt-3" x-text="statusText"></p>
             </div>
         </div>

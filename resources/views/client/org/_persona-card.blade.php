@@ -1,8 +1,8 @@
 {{-- Персона карта (§2.5): портретен аватар + fallback цветни инициали, име/роля,
      звезди (= ModelLevel), мини стат-барове. $m = member card (от OrgGraphController). --}}
 @php
-    $charColors = ['purple', 'teal', 'coral', 'blue', 'amber', 'pink', 'green'];
-    $c = $charColors[($m['id'] ?? 0) % count($charColors)];
+    // Цвят = функция/домейн (§10.1), подаден от OrgGraphController — не member.id % 7.
+    $c = $m['color'] ?? 'blue';
     $stars = (int) ($m['stars'] ?? 1);
 @endphp
 <a href="{{ route('client.org.member', $m['id']) }}"
@@ -24,7 +24,7 @@
             </div>
             <p class="text-xs text-muted truncate">{{ $m['role'] }}@if (! empty($m['age'])) · {{ $m['age'] }}г.@endif</p>
             @if (! empty($m['tone']))
-                <p class="text-xs text-subtle truncate mt-0.5">{{ $m['tone'] }}</p>
+                <p class="text-xs text-subtle truncate mt-0.5"><x-prose :text="$m['tone']" inline /></p>
             @endif
         </div>
     </div>

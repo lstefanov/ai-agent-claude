@@ -9,15 +9,65 @@ class PersonaArchetypeSeeder extends Seeder
 {
     public function run(): void
     {
-        // Типови персони по роля×вертикал. traits 0–100: риск/креативност/прецизност/
-        // автономност/темпо. Захранват casting-а и предложенията на Управителя (§5/§11).
-        $archetypes = [
+        // Manager-кандидатите за casting-а (§1.4) — примерни Управители с реални имена,
+        // демография, характер и готов портрет. Точно 5: 3-ма мъже + 2 жени, видимо различни.
+        // traits 0–100: риск/креативност/прецизност/автономност/темпо.
+        $managers = [
             [
-                'vertical' => null, 'role' => 'manager', 'name' => 'визионер управител',
-                'traits' => ['risk' => 78, 'creativity' => 85, 'precision' => 62, 'autonomy' => 85, 'tempo' => 80],
+                'vertical' => null, 'role' => 'manager', 'name' => 'Калоян Стефанов',
+                'age' => 34, 'gender' => 'мъж', 'ethnicity' => 'българин',
+                'background' => 'растеж и продуктова стратегия',
+                'traits' => ['risk' => 80, 'creativity' => 86, 'precision' => 60, 'autonomy' => 85, 'tempo' => 82],
                 'tone' => 'амбициозен, вдъхновяващ, стратегически',
-                'bio_template' => 'Млад визионер, който вижда голямата картина и тласка екипа напред.',
+                'bio_template' => 'Млад визионер, който вижда голямата картина и тласка екипа към смели цели. Превръща неясната идея в посока, която хората искат да следват.',
+                'avatar_path' => 'archetypes/manager_kaloyan.png',
             ],
+            [
+                'vertical' => null, 'role' => 'manager', 'name' => 'Георги Петров',
+                'age' => 58, 'gender' => 'мъж', 'ethnicity' => 'българин',
+                'background' => 'корпоративни финанси и управление',
+                'traits' => ['risk' => 24, 'creativity' => 42, 'precision' => 92, 'autonomy' => 66, 'tempo' => 46],
+                'tone' => 'сдържан, разсъдлив, предпазлив',
+                'bio_template' => 'Ветеран лидер, който мери два пъти и реже веднъж. Пази устойчивостта на бизнеса и решава с числа, не с настроение.',
+                'avatar_path' => 'archetypes/manager_georgi.png',
+            ],
+            [
+                'vertical' => null, 'role' => 'manager', 'name' => 'Ивайло Димитров',
+                'age' => 29, 'gender' => 'мъж', 'ethnicity' => 'българин',
+                'background' => 'дигитален маркетинг и стартъпи',
+                'traits' => ['risk' => 88, 'creativity' => 82, 'precision' => 50, 'autonomy' => 78, 'tempo' => 88],
+                'tone' => 'дързък, енергичен, експериментаторски',
+                'bio_template' => 'Смел предприемач, който пуска бързи тестове и учи от данните без страх. Обича скоростта и не чака идеалния момент — създава го.',
+                'avatar_path' => 'archetypes/manager_ivaylo.png',
+            ],
+            [
+                'vertical' => null, 'role' => 'manager', 'name' => 'Емилия Радева',
+                'age' => 47, 'gender' => 'жена', 'ethnicity' => 'българка',
+                'background' => 'операции и управление на екипи',
+                'traits' => ['risk' => 38, 'creativity' => 52, 'precision' => 88, 'autonomy' => 70, 'tempo' => 58],
+                'tone' => 'спокойна, методична, уверена',
+                'bio_template' => 'Опитен организатор, който превръща хаоса в ясни процеси и държи екипа фокусиран. Решава без драма и държи на дадената дума.',
+                'avatar_path' => 'archetypes/manager_emilia.png',
+            ],
+            [
+                'vertical' => null, 'role' => 'manager', 'name' => 'Десислава Колева',
+                'age' => 41, 'gender' => 'жена', 'ethnicity' => 'българка',
+                'background' => 'човешки ресурси и клиентски опит',
+                'traits' => ['risk' => 46, 'creativity' => 68, 'precision' => 72, 'autonomy' => 64, 'tempo' => 64],
+                'tone' => 'топла, внимателна, отзивчива',
+                'bio_template' => 'Лидер, който води чрез доверие и слуша преди да реши. Държи екипа мотивиран и всеки клиент усетен — растежът минава през хората.',
+                'avatar_path' => 'archetypes/manager_desislava.png',
+            ],
+        ];
+
+        // Точно 5 Управителя след seed — чистим стария набор и вмъкваме наново (идемпотентно).
+        PersonaArchetype::where('role', 'manager')->delete();
+        foreach ($managers as $manager) {
+            PersonaArchetype::create($manager);
+        }
+
+        // Типови персони по роля×вертикал. Захранват предложенията на Управителя (§5/§11).
+        $others = [
             [
                 'vertical' => null, 'role' => 'director', 'name' => 'млад growth маркетинг',
                 'traits' => ['risk' => 80, 'creativity' => 90, 'precision' => 55, 'autonomy' => 70, 'tempo' => 82],
@@ -62,7 +112,7 @@ class PersonaArchetypeSeeder extends Seeder
             ],
         ];
 
-        foreach ($archetypes as $archetype) {
+        foreach ($others as $archetype) {
             // Идемпотентност по (role, name).
             PersonaArchetype::updateOrCreate(
                 ['role' => $archetype['role'], 'name' => $archetype['name']],

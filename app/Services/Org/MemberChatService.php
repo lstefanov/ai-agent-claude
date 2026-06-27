@@ -2,11 +2,14 @@
 
 namespace App\Services\Org;
 
+use App\Models\AssistantTask;
 use App\Models\MemberChat;
 use App\Models\MemberMessage;
+use App\Models\OrgMember;
 use App\Models\OrgProposal;
 use App\Services\GeneratorService;
 use App\Services\KnowledgeService;
+use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Support\LlmUsage;
 
 /**
@@ -33,6 +36,7 @@ class MemberChatService
         $company = $chat->company;
 
         $persona = $this->personas->compileSystemPrompt($member);
+        $policy = $this->personas->runtimePolicy($member);
         $scope = $this->scopeFor($member);
         $knowledgeBlock = '';
         try {
@@ -45,7 +49,10 @@ class MemberChatService
 
         $system = trim($persona."\n\n".$scope."\n\n"
             .'Отговаряй в своя тон, по същество, на български. Може да ПРЕДЛОЖИШ действие '
-            .'(нова задача/кампания/наемане) — то влиза в Кутията за одобрение, не се изпълнява само. '
+            .'(нова задача/кампания/наемане) — системата ще го обработи според политиката на служителя '
+            .'за одобрение и разрешените действия. '
+            .'При висок риск и автономност предлагай по-смело конкретни действия; при ниски стойности '
+            .'предлагай действие само когато ползата е ясна. '
             .'Връщай САМО валиден JSON по схемата.'
             .($reflection !== '' ? "\n\n".$reflection : '')
             .($knowledgeBlock !== '' ? "\n\n".$knowledgeBlock : ''));
@@ -53,7 +60,7 @@ class MemberChatService
         $history = $this->history($chat, $userMessage);
 
         $raw = $this->generator->chatJson($system, $history, 'member_chat', $this->schema(), [
-            'temperature' => (float) ($member->persona?->derived_knobs['temperature'] ?? 0.6),
+            'temperature' => (float) ($policy['temperature'] ?? 0.6),
             'num_predict' => 1500,
         ]);
 
@@ -61,17 +68,65 @@ class MemberChatService
         $reply = trim((string) ($raw['reply'] ?? '')) ?: '…';
         $proposal = $this->normalizeProposal($raw['proposal'] ?? null, $member);
 
-        // Записва durable предложение за Кутията (§A7).
+        // Предложение → Кутията: задачите директно като AssistantTask+draft
+        // (ревизиран §6.1), структурните като durable org_proposal (§A7).
         if ($proposal) {
-            OrgProposal::create([
-                'company_id' => $company->id,
-                'type' => $proposal['type'],
-                'payload' => $proposal,
-                'base_org_version_id' => $company->active_org_version_id,
-            ]);
+            $this->persistProposal($company, $proposal);
         }
 
         return ['reply' => $reply, 'proposal' => $proposal, 'cost_usd' => $cost];
+    }
+
+    /** Рутиране на предложението: task → AssistantTask+генерация; иначе → OrgProposal. */
+    private function persistProposal($company, array $proposal): void
+    {
+        if (($proposal['type'] ?? null) === 'task') {
+            $this->proposeTask($company, $proposal);
+
+            return;
+        }
+
+        OrgProposal::create([
+            'company_id' => $company->id,
+            'type' => $proposal['type'],
+            'payload' => $proposal,
+            'base_org_version_id' => $company->active_org_version_id,
+        ]);
+    }
+
+    /**
+     * Предложена в чата задача → AssistantTask(proposed) + асинхронна генерация
+     * (→ pending_approval с brief). Нужен е валиден асистент-собственик; недостиг на
+     * кредити → задачата остава proposed (генерира се по-късно ръчно).
+     */
+    private function proposeTask($company, array $proposal): void
+    {
+        $ownerId = $proposal['org_member_id'] ?? null;
+        $owner = $ownerId ? OrgMember::with('persona')
+            ->where('company_id', $company->id)
+            ->whereKey($ownerId)->where('kind', 'assistant')->first() : null;
+        if (! $owner) {
+            return;   // няма на кого да възложим задачата
+        }
+        $policy = $this->personas->runtimePolicy($owner);
+
+        try {
+            $task = AssistantTask::create([
+                'org_member_id' => $owner->id,
+                'title' => (string) $proposal['title'],
+                'description' => (string) ($proposal['description'] ?? $proposal['title']),
+                'act_mode' => in_array($proposal['act_mode'] ?? 'draft', ['draft', 'act', 'mixed'], true) ? $proposal['act_mode'] : 'draft',
+                'approval_policy' => (string) ($policy['approval_policy'] ?? 'approve_each'),
+                'trigger' => 'manual',
+                'status' => 'proposed',
+            ]);
+
+            app(TaskRunService::class)->generate($task, runAfterGenerate: false);
+        } catch (InsufficientCreditsException) {
+            // задачата остава proposed без draft — ще се генерира по-късно
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /** Scope според ролята + текущия плейсмънт. */
@@ -113,6 +168,7 @@ class MemberChatService
                         'title' => ['type' => 'string'],
                         'description' => ['type' => 'string'],
                         'act_mode' => ['type' => 'string', 'enum' => ['draft', 'act', 'mixed']],
+                        'org_member_id' => ['type' => ['integer', 'null']],
                     ],
                 ],
             ],
@@ -131,8 +187,9 @@ class MemberChatService
             'title' => (string) $p['title'],
             'description' => (string) ($p['description'] ?? $p['title']),
             'act_mode' => in_array($p['act_mode'] ?? 'draft', ['draft', 'act', 'mixed'], true) ? $p['act_mode'] : 'draft',
-            // По подразбиране нова задача за асистент-члена (ако чатът е с асистент).
-            'org_member_id' => $member->kind === 'assistant' ? $member->id : null,
+            // Чат с асистент → задачата е за него; чат с управител/директор → асистентът,
+            // когото моделът посочи (org_member_id), иначе null (без валиден собственик).
+            'org_member_id' => $member->kind === 'assistant' ? $member->id : ($p['org_member_id'] ?? null),
             'proposed_by' => $member->display_name,
         ];
     }

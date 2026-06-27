@@ -1,31 +1,22 @@
-{{-- Лещи над един и същ граф (§6): Екип / Skill Tree / Текущ поток. --}}
+{{-- Лещи над един и същ граф (§6): Екип / Карта на уменията / Текущ поток. Само вътрешна
+     сегментация на изгледите на графа — глобалната навигация е в хедъра (§3.2). --}}
 @php
     $lenses = [
         'roster' => ['label' => 'Екип', 'route' => 'client.org.roster'],
-        'skill-tree' => ['label' => 'Skill Tree', 'route' => 'client.org.skill-tree'],
+        'skill-tree' => ['label' => 'Карта на уменията', 'route' => 'client.org.skill-tree'],
         'live' => ['label' => 'Текущ поток', 'route' => 'client.org.live'],
     ];
 @endphp
 <div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
-    <div class="inline-flex rounded-lg border border-line bg-surface p-0.5">
+    <div class="inline-flex rounded-lg border border-line bg-surface p-0.5" role="tablist">
         @foreach ($lenses as $key => $lens)
             <a href="{{ route($lens['route']) }}"
-               class="px-4 py-1.5 text-sm font-medium rounded-md transition
+               @if ($active === $key) aria-current="page" @endif
+               class="px-4 py-1.5 text-sm font-medium rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40
                       {{ $active === $key ? 'bg-primary text-primary-fg' : 'text-muted hover:text-ink' }}">
                 {{ $lens['label'] }}
             </a>
         @endforeach
     </div>
-    <div class="flex items-center gap-4">
-        <a href="{{ route('client.org.tasks.new') }}"
-           class="inline-flex items-center gap-1 h-9 px-3 text-sm font-semibold rounded-md bg-primary text-primary-fg hover:bg-primary-hover transition">
-            <span class="text-base leading-none">＋</span> Нова задача
-        </a>
-        <a href="{{ route('client.org.quests') }}" class="text-sm text-muted hover:text-ink">Куестове</a>
-        <a href="{{ route('client.org.decisions') }}" class="text-sm text-muted hover:text-ink">Решения</a>
-        <a href="{{ route('client.org.integrations') }}" class="text-sm text-muted hover:text-ink">Интеграции</a>
-        <a href="{{ route('client.org.billing') }}" class="text-sm text-muted hover:text-ink">Кредити</a>
-        <a href="{{ route('client.org.chronicle') }}" class="text-sm text-muted hover:text-ink">Хроника</a>
-        <a href="{{ route('client.org.design.review') }}" class="text-sm text-primary font-medium hover:text-primary-hover">Препроектирай →</a>
-    </div>
+    <a href="{{ route('client.org.design.review') }}" class="text-sm text-primary font-medium hover:text-primary-hover">Препроектирай →</a>
 </div>

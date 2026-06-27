@@ -61,6 +61,9 @@ class AssistantTaskController extends Controller
                 'available' => $e->available,
                 'upsell' => true,
             ], 402);
+        } catch (\RuntimeException $e) {
+            // Status-машина: задачата не е в пускаемо състояние (напр. чака одобрение).
+            return response()->json(['message' => $e->getMessage()], 422);
         }
 
         if (($result['status'] ?? null) === 'running' && isset($result['run_id'])) {

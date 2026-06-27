@@ -2,14 +2,15 @@
 
 namespace App\Services;
 
+use App\Jobs\GenerateAgentsJob;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
  * Пуска фоновата генерация на агенти (`flows:generate-agents`) и връща token.
- * Единствената точка, която сглобява `agent_gen_request_{token}` кеша и стартира
- * процеса — ползва се и от админ builder-а, и от клиентския wizard. Поллингът
- * става през `flows.generation-status/{token}` (FlowController::generationStatus).
+ * Единствената точка, която сглобява `agent_gen_request_{token}` кеша и диспечира
+ * Horizon job-а (`org` queue) — ползва се и от админ builder-а, и от клиентския wizard.
+ * Поллингът става през `flows.generation-status/{token}` (FlowController::generationStatus).
  */
 class AgentGenerationLauncher
 {
@@ -50,11 +51,9 @@ class AgentGenerationLauncher
             'updated_at' => now()->timestamp,
         ], now()->addMinutes(15));
 
-        // Фонов artisan процес (не го убива HTTP timeout-ът).
-        $php = env('PHP_CLI_BINARY', PHP_BINARY);
-        $artisan = base_path('artisan');
-        $tok = escapeshellarg($token);
-        exec("{$php} {$artisan} flows:generate-agents {$tok} >> ".escapeshellarg(storage_path('logs/agent-gen.log')).' 2>&1 &');
+        // Horizon job на `org` queue (supervisor-org) — наблюдаемо, без detached exec (§8.3).
+        // Не го убива HTTP timeout-ът; не конкурира node execution на supervisor-flows.
+        GenerateAgentsJob::dispatch($token)->onQueue('org');
 
         return $token;
     }

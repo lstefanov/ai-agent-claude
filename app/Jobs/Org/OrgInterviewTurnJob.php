@@ -69,8 +69,19 @@ class OrgInterviewTurnJob implements ShouldQueue
 
             $result = $interview->turn($profile, $this->userInput, $onStage);
 
+            // Управителят не успя да формулира въпрос, а още е рано за „ready" → мек, повторим error.
+            // Не записваме нищо в транскрипта и не вдигаме status — потребителят просто натиска „Изпрати" пак.
+            if ($result['soft_error'] ?? false) {
+                Cache::put($key, ['status' => 'failed', 'error' => 'Управителят се умисли. Натисни „Изпрати" пак.', 'updated_at' => now()->timestamp], now()->addMinutes(15));
+
+                return;
+            }
+
+            // Репликата на Управителя (+ въпроса) в транскрипта — за да оцелее при refresh.
+            $profile->appendTranscript(['role' => 'assistant', 'content' => $result['reply'], 'question' => $result['question']]);
+
             if ($result['phase'] === 'ready') {
-                $profile->update(['status' => 'ready']);
+                BusinessProfile::whereKey($profile->id)->update(['status' => 'ready']);
             }
 
             Cache::put($key, ['status' => 'completed'] + $result + ['updated_at' => now()->timestamp], now()->addMinutes(15));

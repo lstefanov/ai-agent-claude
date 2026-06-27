@@ -11,10 +11,13 @@
         interviewUrl: '{{ route('client.org.interview') }}',
         done: {{ $profile && $profile->status === 'ready' ? 'true' : 'false' }},
      })">
-    <header class="mb-8">
-        <p class="text-xs font-mono uppercase tracking-wider text-muted mb-1">Стъпка 2 от 3 · Проучване</p>
-        <h1 class="text-2xl font-semibold text-ink">{{ $manager->persona?->name ?? 'Управителят' }} проучва бизнеса</h1>
-        <p class="text-muted mt-1">Сайт, отзиви и добри практики в бранша — за да си състави ясна представа преди дизайна.</p>
+    <header class="mb-8 flex items-start justify-between gap-4">
+        <div>
+            <p class="text-xs font-mono uppercase tracking-wider text-muted mb-1">Стъпка 2 от 3 · Проучване</p>
+            <h1 class="text-2xl font-semibold text-ink">{{ $manager->persona?->name ?? 'Управителят' }} проучва бизнеса</h1>
+            <p class="text-muted mt-1">Сайт, отзиви и добри практики в бранша — за да си състави ясна представа преди дизайна.</p>
+        </div>
+        @include('client.org._wizard-reset')
     </header>
 
     <div class="rounded-xl border border-line bg-surface p-6">
@@ -27,7 +30,7 @@
             @endif
             <div>
                 <p class="font-medium text-ink">{{ $manager->persona?->name ?? 'Управител' }}</p>
-                <p class="text-sm text-muted">{{ $manager->persona?->tone }}</p>
+                <p class="text-sm text-muted"><x-prose :text="$manager->persona?->tone" inline /></p>
             </div>
         </div>
 
@@ -38,7 +41,7 @@
             </template>
             <template x-if="running">
                 <div class="flex items-center gap-3 text-sm text-muted">
-                    <span class="h-2 w-2 rounded-full bg-accent animate-pulse"></span>
+                    <x-org.bolt-spinner size="22" />
                     <span x-text="stage || 'Проучвам…'"></span>
                 </div>
             </template>
@@ -47,8 +50,8 @@
 
         {{-- Резултат --}}
         <div x-show="done" x-cloak>
-            <div class="rounded-lg bg-surface-subtle p-4 text-sm text-ink whitespace-pre-line leading-relaxed"
-                 x-text="analysis || @js(optional($profile)->situational_analysis) || 'Анализът е готов.'"></div>
+            <div class="rounded-lg bg-surface-subtle p-4 text-sm text-ink leading-relaxed ai-prose"
+                 x-html="$md(analysis || @js(optional($profile)->situational_analysis) || 'Анализът е готов.')"></div>
             <div class="flex justify-end mt-5">
                 <x-button :href="route('client.org.interview')">Към интервюто →</x-button>
             </div>
@@ -68,15 +71,20 @@ function research(cfg) {
                 .catch(() => this.fail());
         },
         poll(token) {
+            if (this.timer) { clearInterval(this.timer); this.timer = null; }   // никога не оставяй сирак-интервал
             const url = cfg.statusTpl.replace('TOKEN', token);
+            let settled = false, fails = 0;
+            const stop = () => { settled = true; if (this.timer) { clearInterval(this.timer); this.timer = null; } this.running = false; };
             const tick = async () => {
+                if (settled) return;
                 try {
                     const d = await (await fetch(url, { headers: { 'Accept': 'application/json' } })).json();
-                    if (d.status === 'pending') { this.stage = d.stage || 'Проучвам…'; return; }
-                    clearInterval(this.timer); this.running = false;
+                    if (settled) return;
+                    if (d.status === 'pending') { this.stage = d.stage || 'Проучвам…'; fails = 0; return; }
+                    stop();
                     if (d.status === 'completed') { this.analysis = d.analysis || ''; this.done = true; }
                     else { this.fail(d.error); }
-                } catch (e) { /* retry */ }
+                } catch (e) { if (++fails >= 8) { stop(); this.fail(); } }
             };
             tick(); this.timer = setInterval(tick, 2000);
         },

@@ -12,12 +12,16 @@ class AssistantTask extends Model
         'org_member_id', 'current_director_member_id', 'flow_id',
         'title', 'description', 'trigger', 'schedule', 'act_mode',
         'approval_policy', 'star_tier', 'tier_stale', 'kpi', 'status', 'gen_token',
-        'run_after_generate',
+        'run_after_generate', 'proposal',
+        'approved_at', 'approved_by', 'rejected_at', 'rejected_by', 'rejection_reason',
     ];
 
     protected $casts = [
         'run_after_generate' => 'boolean',
         'tier_stale' => 'boolean',
+        'proposal' => 'array',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     /** Асистент-членът, на когото виси задачата (стабилната идентичност). */
@@ -59,6 +63,14 @@ class AssistantTask extends Model
         $base = $this->star_tier
             ? ModelLevel::from($this->star_tier)
             : $this->orgMember->defaultStarTier();
+
+        if ($this->star_tier === null) {
+            $personaKnobs = (array) ($this->orgMember->persona?->derived_knobs ?? []);
+            $personaTier = ModelLevel::tryFrom((string) ($personaKnobs['star_tier'] ?? ''));
+            if ($personaTier && $personaTier->rank() > $base->rank()) {
+                $base = $personaTier;
+            }
+        }
 
         $ceiling = $this->orgMember->company->subscription?->plan?->maxStarTier();
 

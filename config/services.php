@@ -269,6 +269,31 @@ return [
                 'provider' => env('EVAL_JUDGE_PROVIDER', 'gemini'),
                 'model' => env('EVAL_JUDGE_MODEL', 'gemini-3.1-flash-lite'),
             ],
+            // Интервюто на Управителя (онбординг). По подразбиране празно → пада към
+            // GENERATOR_PROVIDER (локален Ollama). Сложи ORG_INTERVIEW_PROVIDER/MODEL, за
+            // да го пуснеш на по-силен облачен модел (gpt-4o-mini) САМО за интервюто —
+            // планирането на flow-овете остава безплатно локално. Резолвва се през
+            // GeneratorService::chatJson(..., 'org_interview').
+            'org_interview' => [
+                'provider' => env('ORG_INTERVIEW_PROVIDER'),
+                'model' => env('ORG_INTERVIEW_MODEL'),
+            ],
+            // Създаването на организацията (онбординг): синтез на проблеми/нужди/възможности,
+            // композиция на отделите и дизайн на персоните. Един ключ ORG_DESIGN_* за трите —
+            // тези „първи стъпки" винаги на добър, сменяем модел (gpt-4o-mini → claude-* по-късно).
+            // Празно → GENERATOR_PROVIDER (локален). Резолвват се през chatJson(..., 'org_*').
+            'org_synthesis' => [
+                'provider' => env('ORG_DESIGN_PROVIDER'),
+                'model' => env('ORG_DESIGN_MODEL'),
+            ],
+            'org_compose' => [
+                'provider' => env('ORG_DESIGN_PROVIDER'),
+                'model' => env('ORG_DESIGN_MODEL'),
+            ],
+            'org_design' => [
+                'provider' => env('ORG_DESIGN_PROVIDER'),
+                'model' => env('ORG_DESIGN_MODEL'),
+            ],
         ],
         // Именувани хибридни комбинации за A/B: flows:plan-ab {id} --variant=hybrid
         // Фази: intent | design | critique | revision; стойност: provider[:model].

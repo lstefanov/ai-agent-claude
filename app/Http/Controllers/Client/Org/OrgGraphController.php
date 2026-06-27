@@ -160,16 +160,18 @@ class OrgGraphController extends Controller
         return [
             'id' => $member->id,
             'kind' => $member->kind,
-            'name' => $persona->name ?? $member->display_name,
-            'role' => $member->display_name,
+            'name' => $member->fullName(),          // две имена (персона), не роля
+            'role' => $member->roleTitle(),         // ролята отделно (§9.1)
+            'color' => $member->functionColor(),    // цвят = функция/домейн (§10.1)
             'age' => $persona->age ?? null,
             'tone' => $persona->tone ?? null,
             'tier' => $member->default_star_tier,
             'stars' => $tier->rank() + 1,
             'traits' => (array) ($persona->traits ?? []),
+            'skills' => (array) ($persona->skills ?? []),
             'avatar_url' => ($persona && $persona->hasReadyAvatar()) ? $persona->avatar_url : null,
             'avatar_status' => $persona->avatar_status ?? 'pending',
-            'initial' => mb_substr($persona->name ?? $member->display_name, 0, 1),
+            'initial' => mb_strtoupper(mb_substr($member->fullName(), 0, 1)),
         ];
     }
 

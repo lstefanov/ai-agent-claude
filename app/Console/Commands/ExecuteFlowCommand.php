@@ -10,6 +10,7 @@ use Throwable;
 class ExecuteFlowCommand extends Command
 {
     protected $signature = 'flows:execute {flowRunId}';
+
     protected $description = 'Execute a flow run via the graph DAG executor';
 
     public function handle(GraphFlowExecutor $executor): int
@@ -20,6 +21,7 @@ class ExecuteFlowCommand extends Command
 
         if (! $flowRun) {
             $this->error("FlowRun #{$flowRunId} not found.");
+
             return 1;
         }
 
@@ -27,10 +29,11 @@ class ExecuteFlowCommand extends Command
             $executor->run($flowRun->flow, $flowRun->triggered_by, $flowRun);
         } catch (Throwable $e) {
             $flowRun->update([
-                'status'       => 'failed',
+                'status' => 'failed',
                 'completed_at' => now(),
             ]);
             $this->error($e->getMessage());
+
             return 1;
         }
 

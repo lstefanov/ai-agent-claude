@@ -30,7 +30,9 @@ class ScheduledTaskJob implements ShouldQueue
     public function handle(TaskRunService $runner): void
     {
         $task = AssistantTask::find($this->taskId);
-        if (! $task || $task->status === 'disabled') {
+        // Само одобрени задачи (ready + active flow) се пускат по график; останалите
+        // статуси (proposed/pending_approval/rejected/disabled/...) не се изпълняват.
+        if (! $task || $task->status !== 'ready') {
             return;
         }
 

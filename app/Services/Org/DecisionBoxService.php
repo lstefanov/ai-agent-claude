@@ -2,11 +2,15 @@
 
 namespace App\Services\Org;
 
+use App\Models\AssistantTask;
 use App\Models\Company;
 use App\Models\FlowRun;
 use App\Models\OrgProposal;
 use App\Models\User;
+use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\PlanLibraryService;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Кутията за решения е АДАПТЕР/АГРЕГАТОР (§0.5.7), не нова одобрителна машина. Обединява
@@ -16,9 +20,13 @@ use Illuminate\Support\Collection;
  */
 class DecisionBoxService
 {
-    public function __construct(private ApprovalService $approvals) {}
+    public function __construct(
+        private ApprovalService $approvals,
+        private PlanLibraryService $planLibrary,
+        private MemberMemoryService $memory,
+    ) {}
 
-    /** Обединен списък „чакащи решения": org предложения + паузирани одобрения. */
+    /** Обединен списък „чакащи решения": предложени задачи + org предложения + паузирани одобрения. */
     public function pending(Company $company): Collection
     {
         // (а) org предложения — durable mutable решение.
@@ -46,7 +54,157 @@ class DecisionBoxService
                     'requested_at' => $a['requested_at'] ?? null,
                 ])->values());
 
-        return $proposals->concat($runs);
+        // (в) предложени задачи (pending_approval) с draft flow — носят brief за картата.
+        $taskProposals = AssistantTask::where('status', 'pending_approval')
+            ->whereHas('orgMember', fn ($q) => $q->where('company_id', $company->id))
+            ->with('orgMember.persona', 'flow')
+            ->latest()->get()
+            ->map(fn (AssistantTask $t) => [
+                'kind' => 'assistant_task',
+                'id' => $t->id,
+                'title' => $t->title,
+                'description' => $t->description,
+                'proposal' => $t->proposal,
+                'member' => $t->orgMember,
+                'flow_id' => $t->flow_id,
+                'created_at' => $t->created_at,
+            ]);
+
+        return $taskProposals->concat($proposals)->concat($runs);
+    }
+
+    /**
+     * Одобрение на предложена задача (АТОМАРНО): flow draft→active, task pending_approval→
+     * ready, decision полета, org_event. След commit: plan-library capture (преместен от
+     * генерацията) + optional „Одобри и пусни" (минава централния run gate).
+     *
+     * @return array{ok: bool, error?: string, run_id?: int, run_skipped?: string}
+     */
+    public function approveTask(AssistantTask $task, ?User $user = null, bool $run = false): array
+    {
+        $version = null;
+        $result = DB::transaction(function () use ($task, $user, &$version) {
+            $fresh = AssistantTask::whereKey($task->id)->lockForUpdate()->first();
+            if (! $fresh || $fresh->status !== 'pending_approval') {
+                return ['ok' => false, 'error' => 'Предложението вече е решено.'];
+            }
+
+            $flow = $fresh->flow()->lockForUpdate()->first();
+            if (! $flow) {
+                return ['ok' => false, 'error' => 'Задачата няма flow за активиране.'];
+            }
+
+            $flow->update(['status' => 'active']);
+            $fresh->update([
+                'status' => 'ready',
+                'approval_policy' => $fresh->approval_policy === 'approve_first_then_auto' ? 'auto' : $fresh->approval_policy,
+                'approved_at' => now(),
+                'approved_by' => $user?->id,
+            ]);
+            $version = $flow->activeVersion;
+
+            $company = $fresh->orgMember?->company;
+            $company?->orgEvents()->create([
+                'type' => 'task_approved',
+                'org_version_id' => $company->active_org_version_id,
+                'org_member_id' => $fresh->org_member_id,
+                'subject_type' => $fresh->getMorphClass(),
+                'subject_id' => $fresh->id,
+                'summary' => 'Одобрена задача: '.$fresh->title,
+                'meta' => ['task_id' => $fresh->id, 'flow_id' => $flow->id],
+                'actor' => 'human',
+            ]);
+
+            return ['ok' => true];
+        });
+
+        if (! ($result['ok'] ?? false)) {
+            return $result;
+        }
+
+        // Plan-library capture чак СЕГА (реално одобрен план).
+        if ($version) {
+            try {
+                $this->planLibrary->captureApprovedPlan($version->fresh());
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        // „Одобри и пусни" — стартира run след активиране (active flow → минава gate).
+        if ($run) {
+            try {
+                $runModel = app(TaskRunService::class)->launchReadyRun($task->fresh());
+                $result['run_id'] = $runModel->id;
+            } catch (InsufficientCreditsException) {
+                $result['run_skipped'] = 'no_credits';
+            } catch (\Throwable $e) {
+                report($e);
+                $result['run_skipped'] = 'error';
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Отказ на предложена задача (АТОМАРНО): flow draft→inactive, task pending_approval→
+     * rejected, причина (задължителна), org_event. След commit: поука в паметта на служителя.
+     *
+     * @return array{ok: bool, error?: string}
+     */
+    public function rejectTask(AssistantTask $task, ?User $user = null, ?string $reason = null): array
+    {
+        $reason = trim((string) $reason);
+        if ($reason === '') {
+            return ['ok' => false, 'error' => 'Нужна е причина за отказа.'];
+        }
+
+        $member = null;
+        $result = DB::transaction(function () use ($task, $user, $reason, &$member) {
+            $fresh = AssistantTask::whereKey($task->id)->lockForUpdate()->first();
+            if (! $fresh || $fresh->status !== 'pending_approval') {
+                return ['ok' => false, 'error' => 'Предложението вече е решено.'];
+            }
+
+            $fresh->flow()->lockForUpdate()->first()?->update(['status' => 'inactive']);
+            $fresh->update([
+                'status' => 'rejected',
+                'rejected_at' => now(),
+                'rejected_by' => $user?->id,
+                'rejection_reason' => $reason,
+            ]);
+
+            $member = $fresh->orgMember;
+            $company = $member?->company;
+            $company?->orgEvents()->create([
+                'type' => 'task_rejected',
+                'org_version_id' => $company->active_org_version_id,
+                'org_member_id' => $fresh->org_member_id,
+                'subject_type' => $fresh->getMorphClass(),
+                'subject_id' => $fresh->id,
+                'summary' => 'Отхвърлена задача: '.$fresh->title,
+                'meta' => ['task_id' => $fresh->id, 'reason' => $reason],
+                'actor' => 'human',
+            ]);
+
+            return ['ok' => true];
+        });
+
+        if (! ($result['ok'] ?? false)) {
+            return $result;
+        }
+
+        // Поука от отказа → паметта на служителя (инжектира се в следващото предложение).
+        if ($member) {
+            try {
+                $this->memory->recordRejectionLesson($member, $task->fresh(), $reason);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        return $result;
     }
 
     /**

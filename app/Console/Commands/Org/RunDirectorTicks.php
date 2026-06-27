@@ -27,9 +27,11 @@ class RunDirectorTicks extends Command
     /** Scheduled задачи, чийто cron е due сега → ScheduledTaskJob (`org` queue). */
     private function dispatchScheduledTasks(): int
     {
+        // Само одобрени (ready) scheduled задачи се пускат по cron. Предложените чакат
+        // човешко одобрение преди да станат runnable.
         $tasks = AssistantTask::where('trigger', 'scheduled')
             ->whereNotNull('schedule')
-            ->whereIn('status', ['ready', 'proposed'])
+            ->where('status', 'ready')
             ->get();
 
         $n = 0;

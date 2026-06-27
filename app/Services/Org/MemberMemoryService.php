@@ -2,6 +2,7 @@
 
 namespace App\Services\Org;
 
+use App\Models\AssistantTask;
 use App\Models\FlowMemory;
 use App\Models\NodeRun;
 use App\Models\OrgMember;
@@ -19,6 +20,31 @@ class MemberMemoryService
     private function flowIds(OrgMember $member): Collection
     {
         return $member->tasks()->whereNotNull('flow_id')->pluck('flow_id');
+    }
+
+    /**
+     * Записва поука от ОТКАЗАНА задача като flow_memory(kind=lesson) за flow_id на задачата.
+     * ВНИМАНИЕ: reflectionBlock() рендира `title ?: summary` → конкретният урок е в TITLE
+     * (иначе бъдещият prompt ще види само етикета). Отказаната задача пази flow_id, така че
+     * flowIds() го хваща и поуката се инжектира АВТОМАТИЧНО в следващото предложение.
+     */
+    public function recordRejectionLesson(OrgMember $member, AssistantTask $task, string $reason): void
+    {
+        if (! $task->flow_id) {
+            return;
+        }
+
+        $reason = trim($reason);
+        $lesson = 'Избягвай предложения като „'.$task->title.'" — собственикът отказа: '
+            .mb_substr($reason, 0, 160);
+
+        FlowMemory::create([
+            'flow_id' => $task->flow_id,
+            'kind' => 'lesson',
+            'title' => mb_substr($lesson, 0, 200),
+            'summary' => $reason,
+            'meta' => ['source' => 'rejection', 'task_id' => $task->id],
+        ]);
     }
 
     /** Поуки (lesson) на члена от миналите му runs — за рефлексия/препоръки. */

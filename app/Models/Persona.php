@@ -13,13 +13,14 @@ class Persona extends Model
 {
     protected $fillable = [
         'org_member_id', 'name', 'ethnicity', 'age', 'gender',
-        'background', 'education', 'bio', 'traits', 'tone',
+        'background', 'education', 'bio', 'traits', 'skills', 'tone',
         'derived_knobs', 'archetype_key', 'avatar_url', 'avatar_prompt',
         'avatar_seed', 'avatar_status', 'avatar_meta',
     ];
 
     protected $casts = [
         'traits' => 'array',
+        'skills' => 'array',
         'derived_knobs' => 'array',
         'avatar_meta' => 'array',
     ];
