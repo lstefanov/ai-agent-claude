@@ -3,7 +3,9 @@
 namespace App\Jobs\Org;
 
 use App\Models\AssistantTask;
+use App\Services\Org\Billing\AutonomousBudgetService;
 use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\OrgActPolicy;
 use App\Services\Org\TaskRunService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -27,7 +29,7 @@ class ScheduledTaskJob implements ShouldQueue
 
     public function __construct(public int $taskId) {}
 
-    public function handle(TaskRunService $runner): void
+    public function handle(TaskRunService $runner, AutonomousBudgetService $budget): void
     {
         $task = AssistantTask::find($this->taskId);
         // Само одобрени задачи (ready + active flow) се пускат по график; останалите
@@ -35,21 +37,28 @@ class ScheduledTaskJob implements ShouldQueue
         if (! $task || $task->status !== 'ready') {
             return;
         }
+        $company = $task->orgMember?->company;
 
-        // act hard gate (§B2): без реален auth, write действията не се изпълняват реално.
-        if ($task->isWriteAct() && ! config('organization.act.enabled')) {
-            $task->orgMember?->company?->orgEvents()->create([
+        // act gate (§E): фирмата не е разрешила реални действия → не пускаме явно write-act
+        // задача (би била само чернова — спестяваме кредитите на cron-а).
+        if ($task->isWriteAct() && ! OrgActPolicy::enabledFor($company)) {
+            $company?->orgEvents()->create([
                 'type' => 'review',
                 'org_member_id' => $task->org_member_id,
-                'summary' => "act задача под гейт (preview, само чернова): {$task->title}",
+                'summary' => "act задача под гейт (само чернова): {$task->title}",
                 'actor' => 'director',
             ]);
 
             return;
         }
 
+        // Дневен автономен таван — scheduled пускането е автономно.
+        if ($company && ! $budget->allows($company, 'scheduled')) {
+            return;
+        }
+
         try {
-            $runner->requestRun($task, runAfterGenerate: true);
+            $runner->requestRun($task, runAfterGenerate: true, origin: 'autonomous');
         } catch (InsufficientCreditsException) {
             $task->orgMember?->company?->orgEvents()->create([
                 'type' => 'review',

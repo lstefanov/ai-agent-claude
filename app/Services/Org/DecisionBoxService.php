@@ -4,11 +4,14 @@ namespace App\Services\Org;
 
 use App\Models\AssistantTask;
 use App\Models\Company;
+use App\Models\Director;
 use App\Models\FlowRun;
+use App\Models\OrgMember;
 use App\Models\OrgProposal;
 use App\Models\User;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Services\PlanLibraryService;
+use App\Support\ModelLevel;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -52,6 +55,7 @@ class DecisionBoxService
                     'node_key' => $nodeKey,
                     'node_name' => $a['node_name'] ?? $nodeKey,
                     'requested_at' => $a['requested_at'] ?? null,
+                    'created_at' => $run->created_at,
                 ])->values());
 
         // (в) предложени задачи (pending_approval) с draft flow — носят brief за картата.
@@ -71,6 +75,327 @@ class DecisionBoxService
             ]);
 
         return $taskProposals->concat($proposals)->concat($runs);
+    }
+
+    /**
+     * Презентационен модел за Кутията: обогатени карти-решения, ГРУПИРАНИ по департамент
+     * (същите цветни кутии като design-review). Всеки item носи предложил + изпълнител
+     * (член-карти), type-метадата (цвят/име), дата и максимум детайли. Структурните
+     * предложения без домейн → „Ръководство"; паузираните runs → отделна група. Чисто
+     * четене — не пипа решения (одобри/отхвърли остават непокътнати).
+     *
+     * @return array{groups: array<int, array<string, mixed>>, total: int, counts: array{structural: int, tasks: int, runs: int}}
+     */
+    public function deck(Company $company): array
+    {
+        $items = $this->pending($company);
+        if ($items->isEmpty()) {
+            return ['groups' => [], 'total' => 0, 'counts' => ['structural' => 0, 'tasks' => 0, 'runs' => 0]];
+        }
+
+        // Предзареждане за разрешаване на членове/отдели без N+1.
+        $members = $company->members()->with('persona')->get()->keyBy('id');
+        $version = $company->activeOrgVersion;
+        $directors = $version ? $version->directors()->with('orgMember.persona')->get() : collect();
+        $assistants = $version ? $version->assistants()->with('director')->get() : collect();
+
+        // domain(lower) → Director плейсмънт (заглавка + цвят на групата).
+        $dirByDomain = $directors->keyBy(fn (Director $d) => mb_strtolower((string) $d->domain));
+        // member_id → неговия функционален домейн (директор: свой; асистент: на директора му).
+        $domainByMember = [];
+        foreach ($directors as $d) {
+            if ($d->org_member_id && $d->domain) {
+                $domainByMember[$d->org_member_id] = mb_strtolower((string) $d->domain);
+            }
+        }
+        foreach ($assistants as $a) {
+            if ($a->org_member_id && $a->director?->domain) {
+                $domainByMember[$a->org_member_id] = mb_strtolower((string) $a->director->domain);
+            }
+        }
+
+        $presented = $items->map(fn (array $it) => $this->presentDecision($it, $members, $domainByMember))->all();
+
+        // Групиране по ключ.
+        $buckets = [];
+        foreach ($presented as $p) {
+            $buckets[$p['group']]['items'][] = $p['vm'];
+        }
+
+        // Метадата на групите + подредба на items (най-нови първо, null последни).
+        $deptOrder = array_flip(array_keys((array) config('organization.department_catalog', [])));
+        $real = [];
+        $leadership = null;
+        $runs = null;
+        foreach ($buckets as $key => $bucket) {
+            $list = $bucket['items'];
+            usort($list, fn ($a, $b) => ($b['created_at']?->getTimestamp() ?? -1) <=> ($a['created_at']?->getTimestamp() ?? -1));
+            $meta = $this->groupMeta($key, $dirByDomain);
+            $meta['items'] = $list;
+            $meta['count'] = count($list);
+
+            if ($key === '__runs__') {
+                $runs = $meta;
+            } elseif ($key === '__leadership__') {
+                $leadership = $meta;
+            } else {
+                $real[] = $meta;
+            }
+        }
+
+        // Департаменти: по брой (desc), после ред от каталога. „Ръководство" и „Изпълнения" — накрая.
+        usort($real, function ($a, $b) use ($deptOrder) {
+            if ($a['count'] !== $b['count']) {
+                return $b['count'] <=> $a['count'];
+            }
+
+            return ($deptOrder[$a['domain']] ?? 999) <=> ($deptOrder[$b['domain']] ?? 999);
+        });
+
+        $groups = $real;
+        if ($leadership) {
+            $groups[] = $leadership;
+        }
+        if ($runs) {
+            $groups[] = $runs;
+        }
+
+        // Резюме по категория (за лентата най-горе).
+        $counts = ['structural' => 0, 'tasks' => 0, 'runs' => 0];
+        foreach ($presented as $p) {
+            $cat = $p['vm']['type_meta']['category'] ?? '';
+            $counts[match ($cat) {
+                'Изпълнение' => 'runs',
+                'Структурно' => 'structural',
+                default => 'tasks',
+            }]++;
+        }
+
+        return ['groups' => $groups, 'total' => $items->count(), 'counts' => $counts];
+    }
+
+    /**
+     * Обогатява един суров item (proposal | assistant_task | run_approval) до карта-решение
+     * + ключ на групата. Връща ['group' => key, 'domain' => ?string, 'vm' => array].
+     */
+    private function presentDecision(array $it, Collection $members, array $domainByMember): array
+    {
+        $kind = $it['kind'];
+
+        if ($kind === 'assistant_task') {
+            $member = $it['member'] ?? null;
+            $brief = (array) ($it['proposal'] ?? []);
+            $domain = $member ? ($domainByMember[$member->id] ?? null) : null;
+            $card = $this->memberCard($member);
+
+            $vm = [
+                'uid' => 'assistant_task-'.$it['id'],
+                'kind' => 'assistant_task',
+                'type_meta' => $this->typeMeta('assistant_task'),
+                'title' => (string) ($it['title'] ?? ''),
+                'rationale' => $brief['rationale'] ?? null,
+                'description' => $it['description'] ?? null,
+                'expected_impact' => $brief['expected_impact'] ?? null,
+                'steps' => array_values((array) ($brief['steps'] ?? [])),
+                'tools' => array_values((array) ($brief['tools'] ?? [])),
+                'est_credits' => $brief['estimated_cost']['credits'] ?? null,
+                'act_mode' => $brief['act_mode'] ?? ($it['act_mode'] ?? null),
+                'tier' => null,
+                'created_at' => $it['created_at'] ?? null,
+                'proposer' => $card,
+                'assignee' => $card,
+                'assignee_label' => 'Възложено на',
+                'assignee_role_label' => null,
+                'same_person' => $card !== null,
+                'flow_id' => $it['flow_id'] ?? null,
+                'action' => ['kind' => 'assistant_task', 'id' => $it['id']],
+            ];
+
+            return ['group' => $domain ?? '__leadership__', 'domain' => $domain, 'vm' => $vm];
+        }
+
+        if ($kind === 'proposal') {
+            $payload = (array) ($it['payload'] ?? []);
+            $type = (string) $it['type'];
+            $proposer = $this->resolveProposer($payload, $members);
+
+            // Изпълнител/субект според типа: task → собственик („Възложено на"); fire/mandate/
+            // tier_change → засегнатия член („Засяга"); hire → НЯМА съществуващ член (нова роля).
+            $assignee = null;
+            $assigneeLabel = null;
+            $roleLabel = null;
+            if ($type === 'hire') {
+                $roleLabel = (string) ($payload['title'] ?? 'Нова роля');
+            } else {
+                $assigneeId = $payload['org_member_id'] ?? $payload['target_member_id'] ?? null;
+                $assignee = $assigneeId ? $members->get((int) $assigneeId) : null;
+                $assigneeLabel = in_array($type, ['fire', 'mandate', 'tier_change'], true) ? 'Засяга' : 'Възложено на';
+            }
+
+            $proposerCard = $this->memberCard($proposer);
+            $assigneeCard = $this->memberCard($assignee);
+
+            $domain = ($assignee ? ($domainByMember[$assignee->id] ?? null) : null)
+                ?? ($proposer ? ($domainByMember[$proposer->id] ?? null) : null);
+
+            $vm = [
+                'uid' => 'proposal-'.$it['id'],
+                'kind' => 'proposal',
+                'type_meta' => $this->typeMeta($type),
+                'title' => (string) ($payload['title'] ?? ucfirst($type)),
+                'rationale' => $payload['rationale'] ?? null,
+                'description' => $payload['description'] ?? null,
+                'expected_impact' => $payload['expected_impact'] ?? null,
+                'steps' => [],
+                'tools' => [],
+                'est_credits' => null,
+                'act_mode' => $payload['act_mode'] ?? null,
+                'tier' => $payload['tier'] ?? null,
+                'created_at' => $it['created_at'] ?? null,
+                'proposer' => $proposerCard,
+                'assignee' => $assigneeCard,
+                'assignee_label' => $assigneeLabel,
+                'assignee_role_label' => $roleLabel,
+                'same_person' => $proposerCard && $assigneeCard && $proposerCard['id'] === $assigneeCard['id'],
+                'flow_id' => null,
+                'action' => ['kind' => 'proposal', 'id' => $it['id']],
+            ];
+
+            return ['group' => $domain ?? '__leadership__', 'domain' => $domain, 'vm' => $vm];
+        }
+
+        // run_approval — паузиран human_approval; без член/департамент.
+        $vm = [
+            'uid' => 'run_approval-'.$it['flow_run_id'].'-'.$it['node_key'],
+            'kind' => 'run_approval',
+            'type_meta' => $this->typeMeta('run_approval'),
+            'title' => (string) ($it['node_name'] ?? $it['node_key']),
+            'rationale' => null,
+            'description' => null,
+            'expected_impact' => null,
+            'steps' => [],
+            'tools' => [],
+            'est_credits' => null,
+            'act_mode' => null,
+            'tier' => null,
+            'created_at' => $it['created_at'] ?? null,
+            'proposer' => null,
+            'assignee' => null,
+            'assignee_label' => null,
+            'assignee_role_label' => null,
+            'same_person' => false,
+            'flow_run_id' => $it['flow_run_id'],
+            'node_key' => $it['node_key'],
+            'node_name' => $it['node_name'] ?? null,
+            'action' => ['kind' => 'run_approval', 'flow_run_id' => $it['flow_run_id'], 'node_key' => $it['node_key']],
+        ];
+
+        return ['group' => '__runs__', 'domain' => null, 'vm' => $vm];
+    }
+
+    /** Разрешава предложилия член: по id (надеждно) → по име (fallback за стари записи). */
+    private function resolveProposer(array $payload, Collection $members): ?OrgMember
+    {
+        $id = $payload['proposed_by_member_id'] ?? null;
+        if ($id && ($m = $members->get((int) $id))) {
+            return $m;
+        }
+
+        $name = trim((string) ($payload['proposed_by'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        return $members->first(fn (OrgMember $m) => $m->fullName() === $name || $m->display_name === $name);
+    }
+
+    /** Метадата на групата (заглавна лента): етикет, цвят, директор-аватар, неутралност. */
+    private function groupMeta(string $key, Collection $dirByDomain): array
+    {
+        if ($key === '__runs__') {
+            return ['key' => $key, 'domain' => null, 'label' => 'Изпълнения, чакащи одобрение',
+                'color' => null, 'is_neutral' => true, 'director' => null, 'icon' => 'play-circle'];
+        }
+
+        if ($key === '__leadership__') {
+            return ['key' => $key, 'domain' => null, 'label' => 'Ръководство',
+                'color' => null, 'is_neutral' => true, 'director' => null, 'icon' => 'building-office-2'];
+        }
+
+        $director = $dirByDomain->get($key);
+        $label = $director?->title
+            ?? config("organization.department_catalog.$key.title")
+            ?? mb_convert_case($key, MB_CASE_TITLE);
+
+        return [
+            'key' => $key,
+            'domain' => $key,
+            'label' => $label,
+            'color' => $this->colorForDomain($key),
+            'is_neutral' => false,
+            'director' => $this->memberCard($director?->orgMember),
+            'icon' => null,
+        ];
+    }
+
+    /** Стабилен char цвят за домейн (§10.1) — огледало на OrgMember::functionColor за безчленна група. */
+    private function colorForDomain(string $domain): string
+    {
+        $domain = mb_strtolower($domain);
+        foreach ((array) config('organization.function_colors', []) as $needle => $color) {
+            if ($domain !== '' && str_contains($domain, mb_strtolower((string) $needle))) {
+                return (string) $color;
+            }
+        }
+
+        return (string) config('organization.default_function_color', 'blue');
+    }
+
+    /** Type-метадата (цвят/име/категория/икона) от config; непознат тип → fallback. */
+    private function typeMeta(string $key): array
+    {
+        $types = (array) config('organization.proposal_types', []);
+
+        return (array) ($types[$key] ?? config('organization.proposal_type_fallback', [
+            'label' => 'Предложение', 'category' => 'Структурно', 'color' => 'blue', 'icon' => 'document',
+        ]));
+    }
+
+    /**
+     * Член-карта за чиповете „Предложил"/„Възложено на" + профилния modal (огледало на
+     * OrgGraphController::memberCard). Носи пълния профил (био/произход/черти/умения) и линк
+     * към самата страница на члена — чиповете го отварят в modal без нова заявка.
+     */
+    private function memberCard(?OrgMember $m): ?array
+    {
+        if (! $m) {
+            return null;
+        }
+
+        $persona = $m->persona;
+        $tier = ModelLevel::tryFrom($m->default_star_tier) ?? ModelLevel::Medium;
+
+        return [
+            'id' => $m->id,
+            'kind' => $m->kind,
+            'name' => $m->fullName(),
+            'role' => $m->roleTitle(),
+            'color' => $m->functionColor(),
+            'age' => $persona->age ?? null,
+            'tone' => $persona->tone ?? null,
+            'bio' => $persona->bio ?? null,
+            'background' => $persona->background ?? null,
+            'education' => $persona->education ?? null,
+            'traits' => (array) ($persona->traits ?? []),
+            'skills' => array_values((array) ($persona->skills ?? [])),
+            'tier' => $m->default_star_tier,
+            'tier_label' => $tier->label(),
+            'stars' => $tier->rank() + 1,
+            'avatar_url' => ($persona && $persona->hasReadyAvatar()) ? $persona->avatar_url : null,
+            'initial' => mb_strtoupper(mb_substr($m->fullName(), 0, 1)),
+            'retired' => $m->retired_at !== null,
+            'profile_url' => route('client.org.member', $m->id),
+        ];
     }
 
     /**

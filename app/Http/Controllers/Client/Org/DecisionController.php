@@ -10,6 +10,7 @@ use App\Models\OrgProposal;
 use App\Models\User;
 use App\Services\Org\DecisionBoxService;
 use App\Services\Org\OrgMutationService;
+use App\Services\Org\TaskRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -24,7 +25,7 @@ class DecisionController extends Controller
         $company = $this->company();
 
         return view('client.org.decisions', [
-            'pending' => $box->pending($company),
+            'deck' => $box->deck($company),
             'company' => $company,
         ]);
     }
@@ -51,9 +52,10 @@ class DecisionController extends Controller
         $proposal = $this->companyProposal((int) $request->input('id'));
         $result = $box->approveProposal($proposal, $this->user());
 
-        // Материализация на одобреното СТРУКТУРНО предложение (§7.3): наемане / уволнение.
+        // Материализация на одобреното предложение (§7.3): задача / наемане / уволнение /
+        // мандат / ниво. `run` → „Одобри и пусни" за task-идея.
         if ($result['ok'] ?? false) {
-            $this->materializeProposal($proposal, $result['materialize'] ?? null);
+            $this->materializeProposal($proposal, $result['materialize'] ?? null, $request->boolean('run'));
         }
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
@@ -84,22 +86,55 @@ class DecisionController extends Controller
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
     }
 
-    /** Материализира одобрено предложение според типа (§7.3). */
-    private function materializeProposal(OrgProposal $proposal, ?string $type): void
+    /** Материализира одобрено предложение според типа (§7.3 + §Codex: mandate/tier; Q1: task). */
+    private function materializeProposal(OrgProposal $proposal, ?string $type, bool $run = false): void
     {
         $company = $proposal->company;
         $payload = (array) $proposal->payload;
         $mutator = app(OrgMutationService::class);
 
         match ($type) {
+            'task' => $this->materializeTaskProposal($company, $payload, $run),
             'hire' => $mutator->hireFromProposal($company, $payload, $this->user()),
             'fire' => filled($payload['target_member_id'] ?? null)
                 ? $mutator->fireMember($company, (int) $payload['target_member_id'], $this->user())
                 : null,
-            default => null,   // mandate и др. — само одобрено + одит (event вече записан)
+            'mandate' => filled($payload['target_member_id'] ?? null)
+                ? $mutator->changeMandate($company, (int) $payload['target_member_id'], (string) ($payload['description'] ?? $payload['title'] ?? ''), $this->user())
+                : null,
+            'tier_change' => filled($payload['target_member_id'] ?? null)
+                ? $mutator->changeTier($company, (int) $payload['target_member_id'], (string) ($payload['tier'] ?? 'high'), $this->user())
+                : null,
+            default => null,
         };
-        // NB: 'task' предложенията вече НЕ минават оттук — те са директни AssistantTask+draft
-        // (ревизиран §6.1), одобряват се през approveTask().
+    }
+
+    /**
+     * Одобрена task-идея (Q1 идея-бек лог) → AssistantTask + флоу-генерация. idea-approval Е
+     * единственият човешки гейт: approval_policy='auto' + firstReviewDone → flow става ready
+     * (без втора апрувъл стъпка). `run` → пуска веднага след генерация.
+     */
+    private function materializeTaskProposal(Company $company, array $payload, bool $run): void
+    {
+        $ownerId = (int) ($payload['org_member_id'] ?? $payload['target_member_id'] ?? 0);
+        $owner = ($ownerId ? $company->members()->where('kind', 'assistant')->find($ownerId) : null)
+            ?? $company->members()->where('kind', 'assistant')->where('status', 'active')->first();
+        if (! $owner) {
+            return;
+        }
+
+        $actMode = $payload['act_mode'] ?? 'draft';
+        $task = AssistantTask::create([
+            'org_member_id' => $owner->id,
+            'title' => (string) ($payload['title'] ?? 'Задача'),
+            'description' => (string) ($payload['description'] ?? $payload['title'] ?? ''),
+            'trigger' => 'manual',
+            'act_mode' => in_array($actMode, ['draft', 'act', 'mixed'], true) ? $actMode : 'draft',
+            'approval_policy' => 'auto',   // идеята е одобрена → flow → ready, без втори гейт
+            'status' => 'proposed',
+        ]);
+
+        app(TaskRunService::class)->generate($task, runAfterGenerate: $run, origin: 'autonomous', firstReviewDone: true);
     }
 
     private function company(): Company

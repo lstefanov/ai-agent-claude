@@ -20,3 +20,5 @@ Schedule::command('org:director-ticks')->everyMinute();
 Schedule::command('org:director-ticks --ticks')->hourly();
 // Фаза 7: седмично ревю на Управителя.
 Schedule::command('org:review')->weeklyOn(1, '08:00');
+// Слой живост §3: дневен „standup" дайджест на организацията.
+Schedule::command('org:digest')->dailyAt('08:00');

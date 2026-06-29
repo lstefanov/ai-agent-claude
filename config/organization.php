@@ -14,7 +14,23 @@ return [
     // act (write конектори) са HARD-DISABLED под preview ClientAuth (draft-first),
     // докато няма реален auth — §B2 / Фаза 5. false → act задачите дават „чернова
     // на действието" без реален страничен ефект; реалният auth е предусловие за true.
-    'act' => ['enabled' => (bool) env('ORG_ACT_ENABLED', false)],
+    'act' => ['enabled' => (bool) env('ORG_ACT_ENABLED', false)],   // глобален master; per-company act_enabled + active конектор са допълнителните условия (OrgActPolicy)
+
+    // Дневен таван + cadence за АВТОНОМНАТА работа (директорски ticks, ревюта, scheduled,
+    // ignition). Брои само origin=autonomous → ръчните runs никога не се ограничават.
+    'autonomous' => [
+        'caps' => [
+            'daily_credits' => (int) env('ORG_AUTON_DAILY_CREDITS', 0),            // 0 = изключено
+            'daily_percent_of_balance' => (int) env('ORG_AUTON_DAILY_PCT', 0),     // 0 = изключено
+            'ignition_exempt' => (bool) env('ORG_AUTON_IGNITION_EXEMPT', true),    // запалването не се таванира
+        ],
+        'director' => [
+            'propose_cooldown_hours' => (int) env('ORG_DIRECTOR_PROPOSE_COOLDOWN_H', 24),
+            'max_open_proposals' => (int) env('ORG_DIRECTOR_MAX_OPEN_PROPOSALS', 7),
+            'propose_limit' => (int) env('ORG_DIRECTOR_PROPOSE_LIMIT', 2),
+        ],
+    ],
+
     'seed_verticals' => ['fitness', 'restaurant', 'services'],   // §11 — 3 seed вертикали
 
     // Цвят = ФУНКЦИЯ/домейн (§10.1), стабилно и централно — не member.id % 7. Ключовете
@@ -50,12 +66,30 @@ return [
     ],
     'default_function_color' => 'blue',
 
+    // Type-метаданни за Кутията за решения (§decisions). Всеки тип/kind получава
+    // СВОЙ цвят (char токен → bg-char-{c}-soft / text-char-{c}-strong, safelist-нати),
+    // българско име, категория (за групиращия chip) и Heroicon (outline). Един източник
+    // на истина — изгледът не помни цветове/имена. Ключът е proposal.type или синтетичния
+    // kind (assistant_task/run_approval). Непознат тип → proposal_type_fallback.
+    'proposal_types' => [
+        'task' => ['label' => 'Задача',            'category' => 'Задача',     'color' => 'blue',   'icon' => 'clipboard-document-list'],
+        'hire' => ['label' => 'Наемане',           'category' => 'Структурно', 'color' => 'green',  'icon' => 'user-plus'],
+        'fire' => ['label' => 'Съкращение',        'category' => 'Структурно', 'color' => 'coral',  'icon' => 'user-minus'],
+        'mandate' => ['label' => 'Промяна на мандат', 'category' => 'Структурно', 'color' => 'amber',  'icon' => 'identification'],
+        'tier_change' => ['label' => 'Промяна на ниво',   'category' => 'Структурно', 'color' => 'purple', 'icon' => 'arrow-trending-up'],
+        'assistant_task' => ['label' => 'Предложена задача', 'category' => 'Задача',     'color' => 'teal', 'icon' => 'sparkles'],
+        'run_approval' => ['label' => 'Изпълнение',         'category' => 'Изпълнение', 'color' => 'pink', 'icon' => 'play-circle'],
+    ],
+    'proposal_type_fallback' => ['label' => 'Предложение', 'category' => 'Структурно', 'color' => 'blue', 'icon' => 'document'],
+
     // Композиция на екипа според маркираните проблеми (§smart-composition). Управителят
     // ПРЕДЛАГА набор от отдели, който покрива фокус-областите; КОДЪТ дедуплицира по домейн,
     // гарантира ядро и налага таван. Повече проблеми → по-голям, но смислен екип (не сляпо 1:1).
     'composition' => [
         'max_directors' => (int) env('ORG_MAX_DIRECTORS', 6),
-        'max_assistants_per_director' => (int) env('ORG_MAX_ASSISTANTS_PER_DIRECTOR', 2),
+        // Всеки отдел е достатъчно сложен → поне 2 асистента, за да се разпределят задачите.
+        'min_assistants_per_director' => (int) env('ORG_MIN_ASSISTANTS_PER_DIRECTOR', 2),
+        'max_assistants_per_director' => (int) env('ORG_MAX_ASSISTANTS_PER_DIRECTOR', 4),
         'core_domains' => ['operations'],   // винаги поне това — жизнеспособен екип дори при 1 проблем
     ],
 

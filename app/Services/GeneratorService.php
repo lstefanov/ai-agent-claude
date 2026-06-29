@@ -43,9 +43,10 @@ class GeneratorService
         string $systemPrompt,
         string $userMessage,
         array $options = [],
-        ?callable $onProgress = null
+        ?callable $onProgress = null,
+        ?string $phase = null,
     ): string {
-        ['provider' => $provider, 'model' => $model] = $this->resolve();
+        ['provider' => $provider, 'model' => $model] = $this->resolve($phase);
 
         if ($provider === 'ollama') {
             return app(OllamaService::class)->chat($model, $systemPrompt, $userMessage, $options, $onProgress);

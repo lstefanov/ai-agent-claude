@@ -3,6 +3,7 @@
 namespace App\Jobs\Org;
 
 use App\Models\Company;
+use App\Services\Org\Billing\AutonomousBudgetService;
 use App\Services\Org\Billing\CreditMeterService;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Services\Org\OrgReviewService;
@@ -29,10 +30,17 @@ class OrgReviewJob implements ShouldQueue
 
     public function __construct(public int $companyId) {}
 
-    public function handle(OrgReviewService $review, CreditMeterService $meter): void
+    public function handle(OrgReviewService $review, CreditMeterService $meter, AutonomousBudgetService $budget): void
     {
         $company = Company::find($this->companyId);
         if (! $company || ! $company->active_org_version_id) {
+            return;
+        }
+
+        // Дневен автономен таван: ревюто е автономно → спира при достигнат лимит.
+        if (! $budget->allows($company, 'org_review')) {
+            Log::info('[OrgReview] пропуснато (дневен автономен лимит), company '.$company->id);
+
             return;
         }
 
@@ -41,6 +49,7 @@ class OrgReviewJob implements ShouldQueue
             $reservation = $meter->reserve(
                 $company->id, 'org_planning', $company,
                 BillableUnit::estimateFor('org_planning', ModelLevel::fromRequest(config('organization.manager.level'))),
+                'autonomous',
             );
         } catch (InsufficientCreditsException) {
             Log::info('[OrgReview] best-effort (no credits) company '.$company->id);

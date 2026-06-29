@@ -9,10 +9,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Company extends Model
 {
-    protected $fillable = ['name', 'description', 'industry', 'language', 'settings', 'website_url', 'active_org_version_id'];
+    protected $fillable = ['name', 'description', 'industry', 'language', 'settings', 'act_enabled', 'website_url', 'active_org_version_id', 'auton_daily_credits', 'auton_daily_percent'];
 
     protected $casts = [
         'settings' => 'array',
+        'act_enabled' => 'boolean',
     ];
 
     public function flows(): HasMany

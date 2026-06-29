@@ -30,7 +30,7 @@
         {{-- Транскрипт --}}
         <div class="flex-1 overflow-y-auto p-4 space-y-3" x-ref="scroll">
             <template x-for="msg in messages" :key="msg.uid">
-                <div>
+                <div :data-uid="msg.uid">
                     {{-- Балонът се показва само при текст (празен reply + въпрос → само картата). --}}
                     <template x-if="msg.content && msg.content.trim()">
                         <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
@@ -164,10 +164,22 @@ function interview(cfg) {
                      selected: [], otherChecked: false, other: '' };
         },
         pushBot(content, question = null, failed = false) {
-            const m = this.mkMsg('assistant', content, question); m.failed = failed; this.messages.push(m); this.scroll();
+            const m = this.mkMsg('assistant', content, question); m.failed = failed; this.messages.push(m); this.scrollToMsg(m.uid);
         },
         pushUser(content) { this.messages.push(this.mkMsg('user', content)); this.scroll(); },
         scroll() { this.$nextTick(() => { const el = this.$refs.scroll; if (el) el.scrollTop = el.scrollHeight; }); },
+        // Скрол до НАЧАЛОТО на дадено съобщение (последния отговор на бота), за да се чете отгоре,
+        // а не до края на дълъг текст. Markdown-ът/опциите/шрифтовете се „доизрисуват" след вмъкването,
+        // затова смятаме позицията наново на няколко прохода (вмъкване → след paint → след доизрисуване).
+        scrollToMsg(uid) {
+            const go = () => {
+                const el = this.$refs.scroll; if (!el) return;
+                const node = el.querySelector('[data-uid="' + uid + '"]');
+                if (!node) { el.scrollTop = el.scrollHeight; return; }
+                el.scrollTop += node.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
+            };
+            this.$nextTick(() => { go(); requestAnimationFrame(go); setTimeout(go, 300); });
+        },
         toggleOpt(msg, value) {
             if (msg.question.input_type === 'radio') { msg.selected = [value]; return; }
             const i = msg.selected.indexOf(value);

@@ -140,6 +140,12 @@ function casting() {
             for (const k of Object.keys(this.form.traits)) {
                 if (a.traits && a.traits[k] != null) this.form.traits[k] = parseInt(a.traits[k]);
             }
+            // Статичните стойности на архетипа са общи → веднага ги специализираме за
+            // бизнеса (всяко поле с базата си като seed). При грешка статичното остава.
+            this.aiError = '';
+            if (a.background) this.aiFill('background', { seed: a.background });
+            if (a.tone) this.aiFill('tone', { seed: a.tone });
+            if (a.bio) this.aiFill('bio', { seed: a.bio });
         },
         // Възрастта подсказва черти (огледало на seedTraitsFromDemographics — само ориентир).
         reseed() {

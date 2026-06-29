@@ -17,7 +17,7 @@ class CreditLedgerEntry extends Model
     const UPDATED_AT = null;
 
     protected $fillable = [
-        'credit_wallet_id', 'company_id', 'reservation_id', 'type',
+        'credit_wallet_id', 'company_id', 'reservation_id', 'type', 'origin',
         'idempotency_key', 'direction', 'amount', 'reason',
         'flow_run_id', 'node_run_id', 'cost_usd', 'meta',
     ];

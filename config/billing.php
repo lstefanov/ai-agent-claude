@@ -20,6 +20,7 @@ return [
     'estimate_ktokens' => [
         'task_run' => 10, 'generation' => 12, 'org_planning' => 15,
         'interview' => 3, 'research' => 8, 'member_chat' => 2, 'director_tick' => 6,
+        'org_digest' => 4,
     ],
     // Stripe — ПО-КЪСНА фаза (Фаза 6); зад PaymentProvider. Сега зареждането е
     // админ-симулирано (AdminSimulatedPaymentProvider), тези остават празни.

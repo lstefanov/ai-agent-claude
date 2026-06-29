@@ -9,6 +9,7 @@ use App\Services\Knowledge\KnowledgeFactService;
 use App\Services\Knowledge\KnowledgeSynthesizer;
 use App\Services\KnowledgeService;
 use App\Support\LlmUsage;
+use App\Support\RunLog;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -62,6 +63,17 @@ class HarvestRunKnowledgeJob implements ShouldQueue
         }
 
         $company = $flowRun->flow->company;
+
+        // Grounding гейт: откажи факти от run, чиито агенти са работили без
+        // нито един достоверен източник — без KB блок, без web/material блок, без
+        // изпълнен tool. Изходът на такъв run е чиста халюцинация, която иначе
+        // се записва като "факт" и замърсява базата (циклична халюцинация при
+        // следващите runs). Run-ът сам признал липсата в текста.
+        if (! $this->wasGrounded($flowRun)) {
+            Log::info("[HarvestRunKnowledge] Run {$flowRun->id}: пропуснат — без grounding (KB/web/tools), изходите са халюцинирани.");
+
+            return;
+        }
 
         try {
             $content = "=== ФИНАЛЕН РЕЗУЛТАТ ===\n"
@@ -127,5 +139,44 @@ class HarvestRunKnowledgeJob implements ShouldQueue
             LlmUsage::take();
             report($e);
         }
+    }
+
+    /**
+     * Дали run-ът е имал поне един достоверен източник на фирмени данни.
+     * Проверява се по стъпки (без допълнителни DB заявки):
+     *  1. Фирмата е имала KB в момента на run-а → KB блокът е бил инжектиран
+     *     в input-а на поне един нод. Маркер: съдържа "--- ЗНАНИЕ" или
+     *     "--- ФИРМЕНА БАЗА ЗНАНИЯ".
+     *  2. Web търсене/material: агентите са събрали данни от уеб. Маркер:
+     *     "--- СЪБРАНИ ДАННИ" или "[TOOL]" в input.
+     *  3. Run лог: съдържа [TOOL]/[ЗНАНИЕ] записи.
+     *
+     * Run без нито един маркер → всички изходи са LLM халюцинация без
+     * грундиране → не се ползват за факти.
+     */
+    private function wasGrounded(FlowRun $flowRun): bool
+    {
+        $runLogPath = RunLog::path($flowRun->id);
+        $runLog = is_file($runLogPath) ? (string) @file_get_contents($runLogPath) : '';
+        if (str_contains($runLog, '[TOOL]') || str_contains($runLog, '[ЗНАНИЕ]')) {
+            return true;
+        }
+
+        $nodeRuns = $flowRun->nodeRuns()
+            ->where('status', 'completed')
+            ->whereNotNull('input')
+            ->get(['input']);
+
+        foreach ($nodeRuns as $nodeRun) {
+            $input = (string) $nodeRun->input;
+            if (str_contains($input, '--- ЗНАНИЕ')
+                || str_contains($input, '--- ФИРМЕНА БАЗА ЗНАНИЯ')
+                || str_contains($input, '--- СЪБРАНИ ДАННИ')
+                || str_contains($input, '[TOOL]')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -27,6 +27,11 @@ class OrgPlannerService
 
     private const NAMES_FEMALE = ['Невена', 'Мария', 'Елена', 'Ива', 'Радост', 'Виктория', 'Десислава'];
 
+    /** Резервни фамилни имена по пол — гарантират второ име, ако LLM/fallback върне само едно. */
+    private const SURNAMES_MALE = ['Иванов', 'Петров', 'Георгиев', 'Димитров', 'Стоянов', 'Колев', 'Тодоров', 'Николов'];
+
+    private const SURNAMES_FEMALE = ['Иванова', 'Петрова', 'Георгиева', 'Димитрова', 'Стоянова', 'Колева', 'Тодорова', 'Николова'];
+
     public function __construct(
         private OrgBlueprintLibraryService $library,
         private PersonaService $personas,
@@ -76,6 +81,219 @@ class OrgPlannerService
     }
 
     /**
+     * Ревю екранът: добавя ЕДИН нов асистент към съществуващ отдел. Един структуриран LLM
+     * call на фаза org_design (значи ORG_DESIGN_MODEL). Връща блок във фронт-формата
+     * {key,title,director,default_star_tier,mandate,persona}; грешка → детерминистичен fallback.
+     *
+     * @param  array  $department  {key,title,domain,mandate}
+     * @param  array  $existing  текущите асистенти на отдела (за уникален key + не-дублираща роля)
+     */
+    public function designSingleAssistant(Company $company, array $department, array $existing = []): array
+    {
+        $domain = (string) ($department['domain'] ?? $department['key'] ?? 'operations');
+        $dirKey = (string) ($department['key'] ?? $domain);
+        $dirTitle = (string) ($department['title'] ?? '');
+        $mandate = (string) ($department['mandate'] ?? '');
+        $taken = array_values(array_filter(array_map(fn ($a) => trim((string) ($a['title'] ?? '')), $existing)));
+
+        $system = 'Ти си Управителят — добавяш ЕДИН нов асистент към съществуващ отдел. Върни реалистична '
+            .'персона на български: реално човешко име (собствено + ФАМИЛНО, две думи); възраст; пол; произход; '
+            .'БЕКГРАУНД — ЦЯЛО изречение (минимум 12 думи) с конкретен опит: години, сфери и постижения, '
+            .'обвързани с домейна; ТОН — точно 3–4 прилагателни, разделени със запетая; КРАТКО БИО — '
+            .'2–3 пълни изречения (200–400 символа). Дай 3–5 умения. Ролята да ДОПЪЛВА (не дублира) съществуващите. '
+            .'Върни САМО валиден JSON по схемата. '.PromptData::NO_TECH_TERMS;
+        $user = "Бизнес: {$company->name} ({$company->industry}).\n"
+            .'Отдел: '.($dirTitle ?: $domain)." (домейн: {$domain}). Мандат: ".($mandate ?: '—')."\n"
+            .'Съществуващи асистенти (не повтаряй ролите им): '.($taken ? implode(', ', $taken) : '—')."\n"
+            .'Дай един нов, допълващ асистент.';
+
+        $raw = [];
+        try {
+            $raw = (array) $this->generator->chatJson($system, $user, 'org_design', $this->singleAssistantSchema(), [
+                'temperature' => 0.7, 'num_predict' => 1800,
+            ]);
+        } catch (\Throwable $e) {
+            Log::info('[OrgPlanner] single assistant LLM failed: '.$e->getMessage());
+        }
+
+        // Уникален key: {dirKey}_{maxN+1} (по най-високия суфикс сред съществуващите).
+        $maxN = 0;
+        foreach ($existing as $a) {
+            if (preg_match('/_(\d+)$/', (string) ($a['key'] ?? ''), $mm)) {
+                $maxN = max($maxN, (int) $mm[1]);
+            }
+        }
+
+        $role = [
+            'domain' => $domain,
+            'title' => trim((string) ($raw['title'] ?? '')) ?: ('Асистент '.($dirTitle ?: $domain)),
+            'mandate' => trim((string) ($raw['mandate'] ?? '')) ?: $mandate,
+        ];
+        $persona = $this->hardenPersona($this->personaFor($role, $raw ?: null, 'assistant', count($existing) + 1), 'assistant');
+
+        return [
+            'key' => $dirKey.'_'.($maxN + 1),
+            'title' => $role['title'],
+            'director' => $dirKey,
+            'default_star_tier' => 'medium',
+            'mandate' => $role['mandate'],
+            'persona' => $persona,
+        ];
+    }
+
+    /**
+     * Ревю екранът: добавя ЕДИН нов отдел (директор + ≥min асистента). Каталог-first за познат
+     * домейн (детерминизъм); иначе LLM предлага допълващ отдел. Връща {director, assistants}.
+     */
+    public function designSingleDepartment(Company $company, ?string $domain = null, array $excludeDomains = [], array $custom = []): array
+    {
+        $catalog = (array) config('organization.department_catalog', []);
+
+        if (filled($custom['name'] ?? null)) {
+            // Ръчно: клиентът зададе име+описание → LLM предлага подходящи асистент-роли по брийфа.
+            $title = trim((string) $custom['name']);
+            $mandate = trim((string) ($custom['description'] ?? ''));
+            $dep = [
+                'domain' => $this->canonicalDomain($title, $catalog) ?: 'operations',
+                'title' => $title,
+                'mandate' => $mandate,
+                'assistants' => $this->llmComposeAssistantsFromBrief($company, $title, $mandate),
+            ];
+        } else {
+            $canonical = $domain ? $this->canonicalDomain($domain, $catalog) : '';
+
+            if ($canonical !== '' && isset($catalog[$canonical])) {
+                $spec = $catalog[$canonical];
+                $dep = ['domain' => $canonical, 'title' => (string) $spec['title'], 'mandate' => (string) ($spec['mandate'] ?? ''), 'assistants' => (array) ($spec['assistants'] ?? [])];
+            } elseif ($canonical !== '') {
+                $dep = ['domain' => $canonical, 'title' => 'Директор '.mb_convert_case($canonical, MB_CASE_TITLE, 'UTF-8'), 'mandate' => '', 'assistants' => []];
+            } else {
+                $dep = $this->llmComposeOneDepartment($company, $excludeDomains)
+                    ?: $this->firstUnusedCatalogDept($catalog, $excludeDomains);
+            }
+        }
+
+        $structure = $this->buildSingleDepartmentStructure($dep);
+
+        $profile = $company->businessProfile;
+        $design = $this->designPersonas($structure, $company, $profile, $company->manager?->persona);
+        $assembled = $this->assemble($structure, $design, $profile, null);
+
+        $harden = fn (array $m, string $kind) => array_merge($m, ['persona' => $this->hardenPersona($m['persona'] ?? [], $kind)]);
+        $director = isset($assembled['directors'][0]) ? $harden($assembled['directors'][0], 'director') : null;
+        $assistants = array_map(fn ($a) => $harden($a, 'assistant'), $assembled['assistants'] ?? []);
+
+        return ['director' => $director, 'assistants' => array_values($assistants)];
+    }
+
+    /** LLM предлага ЕДИН нов отдел, допълващ съществуващите. Празно/грешка → []. */
+    private function llmComposeOneDepartment(Company $company, array $excludeDomains): array
+    {
+        $blueprint = $this->library->bestMatch($company, 1)->first();
+        $menu = $this->candidateMenu((array) ($blueprint?->structure ?? []));
+        $exclude = implode(', ', array_filter($excludeDomains)) ?: '—';
+
+        $system = 'Ти си Управителят — предлагаш ЕДИН НОВ отдел за бизнеса, който ДОПЪЛВА (не дублира) '
+            .'съществуващите. Дай domain, заглавие на отдела, мандат и 2–4 асистента с различни роли. '
+            .'Предпочитай каноничните `domain` от менюто. Върни САМО валиден JSON по схемата. '.PromptData::NO_TECH_TERMS;
+        $user = "Бизнес: {$company->name} ({$company->industry}).\nСъществуващи отдели (НЕ ги повтаряй): {$exclude}.\n"
+            ."Меню от възможни отдели (domain → роля):\n".json_encode($menu, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+        try {
+            $raw = $this->generator->chatJson($system, $user, 'org_compose', $this->compositionSchema(), [
+                'temperature' => 0.4, 'num_predict' => 1200,
+            ]);
+
+            return (array) ($raw['departments'][0] ?? []);
+        } catch (\Throwable $e) {
+            Log::info('[OrgPlanner] one-department LLM failed: '.$e->getMessage());
+
+            return [];
+        }
+    }
+
+    /**
+     * Ръчен отдел: LLM предлага 2–max подходящи асистент-роли по въведените от клиента име+описание
+     * (без да избира домейн). Връща [{title, mandate}, …]; празно/грешка → [] (buildAssistantsFor подплънява).
+     */
+    private function llmComposeAssistantsFromBrief(Company $company, string $title, string $mandate): array
+    {
+        $maxAssist = (int) config('organization.composition.max_assistants_per_director', 4);
+
+        $system = 'Ти си Управителят — клиентът създава нов отдел и дава ИМЕ и ОПИСАНИЕ. Предложи 2–'.$maxAssist
+            .' асистент-роли с РАЗЛИЧНИ, допълващи се отговорности, които покриват описанието на отдела. '
+            .'За всяка роля дай кратко заглавие (длъжност, не име) и мандат (1 изречение какво върши). '
+            .'Върни САМО валиден JSON по схемата. '.PromptData::NO_TECH_TERMS;
+        $user = "Бизнес: {$company->name} ({$company->industry}).\nНов отдел: {$title}.\nОписание: ".($mandate !== '' ? $mandate : '—');
+
+        try {
+            $raw = $this->generator->chatJson($system, $user, 'org_compose', $this->briefAssistantsSchema(), [
+                'temperature' => 0.5, 'num_predict' => 1000,
+            ]);
+
+            return array_values(array_filter(
+                (array) ($raw['assistants'] ?? []),
+                fn ($a) => is_array($a) && trim((string) ($a['title'] ?? '')) !== '',
+            ));
+        } catch (\Throwable $e) {
+            Log::info('[OrgPlanner] brief assistants LLM failed: '.$e->getMessage());
+
+            return [];
+        }
+    }
+
+    private function briefAssistantsSchema(): array
+    {
+        return $this->strict([
+            'type' => 'object',
+            'properties' => [
+                'assistants' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'title' => ['type' => 'string', 'description' => 'Кратка длъжност/роля на асистента (не име).'],
+                            'mandate' => ['type' => 'string', 'description' => 'Какво върши този асистент — 1 изречение.'],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    /** Първият каталожен отдел, който още не е използван (fallback за нов отдел). */
+    private function firstUnusedCatalogDept(array $catalog, array $excludeDomains): array
+    {
+        $exclude = array_map(fn ($d) => mb_strtolower(trim((string) $d)), $excludeDomains);
+        foreach ($catalog as $domain => $spec) {
+            if (! in_array($domain, $exclude, true)) {
+                return ['domain' => $domain, 'title' => (string) ($spec['title'] ?? 'Директор'), 'mandate' => (string) ($spec['mandate'] ?? ''), 'assistants' => (array) ($spec['assistants'] ?? [])];
+            }
+        }
+
+        return ['domain' => 'operations', 'title' => 'Директор Операции', 'mandate' => '', 'assistants' => []];
+    }
+
+    private function singleAssistantSchema(): array
+    {
+        return $this->strict([
+            'type' => 'object',
+            'properties' => [
+                'title' => ['type' => 'string', 'description' => 'Кратка длъжност/роля на асистента (не име).'],
+                'mandate' => ['type' => 'string', 'description' => 'Какво върши този асистент — 1 изречение.'],
+                'name' => ['type' => 'string', 'description' => 'Реално българско име: собствено + ФАМИЛНО (две думи).'],
+                'age' => ['type' => 'integer'],
+                'gender' => ['type' => 'string', 'description' => 'мъж или жена.'],
+                'ethnicity' => ['type' => 'string'],
+                'background' => ['type' => 'string', 'description' => 'ЦЯЛО изречение (минимум 12 думи): конкретен опит — години, сфери и постижения, обвързани с домейна. Пример: „Над 6 години в обслужване на клиенти за онлайн магазини, с фокус върху задържане и удовлетвореност.".'],
+                'tone' => ['type' => 'string', 'description' => 'Точно 3–4 прилагателни, разделени със запетая (напр. „отзивчив, изпълнителен, прецизен, дружелюбен").'],
+                'bio' => ['type' => 'string', 'description' => '2–3 пълни изречения (200–400 символа) за характера и подхода.'],
+                'skills' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ]);
+    }
+
+    /**
      * Гаранциите: персони през deriveKnobs, разумен default_star_tier per член (cap по
      * плана), валиден директор→асистент граф (без сираци), dedupe. Код-притежавани ключове
      * (новите се алокират в materialize; реферираните пазят id).
@@ -83,6 +301,30 @@ class OrgPlannerService
     public function finalizeOrganization(array $proposed, ?OrgVersion $current = null): array
     {
         $cap = null; // плановият таван се прилага в materialize/effectiveStarTier
+
+        // Кодът ГАРАНТИРА уникални директор-ключове (човек/фронтенд може да добави отдел с
+        // дублиращ/празен key → иначе materialize презаписва член). Пренасочваме асистентите.
+        $seenKeys = [];
+        foreach ($proposed['directors'] as &$d) {
+            $base = trim((string) ($d['key'] ?? $d['domain'] ?? 'dept')) ?: 'dept';
+            $key = $base;
+            $n = 2;
+            while (isset($seenKeys[$key])) {
+                $key = $base.'_'.$n++;
+            }
+            $seenKeys[$key] = true;
+            $old = $d['key'] ?? null;
+            if (is_string($old) && $old !== '' && $old !== $key) {
+                foreach ($proposed['assistants'] as &$a) {
+                    if (($a['director'] ?? null) === $old) {
+                        $a['director'] = $key;
+                    }
+                }
+                unset($a);
+            }
+            $d['key'] = $key;
+        }
+        unset($d);
 
         $directorKeys = [];
         foreach ($proposed['directors'] as &$d) {
@@ -110,8 +352,10 @@ class OrgPlannerService
             if (empty($t['assistant']) || ! in_array($t['assistant'], $assistantKeys, true)) {
                 $t['assistant'] = $firstAssistant;
             }
-            $t['act_mode'] = in_array($t['act_mode'] ?? 'draft', ['draft', 'act', 'mixed'], true) ? $t['act_mode'] : 'draft';
-            $t['trigger'] = in_array($t['trigger'] ?? 'manual', ['manual', 'scheduled', 'event'], true) ? $t['trigger'] : 'manual';
+            $actMode = $t['act_mode'] ?? 'draft';
+            $t['act_mode'] = in_array($actMode, ['draft', 'act', 'mixed'], true) ? $actMode : 'draft';
+            $trigger = $t['trigger'] ?? 'manual';
+            $t['trigger'] = in_array($trigger, ['manual', 'scheduled', 'event'], true) ? $trigger : 'manual';
             // star_tier само ако умишлено се различава — иначе null (= наследява).
             $t['star_tier'] = isset($t['star_tier']) ? $this->legalTier($t['star_tier']) : null;
         }
@@ -153,6 +397,7 @@ class OrgPlannerService
                     'title' => $d['title'] ?? 'Директор',
                     'domain' => $d['domain'] ?? 'operations',
                     'mandate' => $d['mandate'] ?? '',
+                    'priorities' => array_values(array_filter(array_map(fn ($p) => trim((string) $p), (array) ($d['priorities'] ?? [])))),
                 ]);
             }
 
@@ -324,8 +569,9 @@ class OrgPlannerService
         $system = 'Ти си Управителят — съставяш екип от отдели за конкретен бизнес. Дадени са болките/'
             .'фокус-областите на бизнеса и МЕНЮ от възможни отдели. Избери МИНИМАЛНИЯ съгласуван набор '
             .'от отдели (директори), който покрива ВСИЧКИ фокус-области. Един отдел може да покрива няколко '
-            .'свързани области — НЕ създавай дублиращи се отдели за един и същ домейн. За всеки отдел дай '
-            .'1–2 асистента. Предпочитай каноничните `domain` стойности от менюто; добави нов отдел само '
+            .'свързани области — НЕ създавай дублиращи се отдели за един и същ домейн. Всеки отдел е '
+            .'достатъчно сложен → дай 2–4 асистента (ПОНЕ 2) с РАЗЛИЧНИ, допълващи се роли. '
+            .'Предпочитай каноничните `domain` стойности от менюто; добави нов отдел само '
             .'ако нито един не покрива дадена област. Максимум '.$maxDirectors.' директора. Върни САМО валиден JSON. '
             .PromptData::NO_TECH_TERMS;
 
@@ -372,7 +618,6 @@ class OrgPlannerService
     private function hardenComposedStructure(array $departments, int $maxDirectors): array
     {
         $catalog = (array) config('organization.department_catalog', []);
-        $maxAssist = (int) config('organization.composition.max_assistants_per_director', 2);
         $coreDomains = (array) config('organization.composition.core_domains', ['operations']);
 
         // 1) Нормализирай + дедуп по домейн (запази записа с най-много покрити области).
@@ -428,29 +673,79 @@ class OrgPlannerService
 
             $aSpecs = $dep['assistants'] !== []
                 ? $dep['assistants']
-                : (array) ($catalog[$domain]['assistants'] ?? [['title' => 'Асистент '.$dep['title'], 'mandate' => $dep['mandate']]]);
-
-            $i = 0;
-            foreach (array_slice($aSpecs, 0, max(1, $maxAssist)) as $a) {
-                $title = is_array($a) ? trim((string) ($a['title'] ?? '')) : trim((string) $a);
-                if ($title === '') {
-                    continue;
-                }
-                $assistants[] = [
-                    'key' => $domain.'_'.(++$i),
-                    'title' => $title,
-                    'director' => $domain,
-                    'default_star_tier' => 'medium',
-                    'mandate' => is_array($a) ? (string) ($a['mandate'] ?? '') : '',
-                ];
-            }
-            // Гарантирай поне един асистент на директор.
-            if ($i === 0) {
-                $assistants[] = ['key' => $domain.'_1', 'title' => 'Асистент '.$dep['title'], 'director' => $domain, 'default_star_tier' => 'medium', 'mandate' => $dep['mandate']];
+                : (array) ($catalog[$domain]['assistants'] ?? []);
+            foreach ($this->buildAssistantsFor($domain, $aSpecs, $dep['title'], $dep['mandate'], $catalog) as $a) {
+                $assistants[] = $a;
             }
         }
 
         return ['directors' => $directors, 'assistants' => $assistants, 'tasks' => []];
+    }
+
+    /**
+     * Изгражда асистентите за един отдел (key = domain_N): cap до max, подплънка до min —
+     * първо от каталога, после с обозначени генерични роли. Споделя се от композицията и
+     * от добавянето на нов отдел (designSingleDepartment).
+     */
+    private function buildAssistantsFor(string $domain, array $aSpecs, string $title, string $mandate, array $catalog): array
+    {
+        $minAssist = (int) config('organization.composition.min_assistants_per_director', 2);
+        $maxAssist = (int) config('organization.composition.max_assistants_per_director', 4);
+
+        $assistants = [];
+        $i = 0;
+        foreach (array_slice($aSpecs, 0, max(1, $maxAssist)) as $a) {
+            $t = is_array($a) ? trim((string) ($a['title'] ?? '')) : trim((string) $a);
+            if ($t === '') {
+                continue;
+            }
+            $assistants[] = [
+                'key' => $domain.'_'.(++$i),
+                'title' => $t,
+                'director' => $domain,
+                'default_star_tier' => 'medium',
+                'mandate' => is_array($a) ? (string) ($a['mandate'] ?? '') : '',
+            ];
+        }
+
+        $catalogSpecs = (array) ($catalog[$domain]['assistants'] ?? []);
+        while ($i < $minAssist) {
+            $spec = $catalogSpecs[$i] ?? null;
+            $t = is_array($spec) ? trim((string) ($spec['title'] ?? '')) : '';
+            $m = is_array($spec) ? (string) ($spec['mandate'] ?? $mandate) : $mandate;
+            if ($t === '') {
+                $t = 'Асистент '.$title.' '.($i + 1);
+            }
+            $assistants[] = [
+                'key' => $domain.'_'.(++$i),
+                'title' => $t,
+                'director' => $domain,
+                'default_star_tier' => 'medium',
+                'mandate' => $m,
+            ];
+        }
+
+        return $assistants;
+    }
+
+    /**
+     * Скелет за ЕДИН отдел (директор + ≥min асистента), БЕЗ core-гаранцията на
+     * hardenComposedStructure (иначе нов не-операционен отдел би се заменил с „Операции").
+     */
+    private function buildSingleDepartmentStructure(array $dep): array
+    {
+        $catalog = (array) config('organization.department_catalog', []);
+        $domain = $this->canonicalDomain((string) ($dep['domain'] ?? ''), $catalog) ?: 'operations';
+        $title = trim((string) ($dep['title'] ?? '')) ?: (string) ($catalog[$domain]['title'] ?? 'Директор');
+        $mandate = trim((string) ($dep['mandate'] ?? '')) ?: (string) ($catalog[$domain]['mandate'] ?? '');
+
+        $aSpecs = ($dep['assistants'] ?? []) !== [] ? (array) $dep['assistants'] : (array) ($catalog[$domain]['assistants'] ?? []);
+
+        return [
+            'directors' => [['key' => $domain, 'title' => $title, 'domain' => $domain, 'default_star_tier' => 'high', 'mandate' => $mandate]],
+            'assistants' => $this->buildAssistantsFor($domain, $aSpecs, $title, $mandate, $catalog),
+            'tasks' => [],
+        ];
     }
 
     /** Канонизира домейн към каталожен ключ (точно или по подниз), иначе slug на върнатото. */
@@ -492,9 +787,30 @@ class OrgPlannerService
         return ['directors' => $directors, 'assistants' => $assistants, 'tasks' => $tasks];
     }
 
+    /**
+     * Прави JSON Schema стриктно-съвместима с OpenAI Structured Outputs (`strict: true`):
+     * рекурсивно сетва `additionalProperties: false` + `required` = ВСИЧКИ ключове на всеки
+     * обект. БЕЗ това OpenAI връща 400 и org_design call-ът пада към тънки fallback-персони
+     * (точно „опит/тон/био по 2–3 думи"). Идемпотентно за вече съвместими схеми.
+     */
+    private function strict(array $schema): array
+    {
+        if (($schema['type'] ?? null) === 'object' && isset($schema['properties']) && is_array($schema['properties'])) {
+            foreach ($schema['properties'] as $k => $prop) {
+                $schema['properties'][$k] = $this->strict((array) $prop);
+            }
+            $schema['required'] = array_keys($schema['properties']);
+            $schema['additionalProperties'] = false;
+        } elseif (($schema['type'] ?? null) === 'array' && isset($schema['items']) && is_array($schema['items'])) {
+            $schema['items'] = $this->strict((array) $schema['items']);
+        }
+
+        return $schema;
+    }
+
     private function compositionSchema(): array
     {
-        return [
+        return $this->strict([
             'type' => 'object',
             'properties' => [
                 'departments' => [
@@ -518,12 +834,10 @@ class OrgPlannerService
                                 ],
                             ],
                         ],
-                        'required' => ['domain', 'title'],
                     ],
                 ],
             ],
-            'required' => ['departments'],
-        ];
+        ]);
     }
 
     /** LLM дизайн на персоните + приоритети (закотвен на скелета). Грешка → []. */
@@ -542,18 +856,28 @@ class OrgPlannerService
 
         $managerBlock = $managerPersona ? "Управителят е {$managerPersona->name} ({$managerPersona->tone}). Дизайнът да отразява характера му." : '';
         $pains = implode('; ', (array) ($profile->pain_points ?? []));
+        $directorKeys = array_values(array_filter(array_map(fn ($d) => (string) ($d['key'] ?? ''), (array) ($structure['directors'] ?? []))));
 
         $system = 'Ти си Управителят — проектираш екип от служители. За ВСЯКА подадена роля върни '
-            .'персона (име, възраст, пол, произход, бекграунд, тон, кратко био) на български. Имената да са '
-            .'реални човешки имена (собствено + фамилно), НИКОГА роля вместо име. Персоните да са разнообразни '
-            .'и уместни за бизнеса. Добави 2–3 приоритета, обосновани от болките. '
+            .'персона на български със следните полета: ИМЕ — реално човешко име (собствено + ФАМИЛНО, '
+            .'две думи), НИКОГА роля вместо име; ВЪЗРАСТ; ПОЛ; ПРОИЗХОД; БЕКГРАУНД — ЦЯЛО изречение '
+            .'(минимум 12 думи) с конкретен опит: години, сфери/компании и постижения, обвързани с домейна '
+            .'(напр. „Над 8 години в дигитален маркетинг за e-commerce, с управление на бюджети и ръст на '
+            .'продажбите."); ТОН — точно 3–4 прилагателни, разделени със запетая (напр. „делови, прецизен, '
+            .'спокоен, прям"); КРАТКО БИО — 2–3 пълни изречения (200–400 символа) за характера, какво го '
+            .'движи и как подхожда; 3–5 стабилни умения. '
+            .'Персоните да са разнообразни и уместни за бизнеса. Добави 2–3 приоритета, обосновани от болките. '
+            .'За ВСЕКИ ОТДЕЛ (директор) върни в `departments` 2–4 конкретни приоритета на ОТДЕЛА, '
+            .'обвързани с болките и домейна му — какво да гони този отдел (различни за всеки отдел, '
+            .'НЕ преписвай общите приоритети). Ползвай точния `key` на директора. '
             .'Върни САМО валиден JSON по схемата. '.PromptData::NO_TECH_TERMS.' '.$managerBlock;
         $user = "Бизнес: {$company->name} ({$company->industry}).\nБолки: ".($pains ?: '—')
-            ."\nРоли (използвай точно тези key стойности):\n".json_encode(PromptData::humanize($roles), JSON_UNESCAPED_UNICODE);
+            ."\nРоли (използвай точно тези key стойности):\n".json_encode(PromptData::humanize($roles), JSON_UNESCAPED_UNICODE)
+            ."\nДиректорски keys за `departments` (приоритети по отдел):\n".json_encode($directorKeys, JSON_UNESCAPED_UNICODE);
 
         try {
             $raw = $this->generator->chatJson($system, $user, 'org_design', $this->designSchema(), [
-                'temperature' => 0.6, 'num_predict' => 2500,
+                'temperature' => 0.6, 'num_predict' => 4000,
             ]);
 
             return $raw;
@@ -566,7 +890,7 @@ class OrgPlannerService
 
     private function designSchema(): array
     {
-        return [
+        return $this->strict([
             'type' => 'object',
             'properties' => [
                 'members' => [
@@ -575,13 +899,13 @@ class OrgPlannerService
                         'type' => 'object',
                         'properties' => [
                             'key' => ['type' => 'string'],
-                            'name' => ['type' => 'string'],
+                            'name' => ['type' => 'string', 'description' => 'Реално човешко име: собствено + ФАМИЛНО (две думи). Никога роля.'],
                             'age' => ['type' => 'integer'],
                             'gender' => ['type' => 'string'],
                             'ethnicity' => ['type' => 'string'],
-                            'background' => ['type' => 'string'],
-                            'tone' => ['type' => 'string'],
-                            'bio' => ['type' => 'string'],
+                            'background' => ['type' => 'string', 'description' => 'ЦЯЛО изречение (минимум 12 думи): конкретен опит — години, сфери/компании и постижения, обвързани с домейна. Пример: „Над 8 години в дигитален маркетинг за e-commerce, с управление на бюджети и ръст на продажбите.".'],
+                            'tone' => ['type' => 'string', 'description' => 'Точно 3–4 прилагателни, разделени със запетая (напр. „делови, прецизен, спокоен, прям").'],
+                            'bio' => ['type' => 'string', 'description' => '2–3 пълни изречения (200–400 символа) за характера, какво го движи и как подхожда.'],
                             // Стабилни компетентности (умения), НЕ конкретни задачи (§10.2).
                             'skills' => ['type' => 'array', 'items' => ['type' => 'string']],
                         ],
@@ -597,9 +921,23 @@ class OrgPlannerService
                         ],
                     ],
                 ],
+                // Приоритети ПО ОТДЕЛ (какви приоритети има отделът) — отделно от org-level
+                // priorities. key = точният key на директора, за да ги закачим в assemble().
+                'departments' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'key' => ['type' => 'string', 'description' => 'Точният key на директора/отдела от подадените роли.'],
+                            'priorities' => [
+                                'type' => 'array',
+                                'items' => ['type' => 'string', 'description' => 'Кратък бизнес-приоритет на отдела (3–7 думи).'],
+                            ],
+                        ],
+                    ],
+                ],
             ],
-            'required' => ['members'],
-        ];
+        ]);
     }
 
     /** Сглобява нормализирано предложение от скелет + LLM персони/приоритети + defaults. */
@@ -612,13 +950,26 @@ class OrgPlannerService
             }
         }
 
+        // Приоритети по отдел (key = директорски key) от LLM-а; в assemble ги закачаме на директора.
+        $depByKey = [];
+        foreach ((array) ($design['departments'] ?? []) as $dep) {
+            if (filled($dep['key'] ?? null)) {
+                $depByKey[$dep['key']] = array_values(array_filter(array_map(fn ($p) => trim((string) $p), (array) ($dep['priorities'] ?? []))));
+            }
+        }
+
+        // hardenPersona (→ ensureFullName) и тук, не само в finalizeOrganization — за да са
+        // имената ≥2 думи още на ПРЕГЛЕД-екрана, дори когато LLM-дизайнът падне към fallback.
         $idx = 0;
-        $directors = array_map(function ($d) use ($byKey, &$idx) {
-            return $d + ['persona' => $this->personaFor($d, $byKey[$d['key']] ?? null, 'director', $idx++)];
+        $directors = array_map(function ($d) use ($byKey, $depByKey, $profile, &$idx) {
+            return $d + [
+                'persona' => $this->hardenPersona($this->personaFor($d, $byKey[$d['key']] ?? null, 'director', $idx++), 'director'),
+                'priorities' => $this->departmentPriorities($d, $depByKey, $profile),
+            ];
         }, $structure['directors'] ?? []);
 
         $assistants = array_map(function ($a) use ($byKey, &$idx) {
-            return $a + ['persona' => $this->personaFor($a, $byKey[$a['key']] ?? null, 'assistant', $idx++)];
+            return $a + ['persona' => $this->hardenPersona($this->personaFor($a, $byKey[$a['key']] ?? null, 'assistant', $idx++), 'assistant')];
         }, $structure['assistants'] ?? []);
 
         $tasks = $structure['tasks'] ?? [];
@@ -640,6 +991,36 @@ class OrgPlannerService
         ];
     }
 
+    /**
+     * Приоритети на отдела (какви приоритети има): LLM списъка ако е непразен, иначе
+     * детерминистичен fallback от mandate (първото изречение) + до 2 болки; cap 4, никога празно.
+     */
+    private function departmentPriorities(array $d, array $depByKey, $profile): array
+    {
+        $priorities = $depByKey[(string) ($d['key'] ?? '')] ?? [];
+
+        if ($priorities === []) {
+            $mandate = trim((string) ($d['mandate'] ?? ''));
+            if ($mandate !== '') {
+                $first = trim((string) (preg_split('/(?<=[.!?])\s+/u', $mandate)[0] ?? $mandate));
+                if ($first !== '') {
+                    $priorities[] = $first;
+                }
+            }
+            foreach (array_slice((array) ($profile->pain_points ?? []), 0, 2) as $pain) {
+                $pain = trim((string) $pain);
+                if ($pain !== '') {
+                    $priorities[] = $pain;
+                }
+            }
+            if ($priorities === []) {
+                $priorities[] = 'Подобри ключовите резултати на отдела';
+            }
+        }
+
+        return array_values(array_slice(array_unique($priorities), 0, 4));
+    }
+
     /** Персона за роля: LLM полета или детерминистичен default. */
     private function personaFor(array $role, ?array $llm, string $kind, int $idx): array
     {
@@ -648,14 +1029,27 @@ class OrgPlannerService
         $name = $llm['name'] ?? $pool[$idx % count($pool)];
         $age = (int) ($llm['age'] ?? (28 + ($idx * 7) % 35));
 
+        // Резервни стойности (само при пълен LLM провал) — пълни изречения, НЕ голи 2–3 думи.
+        $label = trim((string) ($role['title'] ?? $role['domain'] ?? ''))
+            ?: ($kind === 'director' ? 'управление на отдела' : 'възложените задачи');
+        $mandate = trim((string) ($role['mandate'] ?? ''));
+        $bgFallback = $kind === 'director'
+            ? "Дългогодишен управленски опит в направление: {$label}. Водене на екип и отговорност за резултатите на отдела."
+            : "Практически опит в направление: {$label}. Фокус върху ежедневното изпълнение и качеството на работата.";
+        $bioFallback = $kind === 'director'
+            ? trim("{$name} отговаря за отдела и неговите приоритети (направление: {$label}). ".($mandate ?: 'Подхожда стратегически и държи екипа фокусиран върху важното.'))
+            : trim("{$name} изпълнява задачите в направление: {$label} — качествено и навреме. ".($mandate ?: 'Подхожда отговорно, организирано и довежда нещата докрай.'));
+
         return [
             'name' => $name,
             'age' => $age,
             'gender' => $gender,
             'ethnicity' => $llm['ethnicity'] ?? 'българин',
-            'background' => $llm['background'] ?? ($role['domain'] ?? $role['title'] ?? ''),
-            'tone' => $llm['tone'] ?? ($kind === 'director' ? 'делови, стратегически' : 'отзивчив, изпълнителен'),
-            'bio' => $llm['bio'] ?? ($role['mandate'] ?? ''),
+            'background' => $llm['background'] ?? $bgFallback,
+            'tone' => $llm['tone'] ?? ($kind === 'director'
+                ? 'делови, стратегически, решителен, спокоен'
+                : 'отзивчив, изпълнителен, прецизен, дружелюбен'),
+            'bio' => $llm['bio'] ?? $bioFallback,
             'traits' => $this->personas->seedTraitsFromDemographics($age, $gender, $role['domain'] ?? $role['title'] ?? null),
             'skills' => $this->normalizeSkills($llm['skills'] ?? null, $role, $kind),
         ];
@@ -682,11 +1076,35 @@ class OrgPlannerService
     /** Хардинг на една персона (имена/възраст в граници + черти). */
     private function hardenPersona(array $persona, string $kind): array
     {
+        $persona = $this->ensureFullName($persona);
         $persona['name'] = trim((string) ($persona['name'] ?? '')) ?: ucfirst($kind);
         $persona['age'] = max(18, min(90, (int) ($persona['age'] ?? 35)));
         if (empty($persona['traits'])) {
             $persona['traits'] = $this->personas->seedTraitsFromDemographics($persona['age'], $persona['gender'] ?? null, $persona['background'] ?? null);
         }
+
+        return $persona;
+    }
+
+    /**
+     * Гарантира собствено + фамилно име. Ако LLM/fallback върне само едно (или нищо),
+     * детерминистично добавя склонено по пол фамилно (избор по crc32 на името — стабилно
+     * при повторен finalize). Покрива главния път и новодобавените членове (през hardenPersona).
+     */
+    private function ensureFullName(array $persona): array
+    {
+        $name = trim((string) ($persona['name'] ?? ''));
+        if ($name !== '' && count(preg_split('/\s+/u', $name)) >= 2) {
+            return $persona;   // вече е поне две думи
+        }
+
+        $female = str_contains(mb_strtolower((string) ($persona['gender'] ?? '')), 'жен');
+        if ($name === '') {
+            $name = $female ? self::NAMES_FEMALE[0] : self::NAMES_MALE[0];
+        }
+        $pool = $female ? self::SURNAMES_FEMALE : self::SURNAMES_MALE;
+        $surname = $pool[abs(crc32($name)) % count($pool)];
+        $persona['name'] = $name.' '.$surname;
 
         return $persona;
     }

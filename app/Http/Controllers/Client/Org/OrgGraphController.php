@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\Org\OrgReviewJob;
 use App\Models\Company;
 use App\Models\OrgMember;
+use App\Models\OrgProposal;
 use App\Support\FlowRunStats;
 use App\Support\ModelLevel;
 use Illuminate\Http\JsonResponse;
@@ -70,7 +71,8 @@ class OrgGraphController extends Controller
         $manager = $this->memberCard($company->manager);
 
         if (! $version) {
-            return ['manager' => $manager, 'directors' => [], 'assistants' => [], 'version' => null];
+            return ['manager' => $manager, 'directors' => [], 'assistants' => [], 'version' => null,
+                'igniting' => 0, 'decisions' => ['pending_tasks' => 0, 'open_proposals' => 0, 'total' => 0]];
         }
 
         $placements = $version->assistants()->with(['orgMember.persona', 'orgMember.tasks', 'director'])->get();
@@ -135,6 +137,7 @@ class OrgGraphController extends Controller
                 'title' => $d->title,
                 'domain' => $d->domain,
                 'mandate' => $d->mandate,
+                'priorities' => (array) ($d->priorities ?? []),
                 'member' => $this->memberCard($d->orgMember),
                 'stats' => [
                     'assistants_count' => $own->count(),
@@ -144,7 +147,15 @@ class OrgGraphController extends Controller
             ];
         })->values();
 
-        return ['manager' => $manager, 'directors' => $directors, 'assistants' => $assistants, 'version' => $version->version];
+        // Видимост (§F): запалване в ход + чакащи решения → банери на roster-а.
+        $allTasks = $placements->flatMap(fn ($a) => $a->orgMember?->tasks ?? collect());
+        $pendingApproval = $allTasks->where('status', 'pending_approval')->count();
+        $igniting = $allTasks->whereIn('status', ['proposed', 'generating'])->count();
+        $openProposals = OrgProposal::where('company_id', $company->id)->pending()->count();
+
+        return ['manager' => $manager, 'directors' => $directors, 'assistants' => $assistants, 'version' => $version->version,
+            'igniting' => $igniting,
+            'decisions' => ['pending_tasks' => $pendingApproval, 'open_proposals' => $openProposals, 'total' => $pendingApproval + $openProposals]];
     }
 
     /** Лека карта на член за графа/roster. */

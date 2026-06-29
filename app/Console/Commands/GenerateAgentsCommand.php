@@ -13,8 +13,8 @@ use App\Services\FlowVersionService;
 use App\Services\GeneratorService;
 use App\Services\Org\Billing\CreditMeterService;
 use App\Services\Org\PersonaService;
-use App\Services\Org\TaskRunService;
 use App\Services\Org\TaskProposalBriefService;
+use App\Services\Org\TaskRunService;
 use App\Services\PlanLibraryService;
 use App\Support\LlmContext;
 use App\Support\ModelLevel;
@@ -133,7 +133,7 @@ class GenerateAgentsCommand extends Command
                 ]);
             }
             try {
-                $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false), $personaBlock, $personaPolicy);
+                $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false), $personaBlock, $personaPolicy, forceWriteApproval: ! empty($request['assistant_task_id']));
             } finally {
                 if ($genReservation) {
                     LlmContext::clear();

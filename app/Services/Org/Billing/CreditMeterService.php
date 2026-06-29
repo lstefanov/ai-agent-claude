@@ -34,16 +34,17 @@ class CreditMeterService
      * създава CreditReservation(reserved) + ledger ред type=reserve.
      *
      * @param  Model|null  $subject  полиморфният субект (FlowRun / AssistantTask / OrgMember)
+     * @param  string  $origin  manual | autonomous | system — дневният автономен таван брои само autonomous
      *
      * @throws InsufficientCreditsException при недостиг
      */
-    public function reserve(int $companyId, string $contextType, ?Model $subject, int $estimate): CreditReservation
+    public function reserve(int $companyId, string $contextType, ?Model $subject, int $estimate, string $origin = 'manual'): CreditReservation
     {
         $estimate = max(1, $estimate);
         [$subjectType, $subjectId] = $this->subjectKey($subject);
         $key = $this->reserveKey($contextType, $subjectType, $subjectId);
 
-        return DB::transaction(function () use ($companyId, $contextType, $subjectType, $subjectId, $estimate, $key) {
+        return DB::transaction(function () use ($companyId, $contextType, $origin, $subjectType, $subjectId, $estimate, $key) {
             // Идемпотентност: същият RESERVE ключ → връщаме съществуващата (без втори дебит).
             $existing = CreditReservation::where('idempotency_key', $key)->lockForUpdate()->first();
             if ($existing) {
@@ -74,6 +75,7 @@ class CreditMeterService
             $reservation = CreditReservation::create([
                 'company_id' => $companyId,
                 'context_type' => $contextType,
+                'origin' => $origin,
                 'subject_type' => $subjectType,
                 'subject_id' => $subjectId,
                 'estimated_credits' => $estimate,
@@ -187,6 +189,7 @@ class CreditMeterService
                 'company_id' => $company->id,
                 'reservation_id' => null,
                 'type' => $type,                                   // topup | grant
+                'origin' => 'system',
                 'idempotency_key' => null,
                 'direction' => 'credit',
                 'amount' => $credits,
@@ -211,6 +214,7 @@ class CreditMeterService
                 'company_id' => $r->company_id,
                 'reservation_id' => $r->id,
                 'type' => $type,
+                'origin' => $r->origin ?? 'manual',   // refund/settle наследяват origin-а на резервацията
                 'direction' => $direction,
                 'amount' => $amount,
                 'reason' => $reason,

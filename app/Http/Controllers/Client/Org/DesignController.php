@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Client\Org;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Org\GenerateOrgAdditionJob;
+use App\Jobs\Org\IgniteOrganizationJob;
 use App\Jobs\Org\ProposeOrganizationJob;
 use App\Models\Company;
 use App\Models\User;
@@ -69,11 +71,84 @@ class DesignController extends Controller
 
         $version = $planner->materialize($company, $finalized, $approver);
 
+        // Запалване (§ignition): фоново генериране на seed задачите → Кутията за решения.
+        // НЕ е в materialize() (транзакция) — диспечираме след commit, за да види job-ът данните.
+        IgniteOrganizationJob::dispatch($version->id)->onQueue('org');
+
         return response()->json([
             'ok' => true,
             'version' => $version->version,
             'redirect' => route('client.org.roster'),
         ]);
+    }
+
+    /**
+     * Ревю екранът: AI-генерира ЕДИН нов асистент за отдел. АСИНХРОННО (org queue) — LLM call-ът
+     * надхвърля уеб max_execution_time. Връща token; фронтендът поллва addStatus.
+     */
+    public function generateAssistant(Request $request): JsonResponse
+    {
+        $company = $this->company();
+        $data = $request->validate([
+            'department' => ['required', 'array'],
+            'department.key' => ['nullable', 'string', 'max:120'],
+            'department.domain' => ['nullable', 'string', 'max:120'],
+            'department.title' => ['nullable', 'string', 'max:160'],
+            'department.mandate' => ['nullable', 'string', 'max:1000'],
+            'existing' => ['array'],
+            'existing.*.key' => ['nullable', 'string', 'max:120'],
+            'existing.*.title' => ['nullable', 'string', 'max:200'],
+        ]);
+
+        return $this->dispatchAddition($company->id, 'assistant', [
+            'department' => $data['department'],
+            'existing' => $data['existing'] ?? [],
+        ]);
+    }
+
+    /**
+     * Ревю екранът: AI-генерира ЕДИН нов отдел (директор + ≥2 асистента). АСИНХРОННО.
+     * Празно name → авто (Управителят решава); подадено name+description → ръчен отдел.
+     */
+    public function generateDepartment(Request $request): JsonResponse
+    {
+        $company = $this->company();
+        $data = $request->validate([
+            'existing_domains' => ['array'],
+            'existing_domains.*' => ['string', 'max:120'],
+            'name' => ['nullable', 'string', 'max:160'],
+            'description' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $custom = filled($data['name'] ?? null)
+            ? ['name' => $data['name'], 'description' => $data['description'] ?? '']
+            : [];
+
+        return $this->dispatchAddition($company->id, 'department', [
+            'existing_domains' => $data['existing_domains'] ?? [],
+            'custom' => $custom,
+        ]);
+    }
+
+    /** Поллинг на фоновата AI-генерация (асистент/отдел). */
+    public function addStatus(string $token): JsonResponse
+    {
+        $result = Cache::get("org_add_{$token}");
+        if (! $result) {
+            return response()->json(['status' => 'expired', 'error' => 'Изтече. Опитай пак.'], 404);
+        }
+
+        return response()->json($result);
+    }
+
+    /** Стартира GenerateOrgAdditionJob на `org` queue и връща token. */
+    private function dispatchAddition(int $companyId, string $kind, array $payload): JsonResponse
+    {
+        $token = (string) Str::uuid();
+        Cache::put("org_add_{$token}", ['status' => 'pending', 'updated_at' => now()->timestamp], now()->addMinutes(20));
+        GenerateOrgAdditionJob::dispatch($companyId, $kind, $payload, $token)->onQueue('org');
+
+        return response()->json(['token' => $token]);
     }
 
     private function company(): Company

@@ -111,11 +111,12 @@ class MemberChatService
         $policy = $this->personas->runtimePolicy($owner);
 
         try {
+            $actMode = $proposal['act_mode'] ?? 'draft';
             $task = AssistantTask::create([
                 'org_member_id' => $owner->id,
                 'title' => (string) $proposal['title'],
                 'description' => (string) ($proposal['description'] ?? $proposal['title']),
-                'act_mode' => in_array($proposal['act_mode'] ?? 'draft', ['draft', 'act', 'mixed'], true) ? $proposal['act_mode'] : 'draft',
+                'act_mode' => in_array($actMode, ['draft', 'act', 'mixed'], true) ? $actMode : 'draft',
                 'approval_policy' => (string) ($policy['approval_policy'] ?? 'approve_each'),
                 'trigger' => 'manual',
                 'status' => 'proposed',
@@ -182,15 +183,19 @@ class MemberChatService
             return null;
         }
 
+        $actMode = $p['act_mode'] ?? 'draft';
+        $pType = $p['type'] ?? 'task';
+
         return [
-            'type' => in_array($p['type'] ?? 'task', ['task', 'hire', 'mandate'], true) ? $p['type'] : 'task',
+            'type' => in_array($pType, ['task', 'hire', 'mandate'], true) ? $pType : 'task',
             'title' => (string) $p['title'],
             'description' => (string) ($p['description'] ?? $p['title']),
-            'act_mode' => in_array($p['act_mode'] ?? 'draft', ['draft', 'act', 'mixed'], true) ? $p['act_mode'] : 'draft',
+            'act_mode' => in_array($actMode, ['draft', 'act', 'mixed'], true) ? $actMode : 'draft',
             // Чат с асистент → задачата е за него; чат с управител/директор → асистентът,
             // когото моделът посочи (org_member_id), иначе null (без валиден собственик).
             'org_member_id' => $member->kind === 'assistant' ? $member->id : ($p['org_member_id'] ?? null),
             'proposed_by' => $member->display_name,
+            'proposed_by_member_id' => $member->id,
         ];
     }
 }

@@ -14,12 +14,14 @@ class Director extends Model
 {
     protected $fillable = [
         'org_version_id', 'org_member_id', 'title', 'domain',
-        'mandate', 'kpi', 'position', 'status',
+        'mandate', 'priorities', 'kpi', 'position', 'status', 'last_proposed_at',
     ];
 
     protected $casts = [
+        'priorities' => 'array',
         'kpi' => 'array',
         'position' => 'array',
+        'last_proposed_at' => 'datetime',
     ];
 
     public function orgVersion(): BelongsTo

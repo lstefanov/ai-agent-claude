@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class CreditReservation extends Model
 {
     protected $fillable = [
-        'company_id', 'context_type', 'subject_type', 'subject_id',
+        'company_id', 'context_type', 'origin', 'subject_type', 'subject_id',
         'estimated_credits', 'spent_credits', 'status', 'idempotency_key',
     ];
 

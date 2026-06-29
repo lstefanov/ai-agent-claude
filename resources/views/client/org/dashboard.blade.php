@@ -39,6 +39,23 @@
         </a>
     </div>
 
+    {{-- Пулс на деня — дневният „standup" дайджест на Управителя (OrgDigestJob) --}}
+    @if ($digest)
+        <div class="rounded-xl border border-line bg-surface p-4">
+            <div class="flex items-center justify-between gap-3 mb-1.5">
+                <h2 class="flex items-center gap-2 text-sm font-semibold text-ink">
+                    <span class="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"></span>
+                    Пулс на деня
+                </h2>
+                <a href="{{ route('client.org.chronicle') }}" class="text-xs text-primary hover:text-primary-hover shrink-0">Хроника →</a>
+            </div>
+            <div class="text-sm text-muted leading-relaxed">
+                <x-prose :text="$digest->summary" />
+            </div>
+            <p class="text-xs text-subtle tabular-nums mt-2">{{ $digest->created_at?->isoFormat('D MMMM, HH:mm') }}</p>
+        </div>
+    @endif
+
     <div class="grid lg:grid-cols-3 gap-6">
         {{-- Текущ поток (живо) --}}
         <div class="lg:col-span-2 space-y-3">

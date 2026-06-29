@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Jobs\Org\DirectorTickJob;
 use App\Jobs\Org\GenerateMemberAvatarJob;
 use App\Models\OrgMember;
-use App\Services\Org\AvatarService;
 use App\Support\FlowRunStats;
 use App\Support\ModelLevel;
 use Illuminate\Http\JsonResponse;
@@ -18,14 +17,9 @@ use Illuminate\Http\Request;
  */
 class MemberController extends Controller
 {
-    public function show(OrgMember $member, AvatarService $avatars)
+    public function show(OrgMember $member)
     {
         $this->authorizeMember($member);
-
-        // Best-effort: ако аватарът виси и ComfyUI вече е наличен → регенерирай (§B4).
-        if (in_array($member->persona?->avatar_status, ['pending', 'failed'], true)) {
-            $avatars->redispatchPending($member->company);
-        }
 
         $member->load('persona', 'tasks');
 

@@ -23,6 +23,10 @@ class GenerateMemberAvatarJob implements ShouldQueue
 
     public int $tries = 2;
 
+    // materialize() диспечи jobs вътре в DB::transaction — изчакай commit, за да няма
+    // orphan job за член, който е бил rollback-нат.
+    public bool $afterCommit = true;
+
     public function __construct(public int $personaId) {}
 
     public function handle(AvatarService $avatars): void

@@ -13,23 +13,31 @@ use Illuminate\Support\Str;
  */
 class PersonaFieldService
 {
-    /** Per-field максимуми = DB колоните / input maxlength. */
-    private const MAX = ['name' => 80, 'ethnicity' => 40, 'background' => 120, 'tone' => 80, 'bio' => 600];
+    /** Per-field максимуми = DB колоните / input maxlength (синхрон с _persona-fields.blade.php). */
+    private const MAX = ['name' => 80, 'ethnicity' => 40, 'background' => 240, 'tone' => 120, 'bio' => 600];
 
     public function __construct(private GeneratorService $llm) {}
 
-    /** @param  array<string,mixed>  $context  вече попълнени полета (name/age/tone/traits/...) */
-    public function suggest(Company $company, string $field, ?string $role, array $context): string
+    /**
+     * @param  array<string,mixed>  $context  вече попълнени полета (name/age/tone/traits/...)
+     * @param  string|null  $seed  базов текст (стойност на полето от избрания архетип) — при
+     *                             наличие промптът „специализира" базата за бизнеса вместо да гради наново.
+     */
+    public function suggest(Company $company, string $field, ?string $role, array $context, ?string $seed = null): string
     {
         $meta = config("persona.fields.{$field}");
         if (! $meta) {
             return '';
         }
 
+        $seed = filled($seed) ? trim((string) $seed) : null;
+
         $value = trim($this->llm->assist(
-            systemPrompt: $this->systemPrompt($field, $meta),
-            userMessage: $this->userMessage($company, $field, $role, $context),
-            options: ['temperature' => 0.7, 'num_predict' => $field === 'bio' ? 300 : 80],
+            systemPrompt: $this->systemPrompt($field, $meta, $seed),
+            userMessage: $this->userMessage($company, $field, $role, $context, $seed),
+            options: ['temperature' => 0.7, 'num_predict' => match ($field) {
+                'bio' => 400, 'background' => 200, 'tone' => 120, default => 80
+            }],
             provider: (string) config('persona.assist.provider', 'openai'),
             model: (string) config('persona.assist.model', 'gpt-4o-mini'),
         ));
@@ -41,26 +49,31 @@ class PersonaFieldService
     }
 
     /** @param  array<string,mixed>  $meta */
-    private function systemPrompt(string $field, array $meta): string
+    private function systemPrompt(string $field, array $meta, ?string $seed = null): string
     {
         $label = $meta['label'] ?? $field;
         $guidance = $meta['guidance'] ?? '';
         $limit = match ($field) {
             'name' => 'Само собствено и фамилно име (две думи), без титли.',
             'ethnicity' => 'Една-две думи (произход/националност).',
-            'background' => 'Кратка фраза, до 120 символа.',
-            'tone' => 'Няколко прилагателни, разделени със запетая, до 80 символа.',
-            'bio' => 'Едно-две изречения, до ~400 символа.',
+            'background' => 'Цяло изречение (минимум 12 думи): конкретен опит — години, сфери и постижения; до 240 символа.',
+            'tone' => 'Точно 3–4 прилагателни, разделени със запетая (напр. „делови, прецизен, спокоен, прям"); до 120 символа.',
+            'bio' => 'Две-три пълни изречения за характера и подхода, до ~400 символа.',
             default => 'Кратко.',
         };
 
+        // Със seed → специализираме базовия текст за бизнеса; иначе градим наново.
+        $task = $seed !== null
+            ? "Имаш базов вариант за полето «{$label}». Преработи го за конкретния бизнес — запази характера/духа и формата му, но го направи специфичен и обвързан с дейността. Върни САМО новата стойност — без въведение, без обяснения, без кавички. "
+            : "Генерирай САМО стойността за полето «{$label}» — без въведение, без обяснения, без кавички. ";
+
         return 'Ти си Управителят на AI организация и съставяш профил за служител в екипа. '
-            ."Генерирай САМО стойността за полето «{$label}» — без въведение, без обяснения, без кавички. "
+            .$task
             ."Насока: {$guidance} {$limit} Пиши на български.";
     }
 
     /** @param  array<string,mixed>  $context */
-    private function userMessage(Company $company, string $field, ?string $role, array $context): string
+    private function userMessage(Company $company, string $field, ?string $role, array $context, ?string $seed = null): string
     {
         $lines = ["Бизнес: {$company->name} ({$company->industry})."];
 
@@ -89,7 +102,13 @@ class PersonaFieldService
             $lines[] = "Черти (0–100): {$traits}.";
         }
 
-        $lines[] = "Дай стойност за «{$field}», уместна за бизнеса и съгласувана с горното.";
+        if ($seed !== null) {
+            $label = $labels[$field] ?? $field;
+            $lines[] = "Базов вариант за «{$label}»: ".Str::limit($seed, 400);
+            $lines[] = 'Специализирай този базов вариант за бизнеса — запази характера, но го направи конкретен и обвързан с дейността.';
+        } else {
+            $lines[] = "Дай стойност за «{$field}», уместна за бизнеса и съгласувана с горното.";
+        }
 
         return implode("\n", $lines);
     }

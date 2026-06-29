@@ -2,12 +2,10 @@
 
 namespace App\Services\Org;
 
-use App\Models\AssistantTask;
 use App\Models\Company;
 use App\Models\OrgMember;
 use App\Models\OrgProposal;
 use App\Services\GeneratorService;
-use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Support\PromptData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -74,7 +72,8 @@ class OrgReviewService
                 continue;
             }
 
-            $type = in_array($p['type'] ?? 'task', ['hire', 'fire', 'task', 'mandate'], true) ? $p['type'] : 'task';
+            $pType = $p['type'] ?? 'task';
+            $type = in_array($pType, ['hire', 'fire', 'task', 'mandate'], true) ? $pType : 'task';
 
             if ($type === 'task') {
                 if ($taskCount >= $maxTaskProposals) {
@@ -130,15 +129,17 @@ class OrgReviewService
                 'description' => (string) ($p['description'] ?? $p['title']),
                 'target_member_id' => $p['target_member_id'] ?? null,
                 'proposed_by' => $manager->persona?->name ?? 'Управителя',
+                'proposed_by_member_id' => $manager->id,
             ],
             'base_org_version_id' => $company->active_org_version_id,
         ]);
     }
 
     /**
-     * Предложена от ревюто задача → AssistantTask(proposed) + асинхронна генерация
-     * (→ pending_approval с brief). Собственик = посоченият асистент или първият в отдела.
-     * Кредитната резервация е в dispatchGeneration — недостиг → пропуска без фейл.
+     * Предложена от ревюто задача → евтино OrgProposal(task) (Q1 идея-бек лог) — БЕЗ
+     * флоу-генерация тук. Флоуът се генерира чак при одобрение в Кутията
+     * (DecisionController::materializeProposal('task')). Собственик = посоченият асистент
+     * или първият в отдела.
      *
      * @param  Collection<int, OrgMember>  $assistantMembers
      */
@@ -150,31 +151,24 @@ class OrgReviewService
         if (! $owner) {
             return false;   // няма на кого да възложим задачата
         }
-        $policy = $this->personas->runtimePolicy($owner);
 
-        try {
-            $task = AssistantTask::create([
-                'org_member_id' => $owner->id,
+        OrgProposal::create([
+            'company_id' => $company->id,
+            'type' => 'task',
+            'payload' => [
                 'title' => (string) $p['title'],
                 'description' => (string) ($p['description'] ?? $p['title']),
-                'trigger' => 'manual',
+                'org_member_id' => $owner->id,
+                'target_member_id' => $owner->id,
                 'act_mode' => 'draft',
-                'approval_policy' => (string) ($policy['approval_policy'] ?? 'approve_each'),
-                'status' => 'proposed',
-            ]);
+                'rationale' => (string) ($p['description'] ?? $p['title']),
+                'proposed_by' => $company->manager?->persona?->name ?? 'Управителя',
+                'proposed_by_member_id' => $company->manager?->id,
+            ],
+            'base_org_version_id' => $company->active_org_version_id,
+        ]);
 
-            app(TaskRunService::class)->generate($task, runAfterGenerate: false);
-
-            return true;
-        } catch (InsufficientCreditsException) {
-            Log::info('[OrgReview] task proposal skipped (no credits)');
-
-            return false;
-        } catch (\Throwable $e) {
-            Log::warning('[OrgReview] task proposal failed: '.$e->getMessage());
-
-            return false;
-        }
+        return true;
     }
 
     /** Управителят предлага през персоната си (LLM); fallback при слаб модел. */

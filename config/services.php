@@ -294,6 +294,15 @@ return [
                 'provider' => env('ORG_DESIGN_PROVIDER'),
                 'model' => env('ORG_DESIGN_MODEL'),
             ],
+            // Директорски tick (§8) — propose (chatJson) + report (chat). Леко структурирано
+            // разсъждение в български, не се нуждае от ultra флагман. По подразбиране празно →
+            // пада към GENERATOR_PROVIDER (локален Ollama). Сложи ORG_DIRECTOR_TICK_* на евтин
+            // cloud (gemini-3.1-flash-lite / gpt-4o-mini), за да свалиш 30+ мин локален tick до
+            // секунди и да разтовариш споделената GPU (OLLAMA_MAX_CONCURRENT=1).
+            'director_tick' => [
+                'provider' => env('ORG_DIRECTOR_TICK_PROVIDER'),
+                'model' => env('ORG_DIRECTOR_TICK_MODEL'),
+            ],
         ],
         // Именувани хибридни комбинации за A/B: flows:plan-ab {id} --variant=hybrid
         // Фази: intent | design | critique | revision; стойност: provider[:model].

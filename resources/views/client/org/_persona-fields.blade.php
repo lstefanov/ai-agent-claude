@@ -18,8 +18,10 @@
             <label class="text-sm font-medium text-ink">Име <span class="text-danger" aria-hidden="true">*</span></label>
             <x-persona.help-popover :meta="config('persona.fields.name')" />
             <x-persona.ai-fill field="name" />
+            <x-persona.ai-status field="name" />
         </div>
-        <x-input :name="$names ? 'name' : null" x-model="{{ $m }}.name" required maxlength="80" placeholder="напр. Алекс Иванов" />
+        <x-input :name="$names ? 'name' : null" x-model="{{ $m }}.name" required maxlength="80" placeholder="напр. Алекс Иванов"
+                 x-bind:readonly="aiBusy('name')" x-bind:class="aiBusy('name') ? 'animate-pulse ring-2 ring-primary/40' : ''" />
     </div>
     <div>
         <label class="block text-sm font-medium text-ink mb-1">Пол</label>
@@ -43,8 +45,10 @@
             <label class="text-sm font-medium text-ink">{{ config('persona.fields.ethnicity.label') }}</label>
             <x-persona.help-popover :meta="config('persona.fields.ethnicity')" />
             <x-persona.ai-fill field="ethnicity" />
+            <x-persona.ai-status field="ethnicity" />
         </div>
         <x-input :name="$names ? 'ethnicity' : null" x-model="{{ $m }}.ethnicity" maxlength="40"
+                 x-bind:readonly="aiBusy('ethnicity')" x-bind:class="aiBusy('ethnicity') ? 'animate-pulse ring-2 ring-primary/40' : ''"
                  placeholder="напр. {{ config('persona.fields.ethnicity.examples.0') }}" />
     </div>
 </div>
@@ -55,8 +59,10 @@
         <label class="text-sm font-medium text-ink">{{ config('persona.fields.background.label') }}</label>
         <x-persona.help-popover :meta="config('persona.fields.background')" />
         <x-persona.ai-fill field="background" />
+        <x-persona.ai-status field="background" />
     </div>
-    <x-textarea :name="$names ? 'background' : null" x-model="{{ $m }}.background" rows="3" maxlength="120"
+    <x-textarea :name="$names ? 'background' : null" x-model="{{ $m }}.background" rows="3" maxlength="240"
+                x-bind:readonly="aiBusy('background')" x-bind:class="aiBusy('background') ? 'animate-pulse ring-2 ring-primary/40' : ''"
                 placeholder="напр. {{ config('persona.fields.background.examples.0') }}" />
 </div>
 
@@ -66,8 +72,10 @@
         <label class="text-sm font-medium text-ink">Тон</label>
         <x-persona.help-popover :meta="config('persona.fields.tone')" />
         <x-persona.ai-fill field="tone" />
+        <x-persona.ai-status field="tone" />
     </div>
-    <x-textarea :name="$names ? 'tone' : null" x-model="{{ $m }}.tone" rows="2" maxlength="80"
+    <x-textarea :name="$names ? 'tone' : null" x-model="{{ $m }}.tone" rows="2" maxlength="120"
+                x-bind:readonly="aiBusy('tone')" x-bind:class="aiBusy('tone') ? 'animate-pulse ring-2 ring-primary/40' : ''"
                 placeholder="напр. {{ config('persona.fields.tone.examples.0') }}" />
 </div>
 
@@ -77,8 +85,10 @@
         <label class="text-sm font-medium text-ink">Кратко био</label>
         <x-persona.help-popover :meta="config('persona.fields.bio')" />
         <x-persona.ai-fill field="bio" />
+        <x-persona.ai-status field="bio" />
     </div>
-    <x-textarea :name="$names ? 'bio' : null" x-model="{{ $m }}.bio" rows="5" maxlength="600" placeholder="Един-два реда за характера." />
+    <x-textarea :name="$names ? 'bio' : null" x-model="{{ $m }}.bio" rows="5" maxlength="600" placeholder="Един-два реда за характера."
+                x-bind:readonly="aiBusy('bio')" x-bind:class="aiBusy('bio') ? 'animate-pulse ring-2 ring-primary/40' : ''" />
 </div>
 
 {{-- Черти — server-rendered от config; ⓘ за всяка; стойност от {{ $m }}.traits.<key> --}}

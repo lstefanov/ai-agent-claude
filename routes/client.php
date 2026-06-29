@@ -81,6 +81,10 @@ Route::middleware('client_auth')->group(function () {
         Route::get('design/status/{token}', [Client\Org\DesignController::class, 'status'])->name('client.org.design.status');
         Route::get('design/review', [Client\Org\DesignController::class, 'review'])->name('client.org.design.review');
         Route::post('design/approve', [Client\Org\DesignController::class, 'approve'])->name('client.org.design.approve');
+        // Ревю екранът: AI-генериране на нов асистент / нов отдел (асинхронно → token-poll).
+        Route::post('design/generate-assistant', [Client\Org\DesignController::class, 'generateAssistant'])->name('client.org.design.generate-assistant');
+        Route::post('design/generate-department', [Client\Org\DesignController::class, 'generateDepartment'])->name('client.org.design.generate-department');
+        Route::get('design/add-status/{token}', [Client\Org\DesignController::class, 'addStatus'])->name('client.org.design.add-status');
 
         // Персони (доуточняване/редакция + ✨ AI-генериране на поле).
         Route::post('personas/suggest-field', [Client\Org\PersonaController::class, 'suggestField'])->name('client.org.personas.suggest-field');

@@ -2,10 +2,13 @@
 
 namespace App\Services\Org;
 
+use App\Models\Assistant;
 use App\Models\Company;
+use App\Models\Director;
 use App\Models\OrgVersion;
 use App\Models\Persona;
 use App\Models\User;
+use App\Support\ModelLevel;
 use Illuminate\Support\Str;
 
 /**
@@ -26,14 +29,25 @@ class OrgMutationService
         }
 
         $title = (string) ($payload['title'] ?? 'Нов асистент');
+        $mandate = (string) ($payload['description'] ?? $title);
+        $bio = "Грижи се задачите в направление {$title} да бъдат свършени качествено и навреме.";
+        if ($mandate !== '' && $mandate !== $title) {
+            $bio .= ' '.$mandate;
+        }
         $design['assistants'][] = [
             // без 'id' → materialize създава нов член (hire event) + код-алокиран key
             'key' => 'new_'.Str::slug($title).'_'.count($design['assistants']),
             'title' => $title,
-            'mandate' => (string) ($payload['description'] ?? $title),
+            'mandate' => $mandate,
             'director' => $design['directors'][0]['key'],
             'default_star_tier' => 'medium',
-            'persona' => ['name' => $title, 'tone' => 'отзивчив, изпълнителен'],
+            // Пълна персона, не тънка — опит/тон/био да не са 2–3 думи.
+            'persona' => [
+                'name' => $title,
+                'background' => "Практически опит в направление: {$title}. Фокус върху ежедневното изпълнение и качеството на работата.",
+                'tone' => 'отзивчив, изпълнителен, прецизен, дружелюбен',
+                'bio' => $bio,
+            ],
         ];
 
         return $this->materialize($company, $design, $approver);
@@ -47,6 +61,62 @@ class OrgMutationService
         $design['assistants'] = array_values(array_filter($design['assistants'], fn ($a) => ($a['id'] ?? null) !== $memberId));
 
         return $this->materialize($company, $design, $approver);
+    }
+
+    /**
+     * Сменя мандата на член (директор/асистент) в активната версия — in-place на плейсмънта
+     * + одит. Леко (без нова версия): мандатът е поле на плейсмънта, четено при следващото
+     * мислене/генерация. Прави одобрените директорски mandate-предложения реални (§Codex).
+     */
+    public function changeMandate(Company $company, int $memberId, string $mandate, ?User $approver = null): bool
+    {
+        $version = $company->activeOrgVersion;
+        $member = $company->members()->find($memberId);
+        $mandate = trim($mandate);
+        if (! $version || ! $member || $mandate === '') {
+            return false;
+        }
+
+        $placement = Director::where('org_version_id', $version->id)->where('org_member_id', $memberId)->first()
+            ?? Assistant::where('org_version_id', $version->id)->where('org_member_id', $memberId)->first();
+        if (! $placement) {
+            return false;
+        }
+        $placement->update(['mandate' => $mandate]);
+
+        $company->orgEvents()->create([
+            'type' => 'mandate_change',
+            'org_version_id' => $version->id,
+            'org_member_id' => $memberId,
+            'summary' => 'Нов мандат: '.$member->display_name,
+            'actor' => 'human',
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Повишава/понижава нивото на член — реценообразува задачите му (setDefaultStarTier, без
+     * нова версия) + одит. Прави одобрените tier_change-предложения реални (растеж на служителя).
+     */
+    public function changeTier(Company $company, int $memberId, string $tier, ?User $approver = null): bool
+    {
+        $level = ModelLevel::tryFrom($tier);
+        $member = $company->members()->find($memberId);
+        if (! $level || ! $member) {
+            return false;
+        }
+        $member->setDefaultStarTier($level);
+
+        $company->orgEvents()->create([
+            'type' => 'tier_change',
+            'org_version_id' => $company->active_org_version_id,
+            'org_member_id' => $memberId,
+            'summary' => 'Ново ниво ('.$level->value.'): '.$member->display_name,
+            'actor' => 'human',
+        ]);
+
+        return true;
     }
 
     private function materialize(Company $company, array $design, ?User $approver): OrgVersion

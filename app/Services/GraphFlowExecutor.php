@@ -6,6 +6,7 @@ use App\Jobs\DistillFlowMemoryJob;
 use App\Jobs\ExecuteNodeJob;
 use App\Jobs\HarvestRunKnowledgeJob;
 use App\Jobs\JudgeEvalRunJob;
+use App\Jobs\Org\ReactToCompletedRunJob;
 use App\Models\AssistantTask;
 use App\Models\CreditReservation;
 use App\Models\Flow;
@@ -335,6 +336,10 @@ class GraphFlowExecutor
             } catch (Throwable $e) {
                 report($e);
             }
+
+            // Event-driven follow-up (§живост): директорът на отдела обмисля следваща стъпка
+            // (под cooldown+таван → не спами). Прави веригите реална екипна работа.
+            ReactToCompletedRunJob::dispatch($flowRun->id)->onQueue('org');
         }
 
         // Билинг (§0.5.3): реконсилиация на task_run резервацията — реалното похарчено

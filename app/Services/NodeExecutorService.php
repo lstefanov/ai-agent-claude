@@ -15,6 +15,7 @@ use App\Services\Execution\AdaptiveReplanner;
 use App\Services\Execution\FlowNodeAgentBridge;
 use App\Services\Execution\NodePromptBuilder;
 use App\Services\Execution\StepQaGate;
+use App\Services\Org\OrgActPolicy;
 use App\Services\Org\PersonaService;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
@@ -262,10 +263,10 @@ class NodeExecutorService
             return;
         }
 
-        // act HARD GATE под preview (§B2): org flow (има assistant_task_id) + ORG_ACT_ENABLED=false
-        // → произвежда „чернова на действието" (tool/аргументи/очакван ефект), БЕЗ реален
-        // страничен ефект и БЕЗ ред в connector_tool_logs. Реалният act иска реален auth (Фаза 6).
-        if (isset($flowRun->context['assistant_task_id']) && ! config('organization.act.enabled')) {
+        // act gate (§B2 + §E): org flow (има assistant_task_id), но фирмата НЕ е разрешила
+        // реални действия (OrgActPolicy: master + per-company opt-in + active конектор) →
+        // „чернова на действието", БЕЗ реален ефект и БЕЗ ред в connector_tool_logs.
+        if (isset($flowRun->context['assistant_task_id']) && ! OrgActPolicy::enabledFor($flowRun->flow?->company)) {
             $params = (array) ($node->config['tool_params'] ?? []);
             $connectorId = (int) ($node->config['connector_id'] ?? 0);
             $draft = "ЧЕРНОВА НА ДЕЙСТВИЕ (act изключен под preview — без реален ефект)\n"

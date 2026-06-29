@@ -31,6 +31,10 @@
                class="hover:text-subtle {{ request()->routeIs('admin.costs.*') ? 'text-white font-semibold' : 'text-subtle' }}">
                 Разходи
             </a>
+            <a href="{{ route('admin.budgets.index') }}"
+               class="hover:text-subtle {{ request()->routeIs('admin.budgets.*') ? 'text-white font-semibold' : 'text-subtle' }}">
+                Бюджети
+            </a>
             <form action="{{ route('admin.logout') }}" method="POST">
                 @csrf
                 <button class="text-subtle hover:text-white">Изход</button>

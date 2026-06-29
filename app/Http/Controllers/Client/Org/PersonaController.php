@@ -29,8 +29,8 @@ class PersonaController extends Controller
             'age' => ['nullable', 'integer', 'min:18', 'max:90'],
             'gender' => ['nullable', 'string', 'max:30'],
             'ethnicity' => ['nullable', 'string', 'max:40'],
-            'background' => ['nullable', 'string', 'max:120'],
-            'tone' => ['nullable', 'string', 'max:80'],
+            'background' => ['nullable', 'string', 'max:240'],
+            'tone' => ['nullable', 'string', 'max:120'],
             'bio' => ['nullable', 'string', 'max:600'],
             'traits' => ['nullable', 'array'],
             'traits.*' => ['nullable', 'integer', 'min:0', 'max:100'],
@@ -62,6 +62,8 @@ class PersonaController extends Controller
         $data = $request->validate([
             'field' => ['required', 'string', Rule::in(array_keys(config('persona.fields')))],
             'role' => ['nullable', 'string', 'max:120'],
+            // Базов текст (стойност от избрания архетип) → промптът „специализира" базата за бизнеса.
+            'seed' => ['nullable', 'string', 'max:1000'],
             'context' => ['nullable', 'array'],
             // Текстовите полета на героя (вече попълненото) — за кохерентност.
             'context.name' => ['nullable', 'string', 'max:600'],
@@ -84,7 +86,7 @@ class PersonaController extends Controller
         $company = Company::findOrFail((int) session('client_company_id'));
 
         try {
-            $value = $fields->suggest($company, $data['field'], $data['role'] ?? null, (array) ($data['context'] ?? []));
+            $value = $fields->suggest($company, $data['field'], $data['role'] ?? null, (array) ($data['context'] ?? []), $data['seed'] ?? null);
         } catch (\Throwable $e) {
             return response()->json(['error' => 'Не успяхме да генерираме това поле.'], 503);
         }

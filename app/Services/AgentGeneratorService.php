@@ -46,7 +46,7 @@ class AgentGeneratorService
      *
      * @return array<int, array<string, mixed>>
      */
-    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false, ?string $personaBlock = null, ?array $personaPolicy = null): array
+    public function generate(Flow $flow, ?callable $onProgress = null, ?string $logToken = null, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false, ?string $personaBlock = null, ?array $personaPolicy = null, bool $forceWriteApproval = false): array
     {
         $planned = $this->planner->plan($flow, $onProgress, $logToken, $level, $personaBlock, $personaPolicy);
 
@@ -60,7 +60,7 @@ class AgentGeneratorService
             $onProgress('Финализиране на pipeline-а');
         }
 
-        return $this->finalizePlannedAgents($planned, $level, $minimalQa);
+        return $this->finalizePlannedAgents($planned, $level, $minimalQa, $forceWriteApproval);
     }
 
     /**
@@ -126,7 +126,7 @@ class AgentGeneratorService
      * @param  array<int, array<string, mixed>>  $planned
      * @return array<int, array<string, mixed>>
      */
-    public function finalizePlannedAgents(array $planned, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false): array
+    public function finalizePlannedAgents(array $planned, ModelLevel $level = ModelLevel::Medium, bool $minimalQa = false, bool $forceWriteApproval = false): array
     {
         $agents = array_values(array_filter(array_map(
             fn ($a, $i) => $this->normalizeAgent($a, $i + 1, $level),
@@ -140,7 +140,7 @@ class AgentGeneratorService
         $agents = $this->groundKnowledgeTools($agents);
         // MCP: пред всяко WRITE действие гарантирай human_approval node (планерът
         // ПРЕДЛАГА, кодът ГАРАНТИРА) + отсей mcp_action без резолвиран конектор.
-        $agents = $this->gateWriteMcpActions($agents);
+        $agents = $this->gateWriteMcpActions($agents, $forceWriteApproval);
         $agents = $this->finalizeDependencyGraph($agents);
         // A capable planner (qwen) emits a correct dependency CHAIN (discoverer →
         // crawler → extractors → analysis → report) — keep it. Only a weak planner
@@ -223,7 +223,7 @@ class AgentGeneratorService
      * @param  array<int, array<string, mixed>>  $agents
      * @return array<int, array<string, mixed>>
      */
-    private function gateWriteMcpActions(array $agents): array
+    private function gateWriteMcpActions(array $agents, bool $forceWriteApproval = false): array
     {
         $writeTools = (array) config('mcp.write_tools', []);
 
@@ -261,14 +261,23 @@ class AgentGeneratorService
                 continue;
             }
             $tool = (string) ($agent['config']['tool'] ?? '');
-            // Write tool → одобрение, ОСВЕН ако requires_approval е ИЗРИЧНО false
-            // (потребителят/описанието е опт-аутнал — §14).
             $requiresApproval = $agent['config']['requires_approval'] ?? null;
-            if ($requiresApproval === false) {
-                continue;
-            }
-            if ($requiresApproval !== true && ! in_array($tool, $writeTools, true)) {
-                continue;
+            $isWriteTool = in_array($tool, $writeTools, true);
+            if ($forceWriteApproval) {
+                // Org flow (§Codex hardening): WRITE действие ВИНАГИ получава human_approval —
+                // планерски requires_approval=false НЕ може да прескочи гейта. Read tool без
+                // изрично requires_approval=true остава негейтнат (няма нужда).
+                if (! $isWriteTool && $requiresApproval !== true) {
+                    continue;
+                }
+            } else {
+                // Извън org: requires_approval=false е валиден опт-аут (§14).
+                if ($requiresApproval === false) {
+                    continue;
+                }
+                if ($requiresApproval !== true && ! $isWriteTool) {
+                    continue;
+                }
             }
 
             $deps = array_values(array_map('strval', (array) ($agent['depends_on'] ?? [])));

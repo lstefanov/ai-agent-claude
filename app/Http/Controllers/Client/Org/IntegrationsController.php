@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client\Org;
 use App\Http\Controllers\Controller;
 use App\Models\AssistantTask;
 use App\Models\Company;
+use App\Services\Org\OrgActPolicy;
 
 /**
  * Интеграции рейл (§5.2) — конекторите на фирмата като видим инвентар. OAuth flow-ът
@@ -25,7 +26,7 @@ class IntegrationsController extends Controller
             'company' => $company,
             'connectors' => $company->connectors,
             'actTasks' => $actTasks,
-            'actEnabled' => (bool) config('organization.act.enabled'),
+            'actEnabled' => OrgActPolicy::enabledFor($company),
         ]);
     }
 }

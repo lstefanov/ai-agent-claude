@@ -30,6 +30,7 @@ class OrgDashboardController extends Controller
             'pending' => $box->pending($company),
             'counts' => $this->taskCounts($company),
             'credits' => $this->credits($company),
+            'digest' => $company->orgEvents()->where('type', 'daily_digest')->latest('id')->first(),
             'state' => $this->buildState($company),
         ]);
     }

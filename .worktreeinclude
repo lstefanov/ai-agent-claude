@@ -1,0 +1,4 @@
+# Files copied into each `claude --worktree` checkout (.gitignore syntax).
+# Worktrees only carry git-tracked files, so bring the local env across.
+.env
+.env.local

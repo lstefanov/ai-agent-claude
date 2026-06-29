@@ -37,7 +37,7 @@ class TaskRunService
      *
      * @return array{status: string, run_id?: int}
      */
-    public function requestRun(AssistantTask $task, bool $runAfterGenerate = true): array
+    public function requestRun(AssistantTask $task, bool $runAfterGenerate = true, string $origin = 'manual'): array
     {
         $task = $this->applyPersonaDefaults($task);
 
@@ -45,13 +45,13 @@ class TaskRunService
         // само нова (proposed) се генерира. Решените/в процес статуси НЕ харчат и НЕ
         // регенерират при директен POST към run endpoint-а.
         if ($task->status === 'ready' && $task->flow_id) {
-            $run = $this->launchReadyRun($task);
+            $run = $this->launchReadyRun($task, $origin);
 
             return ['status' => 'running', 'run_id' => $run->id];
         }
 
         if ($task->status === 'proposed') {
-            $this->dispatchGeneration($task, $runAfterGenerate);
+            $this->dispatchGeneration($task, $runAfterGenerate, origin: $origin);
 
             return ['status' => 'generating'];
         }
@@ -65,9 +65,9 @@ class TaskRunService
      *
      * @return array{status: string, token?: ?string}
      */
-    public function generate(AssistantTask $task, bool $runAfterGenerate = false, bool $minimalQa = false): array
+    public function generate(AssistantTask $task, bool $runAfterGenerate = false, bool $minimalQa = false, string $origin = 'manual', bool $firstReviewDone = false): array
     {
-        $task = $this->applyPersonaDefaults($task);
+        $task = $this->applyPersonaDefaults($task, $firstReviewDone);
 
         if ($task->status === 'ready' && $task->flow_id) {
             return ['status' => 'ready'];
@@ -80,7 +80,7 @@ class TaskRunService
             return ['status' => $task->status];
         }
 
-        $this->dispatchGeneration($task, $runAfterGenerate, $minimalQa);
+        $this->dispatchGeneration($task, $runAfterGenerate, $minimalQa, $origin, $firstReviewDone);
 
         return ['status' => 'generating', 'token' => $task->fresh()->gen_token];
     }
@@ -90,7 +90,7 @@ class TaskRunService
      * билинг полета), резервира task_run (subject = този run → уникален per run, позволява
      * повторни пускания) и стартира executor-а.
      */
-    public function launchReadyRun(AssistantTask $task): FlowRun
+    public function launchReadyRun(AssistantTask $task, string $origin = 'manual'): FlowRun
     {
         $task = $this->applyPersonaDefaults($task);
 
@@ -125,7 +125,7 @@ class TaskRunService
 
         try {
             $reservation = $this->meter->reserve(
-                $member->company_id, 'task_run', $run, BillableUnit::estimate($task),
+                $member->company_id, 'task_run', $run, BillableUnit::estimate($task), $origin,
             );
         } catch (InsufficientCreditsException $e) {
             $run->delete();   // без осиротял pending run
@@ -174,9 +174,9 @@ class TaskRunService
     }
 
     /** Резервира generation, осигурява Flow, маркира generating и пуска асинхронна генерация. */
-    private function dispatchGeneration(AssistantTask $task, bool $runAfterGenerate, bool $minimalQa = false): void
+    private function dispatchGeneration(AssistantTask $task, bool $runAfterGenerate, bool $minimalQa = false, string $origin = 'manual', bool $firstReviewDone = false): void
     {
-        $task = $this->applyPersonaDefaults($task);
+        $task = $this->applyPersonaDefaults($task, $firstReviewDone);
 
         $member = $task->orgMember;
         if (! $member) {
@@ -185,7 +185,7 @@ class TaskRunService
         $companyId = $member->company_id;
 
         // Генерацията е реален planner разход → резервирай ПРЕДИ диспечиране (block при недостиг).
-        $this->meter->reserve($companyId, 'generation', $task, BillableUnit::estimateGeneration($task));
+        $this->meter->reserve($companyId, 'generation', $task, BillableUnit::estimateGeneration($task), $origin);
 
         $flow = $task->flow ?? Flow::create([
             'company_id' => $companyId,
@@ -213,8 +213,14 @@ class TaskRunService
      * Черти → default настройки на задачата. Прилага се преди оценка, генерация и пускане,
      * за да не остане approval_policy само записана идея без runtime ефект.
      */
-    private function applyPersonaDefaults(AssistantTask $task): AssistantTask
+    private function applyPersonaDefaults(AssistantTask $task, bool $firstReviewDone = false): AssistantTask
     {
+        // Идея-породена задача (Q1): човекът вече одобри идеята в Кутията → НЕ пипай
+        // approval_policy (остава 'auto') → flow → ready, без втори гейт (single-gate).
+        if ($firstReviewDone) {
+            return $task;
+        }
+
         if (! in_array($task->status, ['proposed', 'generating', 'failed'], true)) {
             return $task;
         }
@@ -227,7 +233,13 @@ class TaskRunService
 
         $policy = $this->personas->runtimePolicy($member);
         $approval = (string) ($policy['approval_policy'] ?? $task->approval_policy);
-        if (! in_array($approval, ['auto', 'approve_first_then_auto', 'approve_each'], true)) {
+        // First-review (§Q3): AI-породена задача НИКОГА не се ражда суров `auto` — първата
+        // версия винаги минава през Кутията. Downgrade-ът към `auto` става при одобрение
+        // (DecisionBoxService::approveTask), след което задачата е `ready` и не минава пак насам.
+        if ($approval === 'auto') {
+            $approval = 'approve_first_then_auto';
+        }
+        if (! in_array($approval, ['approve_first_then_auto', 'approve_each'], true)) {
             return $task;
         }
 
