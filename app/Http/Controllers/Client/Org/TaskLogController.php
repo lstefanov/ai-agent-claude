@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Client\Org;
 
 use App\Http\Controllers\Controller;
-use App\Models\AssistantTask;
 use App\Models\Company;
 use App\Models\OrgProposal;
 
@@ -13,14 +12,11 @@ use App\Models\OrgProposal;
  */
 class TaskLogController extends Controller
 {
-    public function index()
+    public function index(TaskRunService $tasks)
     {
         $company = Company::findOrFail((int) session('client_company_id'));
 
-        $assistantIds = $company->members()
-            ->where('kind', 'assistant')->where('status', 'active')->pluck('id');
-
-        $base = fn () => AssistantTask::whereIn('org_member_id', $assistantIds)
+        $base = fn () => $tasks->tasksForActiveAssistants($company)
             ->with('orgMember.persona', 'flow.latestRun', 'knowledgeRequirements');
 
         $ready = $base()->where('status', 'ready')->latest()->get();

@@ -6,11 +6,17 @@
 <div x-data="decisions({
         approveUrl: '{{ route('client.org.decisions.approve') }}',
         rejectUrl: '{{ route('client.org.decisions.reject') }}',
+        reviewUrl: '{{ route('client.org.review') }}',
         csrf: '{{ csrf_token() }}',
      })" class="space-y-6">
-    <div>
-        <h1 class="text-2xl font-semibold text-ink">Предложения</h1>
-        <p class="text-muted">Чакащи предложения от екипа, подредени по департаменти. Едно място за всичко.</p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+            <h1 class="text-2xl font-semibold text-ink">Предложения</h1>
+            <p class="text-muted">Чакащи предложения от екипа, подредени по департаменти. Едно място за всичко.</p>
+        </div>
+        <x-org.busy-button busy="reviewing" loading-text="Пускам ревю…" size="sm" variant="secondary" icon="arrow-path" x-on:click="runReview()">
+            Пусни ревю сега
+        </x-org.busy-button>
     </div>
 
     @if ($deck['total'] === 0)
@@ -297,8 +303,16 @@ function decisions(cfg) {
         error: '',
         success: null,
         member: null,
+        reviewing: false,
         traitLabels: { risk: 'Риск', creativity: 'Креативност', precision: 'Прецизност', autonomy: 'Автономност', tempo: 'Темпо' },
         openMember(m) { this.member = m; },
+        async runReview() {
+            if (this.reviewing) return;
+            this.reviewing = true;
+            const d = await this._post(cfg.reviewUrl, {});
+            this.reviewing = false;
+            if (d) this.showSuccess(d);
+        },
         async _post(url, body) {
             this.error = '';
             try {

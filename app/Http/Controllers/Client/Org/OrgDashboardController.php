@@ -19,6 +19,8 @@ class OrgDashboardController extends Controller
 {
     private const ACTIVE_STATUSES = ['pending', 'running', 'waiting_approval'];
 
+    public function __construct(private TaskRunService $tasks) {}
+
     public function index(DecisionBoxService $box)
     {
         $company = $this->company();
@@ -87,16 +89,15 @@ class OrgDashboardController extends Controller
 
     private function taskCounts(Company $company): array
     {
-        $assistantIds = $company->members()->where('kind', 'assistant')->pluck('id');
-        $byStatus = AssistantTask::whereIn('org_member_id', $assistantIds)
-            ->selectRaw('status, count(*) as n')->groupBy('status')->pluck('n', 'status');
+        $base = $this->tasks->tasksForActiveAssistants($company);
+        $byStatus = (clone $base)->selectRaw('status, count(*) as n')->groupBy('status')->pluck('n', 'status');
 
         // „Изпълнени" се извежда от runs (като таб „Изпълнени"), не е task статус.
-        $completed = AssistantTask::whereIn('org_member_id', $assistantIds)
+        $completed = (clone $base)
             ->whereHas('flow.flowRuns', fn ($q) => $q->where('status', 'completed'))->count();
 
         // Задачи, чакащи знание (§2-етапни задачи) — изискват въвеждане от Управителя преди старт.
-        $needsKnowledge = AssistantTask::whereIn('org_member_id', $assistantIds)
+        $needsKnowledge = (clone $base)
             ->where('knowledge_status', 'needs_knowledge')
             ->whereIn('status', ['ready', 'proposed', 'failed'])->count();
 

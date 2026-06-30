@@ -32,7 +32,7 @@ class ComfyUIService
      * подават детерминистични overrides ($overrides['seed'|'checkpoint'|'negative'])
      * → стабилен портрет per член, който се сменя само при смяна на демографията (§1.1).
      *
-     * @param  array{seed?: int, checkpoint?: string, negative?: string, width?: int, height?: int, steps?: int}  $overrides
+     * @param  array{seed?: int, checkpoint?: string, negative?: string, width?: int, height?: int, steps?: int, cfg?: float, sampler_name?: string, scheduler?: string}  $overrides
      */
     public function buildWorkflow(string $positivePrompt, array $overrides = []): array
     {
@@ -76,6 +76,13 @@ class ComfyUIService
         $width = isset($overrides['width']) ? (int) $overrides['width'] : null;
         $height = isset($overrides['height']) ? (int) $overrides['height'] : null;
         $steps = isset($overrides['steps']) ? (int) $overrides['steps'] : null;
+        $cfg = isset($overrides['cfg']) ? (float) $overrides['cfg'] : null;
+        $sampler = isset($overrides['sampler_name']) && trim((string) $overrides['sampler_name']) !== ''
+            ? (string) $overrides['sampler_name']
+            : null;
+        $scheduler = isset($overrides['scheduler']) && trim((string) $overrides['scheduler']) !== ''
+            ? (string) $overrides['scheduler']
+            : null;
 
         foreach ($decoded as &$node) {
             if (isset($node['inputs']['seed'])) {
@@ -89,6 +96,15 @@ class ComfyUIService
             }
             if ($steps !== null && isset($node['inputs']['steps'])) {
                 $node['inputs']['steps'] = $steps;
+            }
+            if ($cfg !== null && isset($node['inputs']['cfg'])) {
+                $node['inputs']['cfg'] = $cfg;
+            }
+            if ($sampler !== null && isset($node['inputs']['sampler_name'])) {
+                $node['inputs']['sampler_name'] = $sampler;
+            }
+            if ($scheduler !== null && isset($node['inputs']['scheduler'])) {
+                $node['inputs']['scheduler'] = $scheduler;
             }
         }
         unset($node);

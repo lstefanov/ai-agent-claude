@@ -83,8 +83,8 @@
                     $count = $dir['stats']['assistants_count'];
                     $c = $dir['member']['color'] ?? 'blue';
                     $deptPayload = ['title' => $dir['title'], 'domain' => $dir['domain'], 'mandate' => $dir['mandate'], 'priorities' => $dir['priorities'], 'color' => $dir['color']];
-                    $genDept = ['key' => $dir['domain'], 'title' => $dir['title'], 'domain' => $dir['domain'], 'mandate' => $dir['mandate'],
-                        'existing' => $assistants->map(fn ($a) => ['key' => $a['member']['id'], 'title' => $a['title']])->values()];
+                    $genDept = ['key' => $dir['member']['key'], 'title' => $dir['title'], 'domain' => $dir['domain'], 'mandate' => $dir['mandate'],
+                        'existing' => $assistants->map(fn ($a) => ['key' => $a['member']['key'], 'title' => $a['title']])->values()];
                 @endphp
                 <section id="dept-{{ $dir['placement_id'] }}" class="scroll-mt-32 rounded-2xl border border-line bg-surface-subtle/40 overflow-hidden">
                     {{-- Лента на отдела --}}
@@ -266,7 +266,7 @@
                                         :aria-pressed="!editDept.color">
                                     Авто
                                 </button>
-                                @foreach (['purple' => 'лилаво', 'teal' => 'тюркоазено', 'coral' => 'коралово', 'blue' => 'синьо', 'amber' => 'кехлибарено', 'pink' => 'розово', 'green' => 'зелено'] as $col => $colName)
+                                @foreach (config('organization.department_colors') as $col => $colName)
                                     <button type="button" x-on:click="editDept.color = '{{ $col }}'"
                                             class="h-8 w-8 rounded-full bg-char-{{ $col }} transition hover:opacity-80"
                                             :class="editDept.color === '{{ $col }}' ? 'ring-2 ring-ink ring-offset-2 ring-offset-surface' : ''"
@@ -414,6 +414,13 @@ function roster(cfg) {
 
         // ── добави асистент (генериране → прилагане) ──
         setAddErr(k, m) { this.addError = { ...this.addError, [k]: m }; },
+        fetchErrorMessage(d, fallback) {
+            if (d.errors) {
+                const first = Object.values(d.errors).flat()[0];
+                if (first) return first;
+            }
+            return d.message || d.error || fallback;
+        },
         addAssistant(dirMemberId, dept) {
             if (this.busyAdd[dirMemberId]) return;
             this.busyAdd = { ...this.busyAdd, [dirMemberId]: true };
@@ -424,14 +431,18 @@ function roster(cfg) {
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json' },
                 body: JSON.stringify({ department: { key: dept.key, title: dept.title, domain: dept.domain, mandate: dept.mandate }, existing: dept.existing || [] }),
             })
-                .then(r => r.json())
-                .then(d => {
+                .then(async r => {
+                    const d = await r.json().catch(() => ({}));
+                    if (!r.ok) throw new Error(this.fetchErrorMessage(d, 'Грешка при стартиране.'));
                     if (!d.token) throw new Error(d.error || 'Грешка');
+                    return d;
+                })
+                .then(d => {
                     this.pollAddition(d.token,
                         (res) => { if (res.assistant) this.applyAssistant(dirMemberId, res.assistant); else done(); },
                         (err) => { this.setAddErr(dirMemberId, err); done(); });
                 })
-                .catch(() => { this.setAddErr(dirMemberId, 'Не успях да стартирам генерирането.'); done(); });
+                .catch(e => { this.setAddErr(dirMemberId, e.message || 'Не успях да стартирам генерирането.'); done(); });
         },
         applyAssistant(dirMemberId, assistant) {
             fetch(cfg.addAssistantUrl, {
@@ -453,14 +464,18 @@ function roster(cfg) {
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json' },
                 body: JSON.stringify({ existing_domains: cfg.usedDomains || [], name: (custom && custom.name) || '', description: (custom && custom.description) || '' }),
             })
-                .then(r => r.json())
-                .then(d => {
+                .then(async r => {
+                    const d = await r.json().catch(() => ({}));
+                    if (!r.ok) throw new Error(this.fetchErrorMessage(d, 'Грешка при стартиране.'));
                     if (!d.token) throw new Error(d.error || 'Грешка');
+                    return d;
+                })
+                .then(d => {
                     this.pollAddition(d.token,
                         (res) => { if (res.department && res.department.director) this.applyDepartment(res.department); else { this.newDeptError = 'Празен резултат.'; this.busyDept = false; } },
                         (err) => { this.newDeptError = err; this.busyDept = false; });
                 })
-                .catch(() => { this.newDeptError = 'Не успях да стартирам генерирането.'; this.busyDept = false; });
+                .catch(e => { this.newDeptError = e.message || 'Не успях да стартирам генерирането.'; this.busyDept = false; });
         },
         applyDepartment(department) {
             fetch(cfg.addDepartmentUrl, {

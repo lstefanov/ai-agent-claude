@@ -128,7 +128,7 @@
             {{-- Вход --}}
             <form class="px-4 py-3 border-t border-line flex items-end gap-2" @submit.prevent="sendText()">
                 <textarea x-model="input" rows="1" placeholder="Напиши съобщение…" x-ref="input"
-                          @keydown.enter.prevent="sendText()"
+                          @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); sendText(); }"
                           class="flex-1 resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"></textarea>
                 <x-button type="submit" icon="paper-airplane" x-bind:disabled="thinking || !input.trim()">Изпрати</x-button>
             </form>

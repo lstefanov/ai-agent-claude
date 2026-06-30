@@ -39,6 +39,38 @@ return [
 
     'seed_verticals' => ['fitness', 'restaurant', 'services'],   // §11 — 3 seed вертикали
 
+    // Пълна палитра за отдели (18 char-* токена) — един източник на истината за пикера,
+    // validation и DepartmentColorService::assignUnique().
+    'department_colors' => [
+        'crimson' => 'тъмночервено',
+        'coral' => 'коралово',
+        'amber' => 'кехлибарено',
+        'yellow' => 'жълто',
+        'chartreuse' => 'шартрьоз',
+        'green' => 'зелено',
+        'spring' => 'пролетно зелено',
+        'teal' => 'тюркоазено',
+        'mint' => 'мента',
+        'sky' => 'небесно синьо',
+        'blue' => 'синьо',
+        'navy' => 'тъмно синьо',
+        'purple' => 'лилаво',
+        'violet' => 'виолетово',
+        'magenta' => 'магента',
+        'pink' => 'розово',
+        'bronze' => 'бронзово',
+        'slate' => 'сивосиньо',
+    ],
+
+    // Hue° (0–360) за assignUnique hue-distance — sync с CSS токените.
+    'department_color_hues' => [
+        'crimson' => 350, 'coral' => 17, 'amber' => 38, 'yellow' => 48,
+        'chartreuse' => 82, 'green' => 85, 'spring' => 142, 'teal' => 162,
+        'mint' => 174, 'sky' => 199, 'blue' => 215, 'navy' => 225,
+        'purple' => 252, 'violet' => 271, 'magenta' => 292, 'pink' => 340,
+        'bronze' => 25, 'slate' => 215,
+    ],
+
     // Цвят = ФУНКЦИЯ/домейн (§10.1), стабилно и централно — не member.id % 7. Ключовете
     // се match-ват като подниз срещу домейна на члена (директор: свой; асистент: на директора му).
     // Стойностите са char-* токени (resources/css). Един домейн = един цвят навсякъде.

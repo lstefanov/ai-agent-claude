@@ -31,12 +31,11 @@ class AuditMemberAvatarsCommand extends Command
 
         foreach ($personas as $persona) {
             $path = "avatars/member_{$persona->org_member_id}.png";
-            if (! $disk->exists($path)) {
-                continue;
-            }
 
             $checked++;
-            $result = $gate->passes($disk->path($path));
+            $result = $disk->exists($path)
+                ? $gate->passes($disk->path($path))
+                : ['ok' => false, 'reason' => 'missing_file'];
 
             if ($result['ok']) {
                 continue;
@@ -50,7 +49,17 @@ class AuditMemberAvatarsCommand extends Command
                 continue;
             }
 
-            $persona->update(['avatar_status' => 'pending']);
+            $meta = is_array($persona->avatar_meta) ? $persona->avatar_meta : [];
+            $meta['quality_reason'] = $result['reason'];
+            $meta['quality_audited_at'] = now()->toIso8601String();
+
+            $persona->update([
+                'avatar_url' => null,
+                'avatar_status' => 'pending',
+                'avatar_meta' => $meta,
+            ]);
+            $persona->orgMember()->update(['avatar_url' => null]);
+
             GenerateMemberAvatarJob::dispatch($persona->id)->onQueue('org');
             $this->info('  → queued for regeneration');
         }

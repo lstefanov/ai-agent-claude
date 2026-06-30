@@ -37,6 +37,7 @@ class OrgPlannerService
         private OrgBlueprintLibraryService $library,
         private PersonaService $personas,
         private GeneratorService $generator,
+        private DepartmentColorService $departmentColors,
     ) {}
 
     /**
@@ -225,6 +226,7 @@ class OrgPlannerService
                 $maxN = max($maxN, (int) $mm[1]);
             }
         }
+        $maxN = max($maxN, count($existing));
 
         $role = [
             'domain' => $domain,
@@ -490,9 +492,10 @@ class OrgPlannerService
 
             $planCap = $company->subscription?->plan?->maxStarTier();
             $directorMembers = [];
+            $directorColors = $this->departmentColors->assignUnique($finalized['directors']);
 
             // Директори → членове + плейсмънти.
-            foreach ($finalized['directors'] as $d) {
+            foreach ($finalized['directors'] as $idx => $d) {
                 $member = $this->upsertMember($company, 'director', $d, $planCap);
                 $directorMembers[$d['key']] = $member;
 
@@ -502,7 +505,7 @@ class OrgPlannerService
                     // title = РОЛЯ (длъжност), НИКОГА персона името (§9.1) — името живее на persona.
                     'title' => $d['title'] ?? 'Директор',
                     'domain' => $d['domain'] ?? 'operations',
-                    'color' => $d['color'] ?? null,   // явен цвят-override (NULL = авто по домейн)
+                    'color' => $directorColors[$idx] ?? ($d['color'] ?? null),
                     'mandate' => $d['mandate'] ?? '',
                     'priorities' => array_values(array_filter(array_map(fn ($p) => trim((string) $p), (array) ($d['priorities'] ?? [])))),
                 ]);

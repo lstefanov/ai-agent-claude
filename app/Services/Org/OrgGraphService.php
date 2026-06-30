@@ -284,6 +284,7 @@ class OrgGraphService
 
         return [
             'id' => $member->id,
+            'key' => $member->key,
             'kind' => $member->kind,
             'name' => $member->fullName(),
             'role' => $member->roleTitle(),

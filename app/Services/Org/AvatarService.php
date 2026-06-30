@@ -46,9 +46,11 @@ class AvatarService
             $subject = 'person';
         }
 
-        return "professional corporate headshot portrait of a single {$subject}, one face only, centered, "
-            .'looking at camera, neutral confident expression, full color photograph, soft studio lighting, '
-            .'clean solid neutral background, no border, no frame, no collage, photorealistic, sharp focus, DSLR portrait';
+        return "professional corporate close-up headshot portrait of exactly one {$subject}, single person, "
+            .'one face only, centered face and shoulders, looking at camera, neutral confident expression, '
+            .'full color photograph, soft studio lighting, clean solid neutral background, photorealistic, '
+            .'sharp focus, DSLR portrait, no duplicate person, no second face, no split image, no contact sheet, '
+            .'no frame, no border, no collage, no grid';
     }
 
     /**
@@ -76,7 +78,11 @@ class AvatarService
         }
 
         if (! $this->comfy->isAvailable()) {
-            $p->update(['avatar_status' => 'pending']);
+            $p->update([
+                'avatar_url' => null,
+                'avatar_status' => 'pending',
+            ]);
+            $this->clearMemberAvatar($p);
 
             return;
         }
@@ -87,12 +93,14 @@ class AvatarService
 
             if ($result === null) {
                 $p->update([
+                    'avatar_url' => null,
                     'avatar_status' => 'failed',
                     'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
                         'quality_reason' => 'max_attempts_exceeded',
-                        'attempts' => (int) config('services.comfyui.portrait_max_attempts', 4),
+                        'attempts' => (int) config('services.comfyui.portrait_max_attempts', 6),
                     ]),
                 ]);
+                $this->clearMemberAvatar($p);
 
                 return;
             }
@@ -118,7 +126,15 @@ class AvatarService
             $p->orgMember?->update(['avatar_url' => $stableUrl]);
         } catch (\Throwable $e) {
             Log::warning('[Avatar] generate failed for persona '.$p->id.': '.$e->getMessage());
-            $p->update(['avatar_status' => 'failed']);
+            $p->update([
+                'avatar_url' => null,
+                'avatar_status' => 'failed',
+                'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
+                    'quality_reason' => 'generation_exception',
+                    'error' => mb_substr($e->getMessage(), 0, 240),
+                ]),
+            ]);
+            $this->clearMemberAvatar($p);
         }
     }
 
@@ -258,6 +274,9 @@ class AvatarService
                 'width' => (int) config('services.comfyui.portrait_width'),
                 'height' => (int) config('services.comfyui.portrait_height'),
                 'steps' => (int) config('services.comfyui.portrait_steps'),
+                'cfg' => (float) config('services.comfyui.portrait_cfg'),
+                'sampler_name' => (string) config('services.comfyui.portrait_sampler'),
+                'scheduler' => (string) config('services.comfyui.portrait_scheduler'),
             ]);
 
             $promptId = $this->comfy->generate($workflow);
@@ -296,6 +315,11 @@ class AvatarService
         Log::warning('[Avatar] all attempts failed'.($lastReason ? ": {$lastReason}" : ''));
 
         return null;
+    }
+
+    private function clearMemberAvatar(Persona $p): void
+    {
+        $p->orgMember()->update(['avatar_url' => null]);
     }
 
     /** Превежда пол → английска дума за промпта (whitelist). */

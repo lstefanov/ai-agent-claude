@@ -562,19 +562,24 @@ return [
         'checkpoint' => env('COMFYUI_CHECKPOINT', 'sd_xl_base_1.0.safetensors'),
         'negative_prompt' => env('COMFYUI_NEGATIVE_PROMPT', 'ugly, deformed, noisy, blurry, distorted, low quality, watermark, text, signature'),
         // Портретен аватар над съществуващия ComfyUI блок (AvatarService ги чете;
-        // fallback към основния checkpoint/negative_prompt, не дублира клиента).
-        'portrait_checkpoint' => env('COMFYUI_PORTRAIT_CHECKPOINT', env('COMFYUI_CHECKPOINT')), // null → основният checkpoint
+        // общите image-агенти остават върху основните ComfyUI настройки).
+        'portrait_checkpoint' => env('COMFYUI_PORTRAIT_CHECKPOINT', 'DreamShaper_8_pruned.safetensors'),
+        'portrait_sampler' => env('COMFYUI_PORTRAIT_SAMPLER', 'dpmpp_2m'),
+        'portrait_scheduler' => env('COMFYUI_PORTRAIT_SCHEDULER', 'karras'),
+        'portrait_cfg' => (float) env('COMFYUI_PORTRAIT_CFG', 6.5),
         'portrait_negative' => env('COMFYUI_PORTRAIT_NEGATIVE',                                  // face-friendly негатив за портрети
             'deformed face, distorted face, extra fingers, mutated hands, asymmetric eyes, cross-eyed, blurry, '
             .'black and white, grayscale, monochrome, sepia, frame, border, picture frame, collage, grid, split screen, '
-            .'contact sheet, multiple people, multiple faces, photo booth, film strip, passport frame, letterbox, '
-            .'UI overlay, text, numbers, watermark, signature, cartoon, anime, 3d render'),
+            .'diptych, triptych, quadriptych, side by side, duplicate person, duplicate face, two portraits, '
+            .'double portrait, clone, panels, framed photo, contact sheet, multiple people, multiple faces, '
+            .'photo booth, film strip, passport frame, letterbox, UI overlay, text, numbers, watermark, '
+            .'signature, cartoon, anime, 3d render'),
         // Портретите се показват най-много на 96px → по-малък рендер/по-малко стъпки = ~2-3× по-бърза
         // генерация без видима загуба (само за аватарите; общите image-агенти остават 1024×1024/25).
         'portrait_width' => (int) env('COMFYUI_PORTRAIT_WIDTH', 512),
         'portrait_height' => (int) env('COMFYUI_PORTRAIT_HEIGHT', 512),
-        'portrait_steps' => (int) env('COMFYUI_PORTRAIT_STEPS', 15),
-        'portrait_max_attempts' => (int) env('COMFYUI_PORTRAIT_MAX_ATTEMPTS', 4),
+        'portrait_steps' => (int) env('COMFYUI_PORTRAIT_STEPS', 24),
+        'portrait_max_attempts' => (int) env('COMFYUI_PORTRAIT_MAX_ATTEMPTS', 6),
     ],
 
     'crawl' => [

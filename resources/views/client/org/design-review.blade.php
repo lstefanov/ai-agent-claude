@@ -371,15 +371,54 @@
 
 @push('scripts')
 <script>
-// Цвят = домейн на отдела (огледало на OrgMember::functionColor / config function_colors).
+// Уникални цветове на отдели — огледало на DepartmentColorService::assignUnique.
+const DEPT_COLORS = @js(array_keys(config('organization.department_colors')));
+const DEPT_HUES = @js(config('organization.department_color_hues'));
 const FUNCTION_COLORS = @js(config('organization.function_colors'));
 const DEFAULT_FN_COLOR = @js(config('organization.default_function_color', 'blue'));
-function colorForDomain(domain) {
+
+function hueDistance(a, b) {
+    const d = Math.abs(a - b);
+    return Math.min(d, 360 - d);
+}
+
+function hintForDomain(domain) {
     domain = (domain || '').toString().toLowerCase();
     for (const needle in FUNCTION_COLORS) {
         if (domain && domain.includes(needle.toLowerCase())) return FUNCTION_COLORS[needle];
     }
     return DEFAULT_FN_COLOR;
+}
+
+function mostDistinct(palette, used) {
+    const usedHues = Object.keys(used).map(c => DEPT_HUES[c] ?? 0);
+    let best = palette[0];
+    let bestDist = -1;
+    for (const c of palette) {
+        if (used[c]) continue;
+        const minDist = usedHues.length === 0
+            ? 360
+            : Math.min(...usedHues.map(uh => hueDistance(DEPT_HUES[c] ?? 0, uh)));
+        if (minDist > bestDist) { bestDist = minDist; best = c; }
+    }
+    return best;
+}
+
+function assignUniqueColors(directors) {
+    const assigned = {};
+    const used = {};
+    (directors || []).forEach((d, i) => {
+        if (d.color && DEPT_COLORS.includes(d.color)) {
+            assigned[i] = d.color;
+            used[d.color] = true;
+            return;
+        }
+        const hint = hintForDomain(d.domain);
+        const color = used[hint] ? mostDistinct(DEPT_COLORS, used) : hint;
+        assigned[i] = color;
+        used[color] = true;
+    });
+    return assigned;
 }
 function design(cfg) {
     return {
@@ -432,16 +471,16 @@ function design(cfg) {
             const fix = (m) => { m.persona = m.persona || {}; m.persona.traits = Object.assign({}, def, m.persona.traits || {}); };
             (design.directors || []).forEach(fix);
             (design.assistants || []).forEach(fix);
-            // Цвят на чертите по отдел: директор по своя домейн, асистент по домейна на директора му.
-            // Тук гарантираме и описание/приоритети на отдела (безопасни за x-text/x-for).
-            (design.directors || []).forEach(d => {
-                d.persona.color = colorForDomain(d.domain);
+            // Цвят на чертите по отдел: уникално разпределение (огледало на materialize).
+            const deptColors = assignUniqueColors(design.directors || []);
+            (design.directors || []).forEach((d, i) => {
+                d.persona.color = deptColors[i] || DEFAULT_FN_COLOR;
                 d.mandate = d.mandate || '';
                 d.priorities = Array.isArray(d.priorities) ? d.priorities : [];
             });
             (design.assistants || []).forEach(a => {
-                const dir = (design.directors || []).find(x => x.key === a.director);
-                a.persona.color = colorForDomain(dir ? dir.domain : a.director);
+                const dirIdx = (design.directors || []).findIndex(x => x.key === a.director);
+                a.persona.color = dirIdx >= 0 ? (deptColors[dirIdx] || DEFAULT_FN_COLOR) : DEFAULT_FN_COLOR;
             });
             return design;
         },

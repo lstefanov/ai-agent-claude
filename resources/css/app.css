@@ -7,11 +7,11 @@
 
 /* Safelist: character-палитрата (RPG персона карти) се избира ДИНАМИЧНО по член
    (bg-char-{{ $c }}-soft в Blade / bg-${color} в JS) → Tailwind не я вижда като
-   литерал и я purge-ва. Форсираме всичките 7 тона тук (§DESIGN „Components — RPG слой"). */
-@source inline("bg-char-{purple,teal,coral,blue,amber,pink,green}");
-@source inline("bg-char-{purple,teal,coral,blue,amber,pink,green}-soft");
-@source inline("text-char-{purple,teal,coral,blue,amber,pink,green}-strong");
-@source inline("ring-char-{purple,teal,coral,blue,amber,pink,green}-soft");
+   литерал и я purge-ва. Форсираме всичките 18 тона тук (§DESIGN „Components — RPG слой"). */
+@source inline("bg-char-{crimson,coral,amber,yellow,chartreuse,green,spring,teal,mint,sky,blue,navy,purple,violet,magenta,pink,bronze,slate}");
+@source inline("bg-char-{crimson,coral,amber,yellow,chartreuse,green,spring,teal,mint,sky,blue,navy,purple,violet,magenta,pink,bronze,slate}-soft");
+@source inline("text-char-{crimson,coral,amber,yellow,chartreuse,green,spring,teal,mint,sky,blue,navy,purple,violet,magenta,pink,bronze,slate}-strong");
+@source inline("ring-char-{crimson,coral,amber,yellow,chartreuse,green,spring,teal,mint,sky,blue,navy,purple,violet,magenta,pink,bronze,slate}-soft");
 
 /* ============================================================
    FlowAI — Design System tokens (Modern SaaS / Linear·Vercel)
@@ -75,6 +75,17 @@
     --color-char-amber:  #ba7517;  --color-char-amber-soft:  #faeeda;  --color-char-amber-strong:  #854f0b;
     --color-char-pink:   #d4537e;  --color-char-pink-soft:   #fbeaf0;  --color-char-pink-strong:   #993556;
     --color-char-green:  #639922;  --color-char-green-soft:  #eaf3de;  --color-char-green-strong:  #3b6d11;
+    --color-char-crimson:   #be1239;  --color-char-crimson-soft:   #ffe4e6;  --color-char-crimson-strong:   #881337;
+    --color-char-yellow:    #ca8a04;  --color-char-yellow-soft:    #fef9c3;  --color-char-yellow-strong:    #713f12;
+    --color-char-chartreuse:#84cc16;  --color-char-chartreuse-soft:#ecfccb;  --color-char-chartreuse-strong:#3f6212;
+    --color-char-spring:    #22c55e;  --color-char-spring-soft:    #dcfce7;  --color-char-spring-strong:    #14532d;
+    --color-char-mint:      #14b8a6;  --color-char-mint-soft:      #ccfbf1;  --color-char-mint-strong:      #0f766e;
+    --color-char-sky:       #0284c7;  --color-char-sky-soft:       #e0f2fe;  --color-char-sky-strong:       #0c4a6e;
+    --color-char-navy:      #1e40af;  --color-char-navy-soft:      #dbeafe;  --color-char-navy-strong:      #1e3a8a;
+    --color-char-violet:    #7c3aed;  --color-char-violet-soft:    #ede9fe;  --color-char-violet-strong:    #4c1d95;
+    --color-char-magenta:   #c026d3;  --color-char-magenta-soft:   #fae8ff;  --color-char-magenta-strong:   #86198f;
+    --color-char-bronze:    #78350f;  --color-char-bronze-soft:    #fef3c7;  --color-char-bronze-strong:    #451a03;
+    --color-char-slate:     #475569;  --color-char-slate-soft:     #f1f5f9;  --color-char-slate-strong:     #1e293b;
 
     /* RPG accents: star/tier gold. Credits reuse the primary azure meter (no new hue). */
     --color-star: #c8881a;  --color-star-soft: #faeeda;

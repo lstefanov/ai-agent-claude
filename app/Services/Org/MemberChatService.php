@@ -9,7 +9,6 @@ use App\Models\OrgMember;
 use App\Models\OrgProposal;
 use App\Services\GeneratorService;
 use App\Services\KnowledgeService;
-use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Support\LlmUsage;
 
 /**
@@ -46,6 +45,7 @@ class MemberChatService
 
         // Памет per член (§7.2): поуки от миналите му runs (owner-scope, преживява реорганизациите).
         $reflection = $this->memberMemory->reflectionBlock($member);
+        $existingContext = $this->existingTasksBlock($member, $company);
 
         $system = trim($persona."\n\n".$scope."\n\n"
             .'Отговаряй в своя тон, по същество, на български. Може да ПРЕДЛОЖИШ действие '
@@ -55,7 +55,8 @@ class MemberChatService
             .'предлагай действие само когато ползата е ясна. '
             .'Връщай САМО валиден JSON по схемата.'
             .($reflection !== '' ? "\n\n".$reflection : '')
-            .($knowledgeBlock !== '' ? "\n\n".$knowledgeBlock : ''));
+            .($knowledgeBlock !== '' ? "\n\n".$knowledgeBlock : '')
+            .($existingContext !== '' ? "\n\n".$existingContext : ''));
 
         $history = $this->history($chat, $userMessage);
 
@@ -68,66 +69,86 @@ class MemberChatService
         $reply = trim((string) ($raw['reply'] ?? '')) ?: '…';
         $proposal = $this->normalizeProposal($raw['proposal'] ?? null, $member);
 
-        // Предложение → Кутията: задачите директно като AssistantTask+draft
-        // (ревизиран §6.1), структурните като durable org_proposal (§A7).
-        if ($proposal) {
-            $this->persistProposal($company, $proposal);
-        }
+        // Предложение → Кутията като OrgProposal(pending); задачата се материализира
+        // само след изричен човешки одобрение (§6.1 + §A7).
+        $persisted = $proposal ? $this->persistProposal($company, $proposal) : null;
 
-        return ['reply' => $reply, 'proposal' => $proposal, 'cost_usd' => $cost];
+        return [
+            'reply' => $reply,
+            'proposal' => $persisted ? array_merge($proposal, $persisted) : null,
+            'cost_usd' => $cost,
+        ];
     }
 
-    /** Рутиране на предложението: task → AssistantTask+генерация; иначе → OrgProposal. */
-    private function persistProposal($company, array $proposal): void
+    /**
+     * Всички чат-предложения (task/hire/mandate) → durable OrgProposal(pending).
+     *
+     * @return array{kind: string, id: int, type: string}|null
+     */
+    private function persistProposal($company, array $proposal): ?array
     {
-        if (($proposal['type'] ?? null) === 'task') {
-            $this->proposeTask($company, $proposal);
-
-            return;
+        if (($proposal['type'] ?? null) === 'task' && ! $this->validTaskOwner($company, $proposal)) {
+            return null;
         }
 
-        OrgProposal::create([
+        $record = OrgProposal::create([
             'company_id' => $company->id,
             'type' => $proposal['type'],
             'payload' => $proposal,
             'base_org_version_id' => $company->active_org_version_id,
         ]);
+
+        return ['kind' => 'proposal', 'id' => $record->id, 'type' => (string) $proposal['type']];
     }
 
-    /**
-     * Предложена в чата задача → AssistantTask(proposed) + асинхронна генерация
-     * (→ pending_approval с brief). Нужен е валиден асистент-собственик; недостиг на
-     * кредити → задачата остава proposed (генерира се по-късно ръчно).
-     */
-    private function proposeTask($company, array $proposal): void
+    private function validTaskOwner($company, array $proposal): bool
     {
         $ownerId = $proposal['org_member_id'] ?? null;
-        $owner = $ownerId ? OrgMember::with('persona')
-            ->where('company_id', $company->id)
-            ->whereKey($ownerId)->where('kind', 'assistant')->first() : null;
-        if (! $owner) {
-            return;   // няма на кого да възложим задачата
+        if (! $ownerId) {
+            return false;
         }
-        $policy = $this->personas->runtimePolicy($owner);
 
-        try {
-            $actMode = $proposal['act_mode'] ?? 'draft';
-            $task = AssistantTask::create([
-                'org_member_id' => $owner->id,
-                'title' => (string) $proposal['title'],
-                'description' => (string) ($proposal['description'] ?? $proposal['title']),
-                'act_mode' => in_array($actMode, ['draft', 'act', 'mixed'], true) ? $actMode : 'draft',
-                'approval_policy' => (string) ($policy['approval_policy'] ?? 'approve_each'),
-                'trigger' => 'manual',
-                'status' => 'proposed',
-            ]);
+        return OrgMember::where('company_id', $company->id)
+            ->whereKey($ownerId)
+            ->where('kind', 'assistant')
+            ->exists();
+    }
 
-            app(TaskRunService::class)->generate($task, runAfterGenerate: false);
-        } catch (InsufficientCreditsException) {
-            // задачата остава proposed без draft — ще се генерира по-късно
-        } catch (\Throwable $e) {
-            report($e);
+    private function existingTasksBlock(OrgMember $member, $company): string
+    {
+        $mine = AssistantTask::where('org_member_id', $member->id)
+            ->whereIn('status', ['proposed', 'generating', 'pending_approval', 'ready'])
+            ->pluck('title')
+            ->take(15)
+            ->all();
+        $pending = OrgProposal::where('company_id', $company->id)
+            ->where('type', 'task')
+            ->where('status', 'pending')
+            ->get()
+            ->map(fn ($p) => (string) ($p->payload['title'] ?? ''))
+            ->filter()
+            ->take(15)
+            ->all();
+
+        $lines = [];
+        if ($mine) {
+            $lines[] = 'ТЕКУЩИТЕ ТИ ЗАДАЧИ (не предлагай нова със същото/подобно заглавие):';
+            foreach ($mine as $t) {
+                $lines[] = '  • '.$t;
+            }
         }
+        if ($pending) {
+            $lines[] = 'Задачи в Кутията за компанията (също не дублирай):';
+            foreach ($pending as $t) {
+                $lines[] = '  • '.$t;
+            }
+        }
+        if (! $lines) {
+            return '';
+        }
+        $lines[] = 'Ако потребителят пита за вече съществуваща задача — обсъждай я, НЕ създавай нова. Предлагай НОВА задача само когато темата е ясно различна от гореизброените.';
+
+        return implode("\n", $lines);
     }
 
     /** Scope според ролята + текущия плейсмънт. */

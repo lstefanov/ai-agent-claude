@@ -26,10 +26,23 @@ class ChatController extends Controller
             'org_member_id' => $member->id,
         ]);
 
+        $messages = $chat->messages()->orderBy('id')->get();
+        $proposalIds = $messages
+            ->map(function (MemberMessage $m) {
+                $proposal = $m->payload['proposal'] ?? null;
+
+                return is_array($proposal) ? ($proposal['id'] ?? null) : null;
+            })
+            ->filter()
+            ->unique()
+            ->values();
+        $proposalStatuses = OrgProposal::whereIn('id', $proposalIds)->pluck('status', 'id');
+
         return view('client.org.chat', [
             'member' => $member->load('persona'),
             'chat' => $chat,
-            'messages' => $chat->messages()->orderBy('id')->get(),
+            'messages' => $messages,
+            'proposalStatuses' => $proposalStatuses,
         ]);
     }
 

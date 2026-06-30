@@ -3,6 +3,7 @@
 namespace App\Services\Org;
 
 use App\Models\AssistantTask;
+use App\Models\Company;
 use App\Models\Flow;
 use App\Models\FlowNode;
 use App\Models\FlowRun;
@@ -13,6 +14,8 @@ use App\Services\GraphNormalizer;
 use App\Services\Org\Billing\CreditMeterService;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Support\BillableUnit;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -29,6 +32,29 @@ class TaskRunService
         private AgentGenerationLauncher $launcher,
         private PersonaService $personas,
     ) {}
+
+    /** ID-та на активните асистенти на фирмата — споделен филтър за дневника на задачите. */
+    public function activeAssistantMemberIds(Company $company): Collection
+    {
+        return $company->members()
+            ->where('kind', 'assistant')
+            ->where('status', 'active')
+            ->pluck('id');
+    }
+
+    /** Базова заявка за задачи на активни асистенти. */
+    public function tasksForActiveAssistants(Company $company): Builder
+    {
+        return AssistantTask::whereIn('org_member_id', $this->activeAssistantMemberIds($company));
+    }
+
+    /** Брой за таб „За изпълнение“ (ready + generating) — nav badge и табло. */
+    public function readyTabCount(Company $company): int
+    {
+        return $this->tasksForActiveAssistants($company)
+            ->whereIn('status', ['ready', 'generating'])
+            ->count();
+    }
 
     /**
      * Канонична заявка за пускане. Готова задача (flow_id) → резервира task_run и пуска

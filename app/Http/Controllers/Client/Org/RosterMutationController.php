@@ -19,7 +19,10 @@ use Illuminate\Http\Request;
  */
 class RosterMutationController extends Controller
 {
-    public function __construct(private OrgMutationService $mutations) {}
+    public function __construct(
+        private OrgMutationService $mutations,
+        private DepartmentColorService $departmentColors,
+    ) {}
 
     /** Добавя готов генериран асистент под избран директор → нова версия + ignition. */
     public function addAssistant(Request $request): JsonResponse
@@ -73,7 +76,7 @@ class RosterMutationController extends Controller
             'mandate' => ['nullable', 'string', 'max:1000'],
             'priorities' => ['nullable', 'array'],
             'priorities.*' => ['nullable', 'string', 'max:120'],
-            'color' => ['nullable', 'string', 'in:purple,teal,coral,blue,amber,pink,green'],
+            'color' => ['nullable', 'string', 'in:'.implode(',', $this->departmentColors->validColors())],
         ]);
 
         $ok = $this->mutations->updateDepartment(

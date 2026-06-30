@@ -4,6 +4,7 @@ namespace App\Console\Commands\Org;
 
 use App\Jobs\Org\OrgReviewJob;
 use App\Models\Company;
+use App\Support\OrgReviewLock;
 use Illuminate\Console\Command;
 
 /**

@@ -147,6 +147,7 @@ Route::middleware('client_auth')->group(function () {
 
         // Фаза 7: хроника + ръчно ревю на Управителя.
         Route::get('chronicle', [Client\Org\OrgGraphController::class, 'chronicle'])->name('client.org.chronicle');
+        Route::get('chronicle/feed', [Client\Org\OrgGraphController::class, 'chronicleFeed'])->name('client.org.chronicle.feed');
         Route::post('review', [Client\Org\OrgGraphController::class, 'reviewNow'])
             ->middleware('throttle:5,1')
             ->name('client.org.review');

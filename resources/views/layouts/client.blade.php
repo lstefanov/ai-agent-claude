@@ -86,6 +86,9 @@
                                      ? 'border-primary text-primary font-semibold'
                                      : 'border-transparent text-muted hover:text-ink hover:border-line-strong' }}">
                             {{ $label }}
+                            @if ($item['route'] === 'client.org.tasks.index' && ($readyTasksCount ?? 0) > 0)
+                                <span class="inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white tabular-nums" aria-label="{{ $readyTasksCount }} задачи за изпълнение">{{ $readyTasksCount > 99 ? '99+' : $readyTasksCount }}</span>
+                            @endif
                             @if ($item['route'] === 'client.org.decisions' && ($pendingProposalsCount ?? 0) > 0)
                                 <span class="inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white tabular-nums" aria-label="{{ $pendingProposalsCount }} чакащи предложения">{{ $pendingProposalsCount > 99 ? '99+' : $pendingProposalsCount }}</span>
                             @endif
@@ -146,6 +149,9 @@
                                  ? 'bg-info-soft text-primary'
                                  : 'text-muted hover:text-ink hover:bg-surface-subtle' }}">
                         {{ $label }}
+                        @if ($item['route'] === 'client.org.tasks.index' && ($readyTasksCount ?? 0) > 0)
+                            <span class="inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white tabular-nums" aria-label="{{ $readyTasksCount }} задачи за изпълнение">{{ $readyTasksCount > 99 ? '99+' : $readyTasksCount }}</span>
+                        @endif
                         @if ($item['route'] === 'client.org.decisions' && ($pendingProposalsCount ?? 0) > 0)
                             <span class="inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white tabular-nums" aria-label="{{ $pendingProposalsCount }} чакащи предложения">{{ $pendingProposalsCount > 99 ? '99+' : $pendingProposalsCount }}</span>
                         @endif
