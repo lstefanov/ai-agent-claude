@@ -9,6 +9,7 @@ use App\Models\OrgMember;
 use App\Models\OrgProposal;
 use App\Services\EmbeddingService;
 use App\Services\GeneratorService;
+use App\Services\KnowledgeService;
 use App\Support\PromptData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -27,6 +28,7 @@ class DirectorAgentService
         private GeneratorService $generator,
         private MemberMemoryService $memory,
         private EmbeddingService $embeddings,
+        private KnowledgeService $knowledge,
     ) {}
 
     /**
@@ -42,7 +44,7 @@ class DirectorAgentService
         $directorMember = $director->orgMember;
         $directorMember?->loadMissing('persona');
 
-        $proposals = $this->maybePropose($director, $company, $directorMember, bypassThrottle: $trigger === 'manual');
+        $proposals = $this->maybePropose($director, $company, $directorMember, $trigger);
 
         // Нищо предложено → без report LLM call и без събитие (no-op tick не харчи).
         if ($proposals === []) {
@@ -85,11 +87,14 @@ class DirectorAgentService
      *
      * @return array<int>
      */
-    private function maybePropose(Director $director, Company $company, ?OrgMember $directorMember, bool $bypassThrottle = false): array
+    private function maybePropose(Director $director, Company $company, ?OrgMember $directorMember, string $trigger = 'scheduled'): array
     {
         if (! $directorMember) {
             return [];
         }
+
+        // Ръчният (човек) и ignition (веднага след одобрение на екип) минават cooldown-а.
+        $bypassThrottle = in_array($trigger, ['manual', 'ignition'], true);
 
         $cooldownH = (int) config('organization.autonomous.director.propose_cooldown_hours', 24);
         if (! $bypassThrottle && $director->last_proposed_at && $director->last_proposed_at->gt(now()->subHours($cooldownH))) {
@@ -140,7 +145,68 @@ class DirectorAgentService
 
         $director->update(['last_proposed_at' => now()]);
 
+        // Гаранция при запалване (§ignition): нов екип никога не остава без предложения. Ако LLM-ът
+        // върна 0 (срамежлив/грешка), синтезирай 1 детерминистична ПУБЛИЧНА задача за отдела —
+        // оцелява гейта по знание (без частни сигнали) и отива в Кутията за решения.
+        if ($ids === [] && $trigger === 'ignition') {
+            $fallback = $this->ignitionFallbackProposal($company, $director, $directorMember, $assistantMembers, $state);
+            if ($fallback !== null) {
+                $ids[] = $fallback;
+            }
+        }
+
         return $ids;
+    }
+
+    /**
+     * Детерминистично начално предложение за отдел при запалване, когато LLM-ът не върна нищо.
+     * ПУБЛИЧНА (уеб-търсима) тема по приоритет/мандат — без частни сигнали, за да не я паркира
+     * гейтът по знание. Собственик = най-подходящият асистент по мандат. Връща id или null.
+     */
+    private function ignitionFallbackProposal(Company $company, Director $director, OrgMember $directorMember, Collection $assistantMembers, array $state): ?int
+    {
+        if ($assistantMembers->isEmpty()) {
+            return null;
+        }
+
+        $industry = trim((string) ($company->industry ?? '')) ?: $company->name;
+        $priorities = (array) ($director->priorities ?? []);
+        $focus = trim((string) ($priorities[0] ?? $director->title)) ?: $director->title;
+
+        $title = 'Проучи онлайн конкурентите и пазара: '.$focus;
+        $description = 'Направи публично онлайн проучване на конкурентите, цените и тенденциите, '
+            .'свързани с „'.$focus.'" за '.$industry.'. Обобщи изводи и възможности за отдела. '
+            .'Използвай само публично достъпна информация от интернет.';
+
+        // Dedup срещу вече съществуващите (за всеки случай).
+        if ($this->isDuplicate($title, $this->existingTitles($company, $assistantMembers))) {
+            return null;
+        }
+
+        // Собственик: семантично най-близкият асистент по мандат (load-balance тайбрейк).
+        $stateByMember = collect($state)->keyBy('member_id')->all();
+        $mandateEmbeddings = [];
+        foreach ($assistantMembers as $m) {
+            $info = $stateByMember[$m->id] ?? [];
+            $mandateEmbeddings[$m->id] = $this->embeddings->embed(
+                ((string) ($info['role'] ?? '')).' '.((string) ($info['mandate'] ?? '')),
+                ['purpose' => 'director_tick_mandate'],
+            );
+        }
+        $owner = $this->selectOwnerForTask($assistantMembers, $stateByMember, $mandateEmbeddings, $title, $description, null);
+
+        $payload = [
+            'title' => $title,
+            'description' => $description,
+            'org_member_id' => $owner?->id,
+            'target_member_id' => $owner?->id,
+            'act_mode' => 'draft',
+            'tier' => null,
+            'proposed_by' => $directorMember->persona?->name ?? 'Директор',
+            'proposed_by_member_id' => $directorMember->id,
+        ];
+
+        return $this->proposeDecision($company, 'task', $payload, 'Начална тема за отдела (генерирана при стартиране на екипа).')->id;
     }
 
     /** Отворени решения за отдела = pending_approval задачи на асистентите + pending org предложения. */
@@ -176,7 +242,9 @@ class DirectorAgentService
             .'hire за idle асистент без задачи, чийто мандат би покрил проблема — първо му дай задача. '
             .'Задължително посочи org_member_id на асистента, за когото е предложението (за task/mandate/tier; '
             .'за hire — null, но дай ясен title + описание за новия мандат). '
-            .'Без вода, обосновано от данните и приоритетите. Върни САМО валиден JSON по схемата, на български. '
+            .'Без вода, обосновано от данните и приоритетите.'
+            .$this->kbAwareness($directorMember->company)
+            .' Върни САМО валиден JSON по схемата, на български. '
             .PromptData::NO_TECH_TERMS);
         $user = 'Отдел: '.$director->title."\nПриоритети: ".implode('; ', $priorities)
             ."\nАсистенти: ".json_encode(PromptData::humanize($state), JSON_UNESCAPED_UNICODE)
@@ -390,6 +458,8 @@ class DirectorAgentService
                             'org_member_id' => ['type' => ['integer', 'null']],
                             'act_mode' => ['type' => 'string', 'enum' => ['draft', 'act', 'mixed']],
                             'tier' => ['type' => ['string', 'null'], 'enum' => ['low', 'medium', 'high', null]],
+                            // Задачата изисква вътрешни частни данни, които първо трябва да въведе Управителят.
+                            'needs_private_knowledge' => ['type' => 'boolean'],
                         ],
                         'required' => ['type', 'title', 'description', 'rationale'],
                     ],
@@ -397,6 +467,33 @@ class DirectorAgentService
             ],
             'required' => ['proposals'],
         ];
+    }
+
+    /**
+     * KB-осъзнатост за директора: при ПРАЗНА база — твърдо правило да НЕ предлага задачи,
+     * изискващи частни данни (gate-ът остава реалната защита, това пести провалени предложения).
+     */
+    private function kbAwareness(?Company $company): string
+    {
+        if (! $company || ! KnowledgeService::enabled($company)) {
+            return '';
+        }
+
+        if ($this->knowledge->isEmpty($company)) {
+            return ' ВАЖНО: базата знания на фирмата е ПРАЗНА — системата НЕ знае нищо вътрешно '
+                .'(няма имена/роли на служители, вътрешни процедури, графици, клиенти). НЕ предлагай '
+                .'задачи, които изискват такива ЧАСТНИ данни (напр. „обучение на треньорите", „график на '
+                .'екипа") — те ще се провалят. Предлагай задачи с ПУБЛИЧНА информация (проучване на пазар/'
+                .'конкуренти онлайн); ако частна задача е наистина нужна — сложи needs_private_knowledge=true '
+                .'(Управителят първо ще въведе данните).';
+        }
+
+        $s = $this->knowledge->summary($company);
+        $titles = implode(', ', array_slice($s['titles'] ?? [], 0, 6));
+
+        return ' Базата знания съдържа '.$s['documents'].' документа и '.$s['facts'].' факта'
+            .($titles !== '' ? ' (напр.: '.$titles.')' : '').'. Ако задача изисква вътрешни частни данни, '
+            .'които ги НЯМА тук и не са уеб-търсими, сложи needs_private_knowledge=true.';
     }
 
     /** @return Collection<int, OrgMember> */

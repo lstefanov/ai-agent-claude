@@ -20,11 +20,16 @@ class RunOrgReview extends Command
     {
         $companies = Company::whereNotNull('active_org_version_id')->pluck('id');
 
+        $dispatched = 0;
         foreach ($companies as $companyId) {
+            if (! OrgReviewLock::acquire($companyId)) {
+                continue;
+            }
             OrgReviewJob::dispatch($companyId)->onQueue('org');
+            $dispatched++;
         }
 
-        $this->info('Org reviews dispatched: '.$companies->count());
+        $this->info('Org reviews dispatched: '.$dispatched.' / '.$companies->count());
 
         return self::SUCCESS;
     }

@@ -119,7 +119,130 @@ class OrgMutationService
         return true;
     }
 
-    private function materialize(Company $company, array $design, ?User $approver): OrgVersion
+    /**
+     * Наема готов генериран асистент под ИЗБРАН директор → нова версия. $assistant = блокът от
+     * OrgPlannerService::designSingleAssistant (key/title/director/default_star_tier/mandate/persona).
+     * Поправя ограничението на hireFromProposal (твърдо ползва directors[0]).
+     */
+    public function hireIntoDepartment(Company $company, int $directorMemberId, array $assistant, ?User $approver): ?OrgVersion
+    {
+        $design = $this->snapshotDesign($company);
+        $dir = collect($design['directors'])->firstWhere('id', $directorMemberId);
+        if (! $dir) {
+            return null;                                   // целевият отдел вече не съществува
+        }
+
+        unset($assistant['id']);                           // без id → materialize създава нов член (hire)
+        $assistant['director'] = $dir['key'];              // насочи към ИЗБРАНИЯ директор
+        $assistant['default_star_tier'] = $assistant['default_star_tier'] ?? 'medium';
+        $design['assistants'][] = $assistant;
+
+        return $this->materialize($company, $design, $approver);
+    }
+
+    /**
+     * Създава нов отдел (директор + асистенти) от готов генериран блок → нова версия.
+     * $department = {director:{...}, assistants:[{...}]} от OrgPlannerService::designSingleDepartment.
+     * Уникалност на ключа и колизия с домейн → finalizeOrganization (_2 суфикс + пренасочване).
+     */
+    public function addDepartmentFromDraft(Company $company, array $department, ?User $approver): ?OrgVersion
+    {
+        $director = $department['director'] ?? null;
+        if (! is_array($director) || empty($director)) {
+            return null;
+        }
+
+        $design = $this->snapshotDesign($company);
+        unset($director['id']);
+
+        // Гарантирай уникален ключ за новия директор СПРЯМО снапшота преди merge — иначе
+        // value-scoped rewrite-ът във finalizeOrganization (_2 суфикс) би пренасочил асистентите
+        // на СЪЩЕСТВУВАЩ отдел със същия ключ към новия. Огледало на клиентския mergeNewDepartment.
+        $taken = array_values(array_filter(array_map(fn ($d) => $d['key'] ?? null, $design['directors'])));
+        $origKey = $director['key'] ?? ($director['domain'] ?? 'dept');
+        $key = $origKey;
+        $n = 2;
+        while (in_array($key, $taken, true)) {
+            $key = $origKey.'_'.$n++;
+        }
+        $director['key'] = $key;
+        $design['directors'][] = $director;
+        foreach (($department['assistants'] ?? []) as $a) {
+            if (! is_array($a)) {
+                continue;
+            }
+            unset($a['id']);
+            if (($a['director'] ?? null) === $origKey) {
+                $a['director'] = $key;                     // пренасочи САМО асистентите на новия отдел
+            }
+            $design['assistants'][] = $a;
+        }
+
+        return $this->materialize($company, $design, $approver);
+    }
+
+    /**
+     * Редактира отдела В АКТИВНАТА версия — in-place на Director-плейсмънта (title/domain/mandate/priorities/color)
+     * + одит. Леко (без нова версия). Цветът е явен override (NULL = авто по домейн) и каскадира към
+     * директора + асистентите през functionColor(). Огледало на changeMandate.
+     */
+    public function updateDepartment(Company $company, int $directorMemberId, string $title, string $domain, string $mandate, array $priorities, ?string $color = null, ?User $approver = null): bool
+    {
+        $version = $company->activeOrgVersion;
+        if (! $version) {
+            return false;
+        }
+        $placement = Director::where('org_version_id', $version->id)
+            ->where('org_member_id', $directorMemberId)->first();
+        if (! $placement) {
+            return false;
+        }
+
+        $title = trim($title);
+        $domain = trim($domain);
+        $priorities = array_values(array_filter(
+            array_map(fn ($p) => trim((string) $p), $priorities),
+            fn ($p) => $p !== '',
+        ));
+        $placement->update([
+            'title' => $title !== '' ? $title : $placement->title,
+            'domain' => $domain !== '' ? $domain : $placement->domain,
+            'mandate' => trim($mandate),
+            'priorities' => $priorities,
+            'color' => $color,   // NULL = авто (цвят по домейн)
+        ]);
+
+        $company->orgEvents()->create([
+            'type' => 'mandate_change',
+            'org_version_id' => $version->id,
+            'org_member_id' => $directorMemberId,
+            'summary' => 'Обновен отдел: '.$placement->title,
+            'actor' => 'human',
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Премахва директор И асистентите му → нова версия (retired). Без това finalizeOrganization би
+     * пренасочил осиротелите асистенти към първия оцелял директор. Пази поне един отдел.
+     */
+    public function fireDepartment(Company $company, int $directorMemberId, ?User $approver): ?OrgVersion
+    {
+        $design = $this->snapshotDesign($company);
+        $dir = collect($design['directors'])->firstWhere('id', $directorMemberId);
+        if (! $dir || count($design['directors']) <= 1) {
+            return null;
+        }
+
+        $dirKey = $dir['key'] ?? null;
+        $design['directors'] = array_values(array_filter($design['directors'], fn ($d) => ($d['id'] ?? null) !== $directorMemberId));
+        $design['assistants'] = array_values(array_filter($design['assistants'], fn ($a) => ($a['director'] ?? null) !== $dirKey));
+
+        return $this->materialize($company, $design, $approver);
+    }
+
+    private function materialize(Company $company, array $design, ?User $approver, string $actor = 'human'): OrgVersion
     {
         $approver ??= $company->owner;
 
@@ -127,6 +250,7 @@ class OrgMutationService
             $company,
             $this->planner->finalizeOrganization($design, $company->activeOrgVersion),
             $approver,
+            $actor,
         );
     }
 
@@ -144,6 +268,8 @@ class OrgMutationService
             'title' => $d->title,
             'domain' => $d->domain,
             'mandate' => $d->mandate,
+            'priorities' => (array) ($d->priorities ?? []),   // иначе всяко re-materialize ги изтрива
+            'color' => $d->color,                              // цвят-override-ът също трябва да преживее re-materialize
             'default_star_tier' => $d->orgMember?->default_star_tier ?? 'high',
             'persona' => $this->personaSpec($d->orgMember?->persona),
         ])->all();

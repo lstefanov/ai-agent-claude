@@ -66,6 +66,14 @@ class ScheduledTaskJob implements ShouldQueue
                 'summary' => "Пропуснато (недостатъчно кредити): {$task->title}",
                 'actor' => 'director',
             ]);
+        } catch (KnowledgeRequiredException) {
+            // Знанието е изчезнало (изтрит ресурс) → задачата чака знание; изплува в Кутията.
+            $task->orgMember?->company?->orgEvents()->create([
+                'type' => 'review',
+                'org_member_id' => $task->org_member_id,
+                'summary' => "Пропуснато (чака знания): {$task->title}",
+                'actor' => 'director',
+            ]);
         } catch (\Throwable $e) {
             Log::warning('[ScheduledTask] '.$this->taskId.' failed: '.$e->getMessage());
         }

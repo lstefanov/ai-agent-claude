@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Director extends Model
 {
     protected $fillable = [
-        'org_version_id', 'org_member_id', 'title', 'domain',
+        'org_version_id', 'org_member_id', 'title', 'domain', 'color',
         'mandate', 'priorities', 'kpi', 'position', 'status', 'last_proposed_at',
     ];
 

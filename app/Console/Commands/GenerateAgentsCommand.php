@@ -294,6 +294,16 @@ class GenerateAgentsCommand extends Command
             report($e);
         }
 
+        // Knowledge gate audit (§2-етапни задачи): извлечи + оцени изискванията на реалния граф →
+        // попълва knowledge_status дори по авто-пътя (best-effort; gate-ът при run е защитата).
+        try {
+            $kr = app(KnowledgeRequirementService::class);
+            $kr->analyze($task->fresh());
+            $kr->evaluate($task->fresh(), force: true);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         if ($autoApprove && ($version = $flow->activeVersion)) {
             try {
                 app(PlanLibraryService::class)->captureApprovedPlan($version->fresh());
@@ -323,6 +333,16 @@ class GenerateAgentsCommand extends Command
             try {
                 app(TaskRunService::class)->launchReadyRun($task->fresh());
                 $task->update(['run_after_generate' => false]);
+            } catch (KnowledgeRequiredException) {
+                // Чака знания → НЕ чисти run_after_generate (durable: пуска се автоматично щом
+                // знанието бъде въведено и проверката мине). Задачата вече е needs_knowledge.
+                Company::find($task->orgMember?->company_id)?->orgEvents()->create([
+                    'type' => 'review',
+                    'org_version_id' => $task->orgMember?->company?->active_org_version_id,
+                    'org_member_id' => $task->org_member_id,
+                    'summary' => 'Задача чака знания преди изпълнение: '.$task->title,
+                    'actor' => 'director',
+                ]);
             } catch (\Throwable $e) {
                 report($e);
             }

@@ -141,8 +141,14 @@
                            class="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover">＋ Нова задача</a>
                     </div>
                     @forelse ($member->tasks as $task)
+                        @php
+                            $kreqs = $task->knowledgeRequirements->map(fn ($r) => [
+                                'key' => $r->key, 'label' => $r->label, 'sourceability' => $r->sourceability,
+                                'status' => $r->status, 'acknowledged' => $r->acknowledged, 'how_to_provide' => $r->how_to_provide,
+                            ])->values();
+                        @endphp
                         <div class="flex items-center justify-between gap-3 py-2 border-b border-line last:border-0"
-                             x-data="{ st: '{{ $task->status }}', stage: '', running: false }">
+                             x-data="{ st: '{{ $task->status }}', kst: '{{ $task->knowledge_status }}', stage: '', running: false }">
                             <div class="min-w-0">
                                 <p class="text-sm text-ink truncate">{{ $task->title }}</p>
                                 <p class="text-xs text-subtle">{{ $actLabels[$task->act_mode] ?? $task->act_mode }} · <span x-text="({ proposed: 'предложена', generating: 'създава се', pending_approval: 'чака одобрение', ready: 'готова', disabled: 'изключена', failed: 'провалена' })[st] || st"></span>
@@ -172,10 +178,15 @@
                                 <template x-if="st === 'pending_approval'">
                                     <a href="{{ route('client.org.decisions') }}" class="text-xs font-medium text-warning-strong hover:underline">Чака одобрение →</a>
                                 </template>
-                                <template x-if="st === 'proposed' || st === 'failed'">
+                                {{-- Гейт по знание (§2-етапни задачи): „Добави знания" замества действието, докато липсва информация. --}}
+                                <template x-if="kst === 'needs_knowledge' && (st === 'proposed' || st === 'failed' || st === 'ready')">
+                                    <x-button size="sm" variant="secondary" icon="book-open"
+                                              x-on:click="$dispatch('knowledge-open', { taskId: {{ $task->id }}, requirements: {{ \Illuminate\Support\Js::from($kreqs) }} })">Добави знания</x-button>
+                                </template>
+                                <template x-if="kst !== 'needs_knowledge' && (st === 'proposed' || st === 'failed')">
                                     <x-button size="sm" variant="secondary" x-on:click="generateTask({{ $task->id }}, $el => st = $el)" x-bind:disabled="running">Създай предложение</x-button>
                                 </template>
-                                <template x-if="st === 'ready'">
+                                <template x-if="kst !== 'needs_knowledge' && st === 'ready'">
                                     <x-button size="sm" x-on:click="runTask({{ $task->id }}, s => stage = s, s => st = s)" x-bind:disabled="running">Изпълни</x-button>
                                 </template>
                             </div>
@@ -188,6 +199,8 @@
         </div>
     </div>
 </div>
+
+@include('client.org._knowledge-modal')
 
 @push('scripts')
 <script>
@@ -226,7 +239,12 @@ function memberCard(cfg) {
         generateTask(taskId, setStatus) {
             this.busy = true;
             this.post(cfg.genTpl.replace('__TASK__', taskId)).then(d => {
-                if (d.status === 'ready') { setStatus('ready'); this.busy = false; }
+                if (d.status === 'needs_knowledge') {
+                    // Preflight паркира задачата → отвори popup „Добави знания".
+                    this.busy = false;
+                    window.dispatchEvent(new CustomEvent('knowledge-open', { detail: { taskId, requirements: [] } }));
+                }
+                else if (d.status === 'ready') { setStatus('ready'); this.busy = false; }
                 else if (d.token) { this.pollGen(taskId, d.token, setStatus); }
                 else { this.busy = false; }
             });
@@ -240,7 +258,7 @@ function memberCard(cfg) {
                     // Ревизиран lifecycle: генерацията спира на pending_approval (за преглед), не ready.
                     if (['pending_approval', 'ready'].includes(d.task_status)) {
                         clearInterval(this._g); this.busy = false; setStatus(d.task_status);
-                        this.msg = d.task_status === 'pending_approval' ? 'Готово за преглед в Решения.' : 'Готово.';
+                        this.msg = d.task_status === 'pending_approval' ? 'Готово за преглед в Предложения.' : 'Готово.';
                     } else if (d.status === 'failed' || d.task_status === 'failed') {
                         clearInterval(this._g); this.busy = false; this.msg = 'Генерацията се провали.';
                     }
@@ -253,7 +271,12 @@ function memberCard(cfg) {
         runTask(taskId, setStage, setStatus) {
             this.busy = true; setStatus('running'); setStage('пускам…');
             this.post(cfg.runTpl.replace('__TASK__', taskId)).then(d => {
-                if (d.status === 'running' && d.poll_url) { this.pollRun(d.run_id, d.poll_url, setStage); }
+                if (d.needs_knowledge) {
+                    // Гейтът блокира — отвори popup „Добави знания" с върнатите изисквания.
+                    this.busy = false; setStage(''); setStatus('ready');
+                    window.dispatchEvent(new CustomEvent('knowledge-open', { detail: { taskId, requirements: d.requirements || [] } }));
+                }
+                else if (d.status === 'running' && d.poll_url) { this.pollRun(d.run_id, d.poll_url, setStage); }
                 else if (d.status === 'generating') { setStage('генерира се…'); this.pollGen(taskId, d.token, () => setStatus('ready')); this.busy = false; }
                 else { this.busy = false; setStatus('ready'); this.msg = d.message || 'Грешка при пускане.'; }
             }).catch(() => { this.busy = false; setStatus('ready'); });

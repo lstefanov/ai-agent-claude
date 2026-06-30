@@ -11,7 +11,7 @@ class BusinessProfile extends Model
     protected $fillable = [
         'company_id', 'research', 'interview_answers', 'interview_transcript',
         'situational_analysis', 'pain_points', 'status',
-        'problems', 'needs', 'opportunities', 'synthesis_completed_at',
+        'problems', 'needs', 'opportunities', 'synthesis_completed_at', 'synthesis_version',
     ];
 
     protected $casts = [
@@ -103,5 +103,34 @@ class BusinessProfile extends Model
             $fresh->update(['interview_transcript' => $transcript]);
             $this->setRawAttributes($fresh->getAttributes(), true);
         });
+    }
+
+    /**
+     * Последните N разговора като човек-четим чат (Собственик/Управител) — за prompt-ите
+     * на followUpReply и depthQuestion. Свободният текст има приоритет; при празен
+     * assistant-ход с въпрос — показваме текста на въпроса.
+     */
+    public function chatHistory(int $limit = 12): string
+    {
+        $rows = array_slice(array_values((array) $this->interview_transcript), -$limit * 2);
+        $lines = [];
+        foreach ($rows as $e) {
+            $role = ($e['role'] ?? '') === 'user' ? 'Собственик' : 'Управител';
+            $text = trim((string) ($e['content'] ?? ''));
+            if ($text === '' && ! empty($e['question']['text'])) {
+                $text = trim((string) $e['question']['text']);
+            }
+            if ($text !== '') {
+                $lines[] = "{$role}: {$text}";
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** Брой записи в транскрипта — за детекция на растеж (re-synthesis). */
+    public function transcriptVersion(): int
+    {
+        return count((array) $this->interview_transcript);
     }
 }

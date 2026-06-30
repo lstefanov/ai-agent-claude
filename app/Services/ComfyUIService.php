@@ -32,7 +32,7 @@ class ComfyUIService
      * подават детерминистични overrides ($overrides['seed'|'checkpoint'|'negative'])
      * → стабилен портрет per член, който се сменя само при смяна на демографията (§1.1).
      *
-     * @param  array{seed?: int, checkpoint?: string, negative?: string}  $overrides
+     * @param  array{seed?: int, checkpoint?: string, negative?: string, width?: int, height?: int, steps?: int}  $overrides
      */
     public function buildWorkflow(string $positivePrompt, array $overrides = []): array
     {
@@ -70,11 +70,28 @@ class ComfyUIService
 
         // Детерминистичен seed при подаден override; иначе рандом (уникален на всяко повикване).
         $seed = isset($overrides['seed']) ? (int) $overrides['seed'] : null;
+
+        // Незадължителни overrides за размер/стъпки (org портретите подават по-малки стойности
+        // → по-бърза генерация). Без override → темплейтните 1024×1024/25 (image-агентите).
+        $width = isset($overrides['width']) ? (int) $overrides['width'] : null;
+        $height = isset($overrides['height']) ? (int) $overrides['height'] : null;
+        $steps = isset($overrides['steps']) ? (int) $overrides['steps'] : null;
+
         foreach ($decoded as &$node) {
             if (isset($node['inputs']['seed'])) {
                 $node['inputs']['seed'] = $seed ?? rand(1, 999_999_999);
             }
+            if ($width !== null && isset($node['inputs']['width'])) {
+                $node['inputs']['width'] = $width;
+            }
+            if ($height !== null && isset($node['inputs']['height'])) {
+                $node['inputs']['height'] = $height;
+            }
+            if ($steps !== null && isset($node['inputs']['steps'])) {
+                $node['inputs']['steps'] = $steps;
+            }
         }
+        unset($node);
 
         return $decoded;
     }

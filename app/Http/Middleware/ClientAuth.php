@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Company;
 use App\Models\User;
+use App\Services\Org\DecisionBoxService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -31,6 +32,7 @@ class ClientAuth
 
         view()->share('currentCompany', $company);
         view()->share('currentUser', User::find(session('client_user_id')));
+        view()->share('pendingProposalsCount', app(DecisionBoxService::class)->pendingCount($company));
 
         return $next($request);
     }

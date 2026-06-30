@@ -10,6 +10,7 @@ use App\Models\OrgMember;
 use App\Models\OrgVersion;
 use App\Models\User;
 use App\Services\GeneratorService;
+use App\Support\JsonSchema;
 use App\Support\ModelLevel;
 use App\Support\PromptData;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +50,15 @@ class OrgPlannerService
         $blueprint = $this->library->bestMatch($company, 1)->first();
         $vertical = (array) ($blueprint?->structure ?? ['directors' => [], 'assistants' => [], 'tasks' => []]);
 
+        // Диагностика: лог-ваме откъде идва blueprint_key-ът (хваща аномалии като 'test',
+        // който не може да произтича от verticalFor — значи е подаден ръчно от фронтенда).
+        Log::info('[OrgPlanner] proposeOrganization', [
+            'company_id' => $company->id,
+            'blueprint_id' => $blueprint?->id,
+            'blueprint_vertical' => $blueprint?->vertical,
+            'has_active_version' => (bool) $company->activeOrgVersion,
+        ]);
+
         $profile = $company->businessProfile;
         $managerPersona = $company->manager?->persona;
 
@@ -62,6 +72,14 @@ class OrgPlannerService
         $design = $this->designPersonas($structure, $company, $profile, $managerPersona);
 
         $result = $this->assemble($structure, $design, $profile, $blueprint?->vertical);
+
+        // §identity-reconcile: ако компанията вече има активна версия, пренеси id-то на
+        // оцелелите членове в новия дизайн — съвпадение по domain (директори) и по
+        // (director_domain, title) за асистенти. Така при materialize те се upsert-ват,
+        // вместо да се създават нови + старите да се пенсионират като fire event.
+        if ($company->activeOrgVersion) {
+            $result = $this->reconcileWithActiveVersion($result, $company->activeOrgVersion);
+        }
 
         // §3-part understanding: предложените възможности стават приоритети на екипа;
         // проблеми/нужди/възможности пътуват в payload-а за ревю екрана (над екипа).
@@ -78,6 +96,90 @@ class OrgPlannerService
             'needs' => (array) $profile?->needs,
             'opportunities' => (array) $profile?->opportunities,
         ];
+    }
+
+    /**
+     * Пренася id на членове от активната версия в подадения дизайн — по domain за
+     * директори и по (director_domain, title) за асистенти. Публична EntryPoint-точка
+     * за DesignController::approve (дизайн от фронтенд) и proposal pipeline-а.
+     */
+    public function reconcileDesignWithVersion(array $design, OrgVersion $current): array
+    {
+        return $this->reconcileWithActiveVersion($design, $current);
+    }
+
+    /**
+     * Пренася id на членове от активната версия в новия дизайн — по domain за директори
+     * и по (director_domain, title) за асистенти. Член с пренесено id се upsert-ва в
+     * materialize (запазва персона/чат/задачи), вместо да създаде нов + да предизвика
+     * fire на стария. Съвпадението е по РОЛЯ (домейн/длъжност), не по персона —
+     * означава, че ако дизайните се разминат структурно, само разликите се пенсионират.
+     *
+     * НЕ пипа key — той идва от дизайна (domain slug или нов title) и се ползва за
+     * join-ване на асистенти към техния директор. Пренася се само id.
+     */
+    private function reconcileWithActiveVersion(array $result, OrgVersion $current): array
+    {
+        $directors = $result['directors'] ?? [];
+        $assistants = $result['assistants'] ?? [];
+
+        // Карта domain → director placement от активната версия.
+        $dirByDomain = [];
+        foreach ($current->directors()->with('orgMember')->get() as $d) {
+            $domain = mb_strtolower(trim((string) $d->domain));
+            if ($domain !== '' && $d->org_member_id && ! isset($dirByDomain[$domain])) {
+                $dirByDomain[$domain] = $d;
+            }
+        }
+
+        // Директори: носи id при domain-match (key остава от дизайна — консистентен с асистентите).
+        foreach ($directors as &$d) {
+            $domain = mb_strtolower(trim((string) ($d['domain'] ?? '')));
+            $existing = $dirByDomain[$domain] ?? null;
+            if ($existing && empty($d['id'])) {
+                $d['id'] = $existing->org_member_id;
+            }
+        }
+        unset($d);
+
+        // Асистенти: карта (director_domain, title) → assistant placement, позволява
+        // асистент да оцелее дори когато самият му директор е различен (key) но домейнът съвпада.
+        $asstByDirDomainTitle = [];
+        foreach ($current->assistants()->with(['orgMember', 'director.orgMember'])->get() as $a) {
+            $dirDomain = mb_strtolower(trim((string) ($a->director?->domain ?? '')));
+            $title = mb_strtolower(trim((string) $a->title));
+            $key = $dirDomain."\x00".$title;
+            if ($dirDomain !== '' && $title !== '' && $a->org_member_id && ! isset($asstByDirDomainTitle[$key])) {
+                $asstByDirDomainTitle[$key] = $a;
+            }
+        }
+
+        // Построи map от director key → domain в новия дизайн, за да намерим домейна
+        // на асистентския отдел по неговия `director` key (пренесен или нов).
+        $dirDomainByKey = [];
+        foreach ($directors as $d) {
+            $k = (string) ($d['key'] ?? '');
+            if ($k !== '') {
+                $dirDomainByKey[$k] = mb_strtolower(trim((string) ($d['domain'] ?? '')));
+            }
+        }
+
+        foreach ($assistants as &$a) {
+            $dirKey = (string) ($a['director'] ?? '');
+            $dirDomain = $dirDomainByKey[$dirKey] ?? '';
+            $title = mb_strtolower(trim((string) ($a['title'] ?? '')));
+            $key = $dirDomain."\x00".$title;
+            $existing = $asstByDirDomainTitle[$key] ?? null;
+            if ($existing && empty($a['id'])) {
+                $a['id'] = $existing->org_member_id;
+            }
+        }
+        unset($a);
+
+        $result['directors'] = $directors;
+        $result['assistants'] = $assistants;
+
+        return $result;
     }
 
     /**
@@ -368,10 +470,14 @@ class OrgPlannerService
      * Материализира одобрения дизайн (хибридът в действие): идентичностна реконсилация по
      * immutable id, нов OrgVersion + плейсмънти, персони upsert-нати на члена (→ avatar jobs),
      * active_org_version_id, org_events. НЕ генерира flows (Фаза 3).
+     *
+     * $actor определя автора на fire-събитията, които retireMissing записва за членовете,
+     * отсъстващи от новия дизайн: 'manager' при одобрен цялостен дизайн (страничен ефект от
+     * proposal/review); 'human' при изрични ръчни операции (fireMember/fireDepartment/etc).
      */
-    public function materialize(Company $company, array $finalized, User $approver): OrgVersion
+    public function materialize(Company $company, array $finalized, User $approver, string $actor = 'manager'): OrgVersion
     {
-        return DB::transaction(function () use ($company, $finalized, $approver) {
+        return DB::transaction(function () use ($company, $finalized, $approver, $actor) {
             $version = OrgVersion::create([
                 'company_id' => $company->id,
                 'version' => (int) $company->orgVersions()->max('version') + 1,
@@ -396,6 +502,7 @@ class OrgPlannerService
                     // title = РОЛЯ (длъжност), НИКОГА персона името (§9.1) — името живее на persona.
                     'title' => $d['title'] ?? 'Директор',
                     'domain' => $d['domain'] ?? 'operations',
+                    'color' => $d['color'] ?? null,   // явен цвят-override (NULL = авто по домейн)
                     'mandate' => $d['mandate'] ?? '',
                     'priorities' => array_values(array_filter(array_map(fn ($p) => trim((string) $p), (array) ($d['priorities'] ?? [])))),
                 ]);
@@ -441,7 +548,12 @@ class OrgPlannerService
             }
 
             // Пенсионирай членове от предишната активна версия, които ги няма сега.
-            $this->retireMissing($company, array_merge(array_values($directorMembers), array_values($assistantMembers)), $version);
+            $this->retireMissing(
+                $company,
+                array_merge(array_values($directorMembers), array_values($assistantMembers)),
+                $version,
+                $actor,
+            );
 
             $company->update(['active_org_version_id' => $version->id]);
 
@@ -491,8 +603,14 @@ class OrgPlannerService
         return $member;
     }
 
-    /** Пенсионира членове от активната версия, които не са в новата. */
-    private function retireMissing(Company $company, array $keptMembers, OrgVersion $newVersion): void
+    /**
+     * Пенсионира членове от активната версия, които не са в новата.
+     *
+     * $actor определя етикета на fire-събитието: 'manager' при системно ре-предложение
+     * на целия дизайн (страничен ефект от proposal/approve); 'human' при изрични
+     * мутации (fireMember/fireDepartment/hireFromProposal и др.).
+     */
+    private function retireMissing(Company $company, array $keptMembers, OrgVersion $newVersion, string $actor = 'manager'): void
     {
         $keptIds = array_map(fn (OrgMember $m) => $m->id, $keptMembers);
 
@@ -501,13 +619,13 @@ class OrgPlannerService
             ->where('status', 'active')
             ->whereNotIn('id', $keptIds)
             ->get()
-            ->each(function (OrgMember $m) use ($company) {
+            ->each(function (OrgMember $m) use ($company, $actor) {
                 $m->update(['status' => 'retired', 'retired_at' => now()]);
                 $company->orgEvents()->create([
                     'type' => 'fire',
                     'org_member_id' => $m->id,
                     'summary' => 'Освободен: '.$m->display_name,
-                    'actor' => 'manager',
+                    'actor' => $actor,
                 ]);
             });
     }
@@ -795,17 +913,7 @@ class OrgPlannerService
      */
     private function strict(array $schema): array
     {
-        if (($schema['type'] ?? null) === 'object' && isset($schema['properties']) && is_array($schema['properties'])) {
-            foreach ($schema['properties'] as $k => $prop) {
-                $schema['properties'][$k] = $this->strict((array) $prop);
-            }
-            $schema['required'] = array_keys($schema['properties']);
-            $schema['additionalProperties'] = false;
-        } elseif (($schema['type'] ?? null) === 'array' && isset($schema['items']) && is_array($schema['items'])) {
-            $schema['items'] = $this->strict((array) $schema['items']);
-        }
-
-        return $schema;
+        return JsonSchema::strict($schema);
     }
 
     private function compositionSchema(): array

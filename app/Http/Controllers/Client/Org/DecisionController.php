@@ -44,7 +44,12 @@ class DecisionController extends Controller
         // Предложена задача (draft flow) → активиране (+ optional „Одобри и пусни").
         if ($kind === 'assistant_task') {
             $task = $this->companyTask((int) $request->input('id'));
-            $result = $box->approveTask($task, $this->user(), run: $request->boolean('run'));
+            $run = $request->boolean('run');
+            $result = $box->approveTask($task, $this->user(), run: $run);
+
+            if ($result['ok'] ?? false) {
+                $result = array_merge($result, $this->approvedAssistantTaskFeedback($task->fresh(), $run));
+            }
 
             return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
         }
@@ -55,7 +60,12 @@ class DecisionController extends Controller
         // Материализация на одобреното предложение (§7.3): задача / наемане / уволнение /
         // мандат / ниво. `run` → „Одобри и пусни" за task-идея.
         if ($result['ok'] ?? false) {
-            $this->materializeProposal($proposal, $result['materialize'] ?? null, $request->boolean('run'));
+            $materialized = $this->materializeProposal($proposal, $result['materialize'] ?? null, $request->boolean('run'));
+            if (is_array($materialized)) {
+                $result = array_merge($result, $materialized);
+            } elseif (($result['materialize'] ?? null) !== 'task') {
+                $result['message'] = 'Одобрено.';
+            }
         }
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
@@ -86,15 +96,23 @@ class DecisionController extends Controller
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
     }
 
-    /** Материализира одобрено предложение според типа (§7.3 + §Codex: mandate/tier; Q1: task). */
-    private function materializeProposal(OrgProposal $proposal, ?string $type, bool $run = false): void
+    /**
+     * Материализира одобрено предложение според типа (§7.3 + §Codex: mandate/tier; Q1: task).
+     *
+     * @return array<string, mixed>|null UI feedback при task materialize; иначе null.
+     */
+    private function materializeProposal(OrgProposal $proposal, ?string $type, bool $run = false): ?array
     {
         $company = $proposal->company;
         $payload = (array) $proposal->payload;
+
+        if ($type === 'task') {
+            return $this->materializeTaskProposal($company, $payload, $run);
+        }
+
         $mutator = app(OrgMutationService::class);
 
         match ($type) {
-            'task' => $this->materializeTaskProposal($company, $payload, $run),
             'hire' => $mutator->hireFromProposal($company, $payload, $this->user()),
             'fire' => filled($payload['target_member_id'] ?? null)
                 ? $mutator->fireMember($company, (int) $payload['target_member_id'], $this->user())
@@ -107,6 +125,8 @@ class DecisionController extends Controller
                 : null,
             default => null,
         };
+
+        return null;
     }
 
     /**
@@ -114,13 +134,16 @@ class DecisionController extends Controller
      * единственият човешки гейт: approval_policy='auto' + firstReviewDone → flow става ready
      * (без втора апрувъл стъпка). `run` → пуска веднага след генерация.
      */
-    private function materializeTaskProposal(Company $company, array $payload, bool $run): void
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function materializeTaskProposal(Company $company, array $payload, bool $run): ?array
     {
         $ownerId = (int) ($payload['org_member_id'] ?? $payload['target_member_id'] ?? 0);
         $owner = ($ownerId ? $company->members()->where('kind', 'assistant')->find($ownerId) : null)
             ?? $company->members()->where('kind', 'assistant')->where('status', 'active')->first();
         if (! $owner) {
-            return;
+            return null;
         }
 
         $actMode = $payload['act_mode'] ?? 'draft';
@@ -134,7 +157,60 @@ class DecisionController extends Controller
             'status' => 'proposed',
         ]);
 
-        app(TaskRunService::class)->generate($task, runAfterGenerate: $run, origin: 'autonomous', firstReviewDone: true);
+        $genResult = app(TaskRunService::class)->generate($task, runAfterGenerate: $run, origin: 'autonomous', firstReviewDone: true);
+
+        return $this->taskMaterializeFeedback($task->fresh(), $genResult);
+    }
+
+    /** @return array<string, mixed> */
+    private function approvedAssistantTaskFeedback(AssistantTask $task, bool $run): array
+    {
+        $message = $run
+            ? 'Задачата е одобрена. Изпълнението тръгва (или ще тръгне след проверка на знанията).'
+            : 'Задачата е одобрена и готова за изпълнение.';
+
+        return [
+            'task_id' => $task->id,
+            'status' => 'ready',
+            'message' => $message,
+            'tasks_url' => $this->tasksReadyUrl(),
+        ];
+    }
+
+    /** @param  array{status?: string, token?: ?string}  $genResult */
+    private function taskMaterializeFeedback(AssistantTask $task, array $genResult): array
+    {
+        $status = (string) ($genResult['status'] ?? $task->status);
+
+        $feedback = [
+            'task_id' => $task->id,
+            'status' => $status,
+        ];
+
+        if ($status === 'needs_knowledge') {
+            return array_merge($feedback, [
+                'message' => 'Задачата е одобрена, но чака знания преди генерация на flow.',
+                'decisions_url' => route('client.org.decisions'),
+            ]);
+        }
+
+        if ($status === 'generating') {
+            return array_merge($feedback, [
+                'gen_token' => $genResult['token'] ?? $task->gen_token,
+                'message' => 'Задачата е одобрена. Flow-ът се генерира — виж я в Задачи → За изпълнение.',
+                'tasks_url' => $this->tasksReadyUrl(),
+            ]);
+        }
+
+        return array_merge($feedback, [
+            'message' => 'Задачата е одобрена и готова за изпълнение.',
+            'tasks_url' => $this->tasksReadyUrl(),
+        ]);
+    }
+
+    private function tasksReadyUrl(): string
+    {
+        return route('client.org.tasks.index', ['tab' => 'ready']);
     }
 
     private function company(): Company

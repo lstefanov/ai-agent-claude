@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Client\Org;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Org\DirectorTickJob;
 use App\Jobs\Org\GenerateOrgAdditionJob;
 use App\Jobs\Org\IgniteOrganizationJob;
 use App\Jobs\Org\ProposeOrganizationJob;
 use App\Models\Company;
+use App\Models\Director;
 use App\Models\User;
+use App\Services\Org\Billing\CreditMeterService;
 use App\Services\Org\OrgPlannerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -57,12 +60,19 @@ class DesignController extends Controller
     }
 
     /** Одобрение → материализация на нов org_version (по immutable id). */
-    public function approve(Request $request, OrgPlannerService $planner): JsonResponse
+    public function approve(Request $request, OrgPlannerService $planner, CreditMeterService $meter): JsonResponse
     {
         $company = $this->company();
         $design = (array) $request->input('design', []);
         if (empty($design['directors'])) {
             return response()->json(['ok' => false, 'error' => 'Празен дизайн.'], 422);
+        }
+
+        // §identity-reconcile: ако фронтендът е загубил id-та на оцелели членове при
+        // ръчна редакция (add/remove/refresh), пренеси ги тук по domain/title — така
+        // само реално отстранените от дизайна членове се пенсионират като fire event.
+        if ($company->activeOrgVersion) {
+            $design = $planner->reconcileDesignWithVersion($design, $company->activeOrgVersion);
         }
 
         // Кодът гарантира — финализирай повторно (дори върху редактиран от човек дизайн).
@@ -71,9 +81,21 @@ class DesignController extends Controller
 
         $version = $planner->materialize($company, $finalized, $approver);
 
+        // Стартови кредити за новия екип (след ресет wallet-ът липсва — grant преди jobs).
+        $startupCredits = (int) config('organization.ignition.startup_credits', 1000);
+        if ($startupCredits > 0) {
+            $meter->topup($company->fresh(), $startupCredits, 'grant', ['source' => 'team_ignition']);
+        }
+
         // Запалване (§ignition): фоново генериране на seed задачите → Кутията за решения.
         // НЕ е в materialize() (транзакция) — диспечираме след commit, за да види job-ът данните.
         IgniteOrganizationJob::dispatch($version->id)->onQueue('org');
+
+        // Всички директори мислят веднага — без да чакат часовия cron.
+        Director::where('org_version_id', $version->id)
+            ->where('status', 'active')
+            ->pluck('id')
+            ->each(fn (int $directorId) => DirectorTickJob::dispatch($directorId, 'ignition')->onQueue('org'));
 
         return response()->json([
             'ok' => true,

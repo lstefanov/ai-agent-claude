@@ -12,8 +12,6 @@
     ];
 @endphp
 <div class="max-w-4xl mx-auto px-6 py-8">
-    @include('client.org._lens-tabs', ['active' => null])
-
     <h1 class="text-2xl font-semibold text-ink mb-1">Интеграции · Инвентар</h1>
     <p class="text-muted mb-6">Свързаните системи, които екипът ползва за реални действия.</p>
 

@@ -13,7 +13,7 @@ use Illuminate\Http\JsonResponse;
 
 /**
  * Табло (§4) — първият екран при активна организация: текущ поток (живо), чакащи решения,
- * кратък екип/кредити. Live секцията се обновява през state() БЕЗ reload (§4.2).
+ * кредити. Live секцията се обновява през state() БЕЗ reload (§4.2).
  */
 class OrgDashboardController extends Controller
 {
@@ -22,12 +22,11 @@ class OrgDashboardController extends Controller
     public function index(DecisionBoxService $box)
     {
         $company = $this->company();
-        $members = $company->members()->where('status', 'active')->with('persona')->get();
+        $decisionsPreview = $box->preview($company, 4);
 
         return view('client.org.dashboard', [
             'company' => $company,
-            'members' => $members,
-            'pending' => $box->pending($company),
+            'decisionsPreview' => $decisionsPreview,
             'counts' => $this->taskCounts($company),
             'credits' => $this->credits($company),
             'digest' => $company->orgEvents()->where('type', 'daily_digest')->latest('id')->first(),
@@ -96,11 +95,18 @@ class OrgDashboardController extends Controller
         $completed = AssistantTask::whereIn('org_member_id', $assistantIds)
             ->whereHas('flow.flowRuns', fn ($q) => $q->where('status', 'completed'))->count();
 
+        // Задачи, чакащи знание (§2-етапни задачи) — изискват въвеждане от Управителя преди старт.
+        $needsKnowledge = AssistantTask::whereIn('org_member_id', $assistantIds)
+            ->where('knowledge_status', 'needs_knowledge')
+            ->whereIn('status', ['ready', 'proposed', 'failed'])->count();
+
         return [
             'ready' => (int) ($byStatus['ready'] ?? 0),
+            'generating' => (int) ($byStatus['generating'] ?? 0),
             'pending_approval' => (int) ($byStatus['pending_approval'] ?? 0),
             'completed' => $completed,
             'rejected' => (int) ($byStatus['rejected'] ?? 0),
+            'needs_knowledge' => $needsKnowledge,
         ];
     }
 

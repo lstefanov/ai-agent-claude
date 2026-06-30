@@ -17,7 +17,14 @@ use Illuminate\Support\Facades\Storage;
  */
 class AvatarService
 {
-    public function __construct(private ComfyUIService $comfy) {}
+    private const SEED_ATTEMPT_STEP = 1_000_003;
+
+    private const SEED_REGEN_STEP = 7_919_191;
+
+    public function __construct(
+        private ComfyUIService $comfy,
+        private AvatarQualityGate $qualityGate,
+    ) {}
 
     /**
      * Детерминистичен английски SD портретен промпт САМО от демографията (gender/age/
@@ -27,7 +34,7 @@ class AvatarService
     public function portraitPrompt(Persona $p): string
     {
         $age = $p->age ? (int) $p->age : null;
-        $ethnicity = $this->sanitize($p->ethnicity);
+        $ethnicity = $this->ethnicityWord($p->ethnicity);
         $gender = $this->genderWord($p->gender);
 
         $subject = trim(implode(' ', array_filter([
@@ -39,20 +46,22 @@ class AvatarService
             $subject = 'person';
         }
 
-        // Изражението е ФИКСИРАНО/неутрално — не идва от tone.
-        return "professional corporate headshot portrait of a {$subject}, neutral confident expression, "
-            .'soft studio lighting, neutral background, photorealistic, sharp focus, 4K, DSLR portrait';
+        return "professional corporate headshot portrait of a single {$subject}, one face only, centered, "
+            .'looking at camera, neutral confident expression, full color photograph, soft studio lighting, '
+            .'clean solid neutral background, no border, no frame, no collage, photorealistic, sharp focus, DSLR portrait';
     }
 
     /**
      * Стабилен seed per член = детерминистичен хеш на org_member_id + демографския подпис
      * (gender|age|ethnicity) → стабилен портрет при ре-рендер, но СЕ СМЕНЯ щом демографията се смени.
      */
-    public function seedFor(Persona $p): int
+    public function seedFor(Persona $p, int $attempt = 0): int
     {
         $signature = $p->org_member_id.'|'.$p->gender.'|'.$p->age.'|'.$p->ethnicity;
+        $base = (int) (hexdec(substr(md5($signature), 0, 7)) % 999_999_999) + 1;
+        $salt = (int) (is_array($p->avatar_meta) ? ($p->avatar_meta['regen_salt'] ?? 0) : 0);
 
-        return (int) (hexdec(substr(md5($signature), 0, 7)) % 999_999_999) + 1;
+        return $base + ($salt * self::SEED_REGEN_STEP) + ($attempt * self::SEED_ATTEMPT_STEP);
     }
 
     /**
@@ -67,51 +76,45 @@ class AvatarService
         }
 
         if (! $this->comfy->isAvailable()) {
-            $p->update(['avatar_status' => 'pending']);   // UI fallback инициали + по-късен retry
+            $p->update(['avatar_status' => 'pending']);
 
             return;
         }
 
         try {
             $prompt = $this->portraitPrompt($p);
-            $seed = $this->seedFor($p);
+            $result = $this->renderWithQualityRetries($prompt, fn (int $seed) => $this->seedFor($p, $seed));
 
-            $workflow = $this->comfy->buildWorkflow($prompt, [
-                'seed' => $seed,
-                'checkpoint' => (string) config('services.comfyui.portrait_checkpoint'),
-                'negative' => (string) config('services.comfyui.portrait_negative'),
-            ]);
-
-            $promptId = $this->comfy->generate($workflow);
-            $url = $this->comfy->getResult($promptId);
-
-            if (! $url) {
-                $p->update(['avatar_status' => 'failed']);
+            if ($result === null) {
+                $p->update([
+                    'avatar_status' => 'failed',
+                    'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
+                        'quality_reason' => 'max_attempts_exceeded',
+                        'attempts' => (int) config('services.comfyui.portrait_max_attempts', 4),
+                    ]),
+                ]);
 
                 return;
             }
 
-            // Копираме рендера към СТАБИЛЕН път, за да е URL-ът постоянен между ре-рендери.
             $disk = Storage::disk('public');
-            $src = "generated/{$promptId}.png";
             $dst = "avatars/member_{$p->org_member_id}.png";
-            if ($disk->exists($src)) {
-                $disk->put($dst, $disk->get($src));
-            }
+            $disk->put($dst, $disk->get($result['src']));
             $stableUrl = $disk->url($dst);
 
             $p->update([
                 'avatar_url' => $stableUrl,
                 'avatar_prompt' => $prompt,
-                'avatar_seed' => $seed,
+                'avatar_seed' => $result['seed'],
                 'avatar_status' => 'ready',
-                'avatar_meta' => [
+                'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
                     'checkpoint' => config('services.comfyui.portrait_checkpoint'),
-                    'prompt_id' => $promptId,
-                ],
+                    'prompt_id' => $result['prompt_id'],
+                    'attempts' => $result['attempt'],
+                    'quality_reason' => null,
+                ]),
             ]);
 
-            // Денормализиран avatar_url в org_members (за бързи roster заявки).
             $p->orgMember?->update(['avatar_url' => $stableUrl]);
         } catch (\Throwable $e) {
             Log::warning('[Avatar] generate failed for persona '.$p->id.': '.$e->getMessage());
@@ -155,7 +158,6 @@ class AvatarService
         }
 
         try {
-            // Транзитна персона само за да преизползваме portraitPrompt() (демография → промпт).
             $proxy = new Persona([
                 'age' => $arch->age,
                 'gender' => $arch->gender,
@@ -163,25 +165,20 @@ class AvatarService
             ]);
 
             $prompt = $this->portraitPrompt($proxy);
-            $seed = (int) (hexdec(substr(md5('archetype|'.$arch->name.'|'.$arch->gender.'|'.$arch->age.'|'.$arch->ethnicity), 0, 7)) % 999_999_999) + 1;
+            $baseSeed = (int) (hexdec(substr(md5('archetype|'.$arch->name.'|'.$arch->gender.'|'.$arch->age.'|'.$arch->ethnicity), 0, 7)) % 999_999_999) + 1;
 
-            $workflow = $this->comfy->buildWorkflow($prompt, [
-                'seed' => $seed,
-                'checkpoint' => (string) config('services.comfyui.portrait_checkpoint'),
-                'negative' => (string) config('services.comfyui.portrait_negative'),
-            ]);
+            $result = $this->renderWithQualityRetries(
+                $prompt,
+                fn (int $attempt) => $baseSeed + ($attempt * self::SEED_ATTEMPT_STEP),
+            );
 
-            $promptId = $this->comfy->generate($workflow);
-            $url = $this->comfy->getResult($promptId);
-
-            if (! $url) {
+            if ($result === null) {
                 return false;
             }
 
             $disk = Storage::disk('public');
-            $src = "generated/{$promptId}.png";
-            if ($disk->exists($src)) {
-                $disk->put($arch->avatar_path, $disk->get($src));
+            if ($disk->exists($result['src'])) {
+                $disk->put($arch->avatar_path, $disk->get($result['src']));
 
                 return true;
             }
@@ -213,7 +210,6 @@ class AvatarService
             return false;
         }
 
-        // Демографията трябва да съвпада — иначе готовият портрет вече не отговаря → рендираме наново.
         $same = (int) $p->age === (int) $arch->age
             && mb_strtolower(trim((string) $p->gender)) === mb_strtolower(trim((string) $arch->gender))
             && mb_strtolower(trim((string) $p->ethnicity)) === mb_strtolower(trim((string) $arch->ethnicity));
@@ -242,6 +238,66 @@ class AvatarService
         return true;
     }
 
+    /**
+     * @param  callable(int): int  $seedForAttempt  attempt index → seed
+     * @return array{src: string, seed: int, prompt_id: string, attempt: int}|null
+     */
+    private function renderWithQualityRetries(string $prompt, callable $seedForAttempt): ?array
+    {
+        $maxAttempts = max(1, (int) config('services.comfyui.portrait_max_attempts', 4));
+        $disk = Storage::disk('public');
+        $lastReason = null;
+
+        for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
+            $seed = $seedForAttempt($attempt);
+
+            $workflow = $this->comfy->buildWorkflow($prompt, [
+                'seed' => $seed,
+                'checkpoint' => (string) config('services.comfyui.portrait_checkpoint'),
+                'negative' => (string) config('services.comfyui.portrait_negative'),
+                'width' => (int) config('services.comfyui.portrait_width'),
+                'height' => (int) config('services.comfyui.portrait_height'),
+                'steps' => (int) config('services.comfyui.portrait_steps'),
+            ]);
+
+            $promptId = $this->comfy->generate($workflow);
+            $url = $this->comfy->getResult($promptId);
+
+            if (! $url) {
+                $lastReason = 'comfyui_timeout';
+
+                continue;
+            }
+
+            $src = "generated/{$promptId}.png";
+            if (! $disk->exists($src)) {
+                $lastReason = 'missing_output';
+
+                continue;
+            }
+
+            $absolute = $disk->path($src);
+            $check = $this->qualityGate->passes($absolute);
+            if (! $check['ok']) {
+                $lastReason = $check['reason'];
+                Log::info("[Avatar] quality reject attempt {$attempt}: {$lastReason} (seed {$seed})");
+
+                continue;
+            }
+
+            return [
+                'src' => $src,
+                'seed' => $seed,
+                'prompt_id' => $promptId,
+                'attempt' => $attempt + 1,
+            ];
+        }
+
+        Log::warning('[Avatar] all attempts failed'.($lastReason ? ": {$lastReason}" : ''));
+
+        return null;
+    }
+
     /** Превежда пол → английска дума за промпта (whitelist). */
     private function genderWord(?string $gender): string
     {
@@ -252,11 +308,46 @@ class AvatarService
         };
     }
 
-    /** Whitelist санитизация на свободни демографски стрингове преди SD промпта. */
-    private function sanitize(?string $value): string
+    /** Произход → английска дума за SD (CLIP не разбира кирилица). */
+    private function ethnicityWord(?string $ethnicity): string
     {
-        $clean = preg_replace('/[^\p{L}\s\-]/u', '', (string) $value);
+        $raw = mb_strtolower(trim((string) $ethnicity));
+        if ($raw === '') {
+            return '';
+        }
 
-        return trim(mb_substr((string) $clean, 0, 40));
+        $map = [
+            'българин' => 'Bulgarian',
+            'българка' => 'Bulgarian',
+            'български' => 'Bulgarian',
+            'bulgarian' => 'Bulgarian',
+            'румънин' => 'Romanian',
+            'румънка' => 'Romanian',
+            'romanian' => 'Romanian',
+            'грък' => 'Greek',
+            'гъркиня' => 'Greek',
+            'greek' => 'Greek',
+            'германец' => 'German',
+            'германка' => 'German',
+            'german' => 'German',
+            'турчин' => 'Turkish',
+            'туркиня' => 'Turkish',
+            'turkish' => 'Turkish',
+            'сърбин' => 'Serbian',
+            'сръбкиня' => 'Serbian',
+            'serbian' => 'Serbian',
+        ];
+
+        if (isset($map[$raw])) {
+            return $map[$raw];
+        }
+
+        if (preg_match('/[\p{Cyrillic}]/u', $raw)) {
+            return 'Eastern European';
+        }
+
+        $ascii = preg_replace('/[^\p{L}\s\-]/u', '', $raw);
+
+        return trim(mb_substr((string) $ascii, 0, 40));
     }
 }

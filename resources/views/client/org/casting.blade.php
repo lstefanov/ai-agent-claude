@@ -3,7 +3,7 @@
 @section('title', 'Наеми Управител')
 
 @section('content')
-<div class="max-w-5xl mx-auto px-6 py-8" x-data="casting()">
+<div x-data="casting()">
     <header class="mb-8 flex items-start justify-between gap-4">
         <div>
             <p class="text-xs font-mono uppercase tracking-wider text-muted mb-1">Стъпка 1 от 3 · Casting</p>
@@ -84,13 +84,13 @@
 
                 @include('client.org._persona-fields', ['modelPrefix' => 'form', 'withNames' => true])
 
-                <div class="pt-1">
-                    {{-- Идле: бутон „Наеми" --}}
-                    <div class="flex justify-end" x-show="!creating">
-                        <x-button type="submit" x-bind:disabled="!form.name.trim()">Наеми Управителя</x-button>
+                <div class="pt-1 space-y-2">
+                    <div class="flex justify-end">
+                        <x-org.busy-button type="submit" busy="creating" loading-text="Създавам Управителя…"
+                                           x-bind:disabled="!form.name.trim()">Наеми Управителя</x-org.busy-button>
                     </div>
 
-                    {{-- Зает: прогрес бар докато се рендира портретът на Управителя --}}
+                    {{-- Прогрес бар докато се рендира портретът на Управителя --}}
                     <div x-show="creating" x-cloak class="space-y-2">
                         <div class="flex items-center justify-between text-xs">
                             <span class="inline-flex items-center gap-2 text-muted"><x-org.bolt-spinner size="16" />Създавам Управителя и генерирам неговия аватар…</span>

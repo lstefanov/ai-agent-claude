@@ -1,5 +1,5 @@
 {{-- Карта на задача (§5.2). $task = AssistantTask (с orgMember.persona, flow.latestRun).
-     $mode = 'proposed' | 'ready' | 'executed' | 'rejected' — определя действията. --}}
+     $mode = 'proposed' | 'ready' | 'generating' | 'executed' | 'rejected' — определя действията. --}}
 @php
     $levels = ['low' => '★', 'medium' => '★★', 'high' => '★★★', 'ultra' => '★★★★', 'god' => '★★★★★'];
     $statusMap = [
@@ -34,6 +34,13 @@
     $flow = $task->flow;
     $lastRun = $flow?->latestRun;
     $initial = mb_strtoupper(mb_substr($member?->fullName() ?? '?', 0, 1));
+    $needsKnowledge = $task->knowledge_status === 'needs_knowledge';
+    $kreqs = $task->relationLoaded('knowledgeRequirements')
+        ? $task->knowledgeRequirements->map(fn ($r) => [
+            'key' => $r->key, 'label' => $r->label, 'sourceability' => $r->sourceability,
+            'status' => $r->status, 'acknowledged' => $r->acknowledged, 'how_to_provide' => $r->how_to_provide,
+        ])->values()
+        : collect();
 @endphp
 <div class="rounded-xl border border-line bg-surface p-4 space-y-3">
     {{-- Хедър: служител + ниво + статус --}}
@@ -100,7 +107,8 @@
             <span class="text-xs text-subtle tabular-nums">
                 @if (isset($est['credits'])) ~{{ $est['credits'] }} кредита @endif
             </span>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
+                <a href="{{ route('client.org.decisions') }}" class="text-xs text-primary hover:text-primary-hover">Виж в Предложения</a>
                 <button type="button" x-on:click="reject({{ $task->id }})" class="text-sm text-danger hover:text-danger-strong font-medium">Отхвърли</button>
                 <x-button size="sm" variant="secondary" x-on:click="approve({{ $task->id }}, false)">Одобри</x-button>
                 <x-button size="sm" x-on:click="approve({{ $task->id }}, true)">Одобри и пусни</x-button>
@@ -108,11 +116,42 @@
         </div>
     @endif
 
-    {{-- Готова: ръчно пускане --}}
+    {{-- Генерира се: flow в процес на създаване (без „Изпълни") --}}
+    @if ($mode === 'generating')
+        @php
+            $genStatusUrl = $task->gen_token
+                ? route('client.org.tasks.gen-status', ['task' => $task->id, 'token' => $task->gen_token])
+                : null;
+        @endphp
+        <div class="rounded-lg bg-surface-subtle p-3 space-y-2"
+             x-data="taskGenPoll({ taskId: {{ $task->id }}, token: @js($task->gen_token), statusUrl: @js($genStatusUrl) })">
+            <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="inline-flex items-center gap-1.5 text-muted">
+                    <span class="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"></span>
+                    <span x-text="failed ? 'Провалена генерация' : 'Генерира се flow…'"></span>
+                </span>
+                <span class="tabular-nums text-subtle" x-show="!failed" x-text="Math.round(progress) + '%'"></span>
+            </div>
+            <p class="text-sm text-ink" x-text="stage"></p>
+            <div class="h-1.5 w-full rounded-full bg-surface overflow-hidden" x-show="!failed">
+                <div class="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                     :style="'width:' + progress + '%'"></div>
+            </div>
+            <p class="text-xs text-subtle" x-show="!failed">Остава неизвестно — зависи от сложността на задачата.</p>
+            <div class="flex items-center justify-between gap-2 pt-1" x-show="failed">
+                <a href="{{ route('client.org.member', $task->org_member_id) }}" class="text-xs text-primary hover:text-primary-hover">Към профила на служителя →</a>
+            </div>
+        </div>
+    @endif
+
+    {{-- Готова: ръчно пускане (или „Добави знания", ако липсва информация — §2-етапни задачи) --}}
     @if ($mode === 'ready')
         <div class="flex items-center justify-between gap-2 pt-1">
             <a href="{{ route('client.org.member', $task->org_member_id) }}" class="text-xs text-primary hover:text-primary-hover">Профил на служителя →</a>
-            @if ($task->trigger === 'manual')
+            @if ($needsKnowledge)
+                <x-button size="sm" variant="secondary" icon="book-open"
+                          x-on:click="$dispatch('knowledge-open', { taskId: {{ $task->id }}, requirements: {{ \Illuminate\Support\Js::from($kreqs) }} })">Добави знания</x-button>
+            @elseif ($task->trigger === 'manual')
                 <x-button size="sm" x-on:click="run({{ $task->id }})">Изпълни</x-button>
             @else
                 <span class="text-xs text-subtle">по график: {{ $task->schedule }}</span>

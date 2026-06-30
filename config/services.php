@@ -303,6 +303,21 @@ return [
                 'provider' => env('ORG_DIRECTOR_TICK_PROVIDER'),
                 'model' => env('ORG_DIRECTOR_TICK_MODEL'),
             ],
+            // Управителски преглед (§7.1 OrgReviewService::propose): KPI/отчети/болки →
+            // структурираниOrgProposal (hire/fire/mandate/task). Пада към GENERATOR_PROVIDER
+            // (локален Ollama). За чиста кирилица и бързина — евтин cloud (gemini-3.1-flash-lite
+            // / gpt-4o-mini) или локалния bggpt тунинг. Карти в Кутията идват оттук.
+            'org_review' => [
+                'provider' => env('ORG_REVIEW_PROVIDER'),
+                'model' => env('ORG_REVIEW_MODEL'),
+            ],
+            // Чат с член (§12 MemberChatService): персона-консистентен диалог с асистент/директор
+            // + може да предложи действие (org_proposal). Пада към GENERATOR_PROVIDER (локален
+            // Ollama). Съветът за български е същият като director_tick/org_review.
+            'member_chat' => [
+                'provider' => env('MEMBER_CHAT_PROVIDER'),
+                'model' => env('MEMBER_CHAT_MODEL'),
+            ],
         ],
         // Именувани хибридни комбинации за A/B: flows:plan-ab {id} --variant=hybrid
         // Фази: intent | design | critique | revision; стойност: provider[:model].
@@ -550,7 +565,16 @@ return [
         // fallback към основния checkpoint/negative_prompt, не дублира клиента).
         'portrait_checkpoint' => env('COMFYUI_PORTRAIT_CHECKPOINT', env('COMFYUI_CHECKPOINT')), // null → основният checkpoint
         'portrait_negative' => env('COMFYUI_PORTRAIT_NEGATIVE',                                  // face-friendly негатив за портрети
-            'deformed face, distorted face, extra fingers, mutated hands, asymmetric eyes, cross-eyed, blurry, watermark, text, signature, cartoon, anime, 3d render'),
+            'deformed face, distorted face, extra fingers, mutated hands, asymmetric eyes, cross-eyed, blurry, '
+            .'black and white, grayscale, monochrome, sepia, frame, border, picture frame, collage, grid, split screen, '
+            .'contact sheet, multiple people, multiple faces, photo booth, film strip, passport frame, letterbox, '
+            .'UI overlay, text, numbers, watermark, signature, cartoon, anime, 3d render'),
+        // Портретите се показват най-много на 96px → по-малък рендер/по-малко стъпки = ~2-3× по-бърза
+        // генерация без видима загуба (само за аватарите; общите image-агенти остават 1024×1024/25).
+        'portrait_width' => (int) env('COMFYUI_PORTRAIT_WIDTH', 512),
+        'portrait_height' => (int) env('COMFYUI_PORTRAIT_HEIGHT', 512),
+        'portrait_steps' => (int) env('COMFYUI_PORTRAIT_STEPS', 15),
+        'portrait_max_attempts' => (int) env('COMFYUI_PORTRAIT_MAX_ATTEMPTS', 4),
     ],
 
     'crawl' => [

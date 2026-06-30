@@ -10,7 +10,7 @@
     <div class="flex items-center justify-between gap-4">
         <div>
             <h1 class="text-2xl font-semibold text-ink">Табло</h1>
-            <p class="text-muted">{{ $company->name }} — преглед на екипа и текущата работа.</p>
+            <p class="text-muted">{{ $company->name }} — преглед на текущата работа.</p>
         </div>
         <div class="flex items-center gap-2">
             @include('client.org._wizard-reset')
@@ -18,19 +18,37 @@
         </div>
     </div>
 
+    {{-- Банер: задачи, чакащи знание (§2-етапни задачи) --}}
+    <a href="{{ route('client.org.decisions') }}" x-show="(state.task_counts.needs_knowledge || 0) > 0" x-cloak
+       class="flex items-center gap-3 rounded-xl border border-char-amber-soft bg-char-amber-soft/40 px-4 py-3 transition hover:border-char-amber">
+        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-char-amber-soft text-char-amber-strong"><x-icon name="book-open" size="4" /></span>
+        <p class="text-sm text-ink">
+            <span class="font-semibold tabular-nums" x-text="state.task_counts.needs_knowledge"></span>
+            <span x-text="(state.task_counts.needs_knowledge === 1) ? 'задача чака да въведеш информация' : 'задачи чакат да въведеш информация'"></span>,
+            преди да могат да се изпълнят.
+        </p>
+        <span class="ml-auto text-xs font-medium text-char-amber-strong">Виж →</span>
+    </a>
+
     {{-- Бързи числа --}}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <a href="{{ route('client.org.tasks.index') }}" class="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition">
-            <p class="text-xs text-muted">Предложени</p>
-            <p class="text-2xl font-semibold text-ink tabular-nums" x-text="state.task_counts.pending_approval">{{ $counts['pending_approval'] }}</p>
-        </a>
-        <a href="{{ route('client.org.tasks.index') }}" class="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition">
+        <a href="{{ route('client.org.tasks.index', ['tab' => 'ready']) }}" class="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition">
             <p class="text-xs text-muted">За изпълнение</p>
-            <p class="text-2xl font-semibold text-ink tabular-nums" x-text="state.task_counts.ready">{{ $counts['ready'] }}</p>
+            <p class="text-2xl font-semibold text-ink tabular-nums" x-text="(state.task_counts.ready || 0) + (state.task_counts.generating || 0)">{{ $counts['ready'] + $counts['generating'] }}</p>
+            <p class="text-xs text-subtle" x-show="(state.task_counts.generating || 0) > 0">
+                <span x-text="state.task_counts.generating"></span> генерират flow
+            </p>
         </a>
+        @if ($counts['pending_approval'] > 0)
+            <a href="{{ route('client.org.tasks.index', ['tab' => 'proposed']) }}" class="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition">
+                <p class="text-xs text-muted">Чака преглед на flow</p>
+                <p class="text-2xl font-semibold text-ink tabular-nums" x-text="state.task_counts.pending_approval">{{ $counts['pending_approval'] }}</p>
+                <p class="text-xs text-subtle">Одобри дизайна в Предложения</p>
+            </a>
+        @endif
         <a href="{{ route('client.org.decisions') }}" class="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition">
-            <p class="text-xs text-muted">Чакат решение</p>
-            <p class="text-2xl font-semibold text-ink tabular-nums">{{ $pending->count() }}</p>
+            <p class="text-xs text-muted">Предложения</p>
+            <p class="text-2xl font-semibold text-ink tabular-nums">{{ $decisionsPreview['total'] }}</p>
         </a>
         <a href="{{ route('client.org.billing') }}" class="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition">
             <p class="text-xs text-muted">Кредити</p>
@@ -61,7 +79,10 @@
         <div class="lg:col-span-2 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-semibold text-ink">Текущ поток</h2>
-                <span class="text-xs text-subtle" role="status" aria-live="polite" x-text="polling ? 'обновява се…' : ''"></span>
+                <div class="flex items-center gap-3 shrink-0">
+                    <span class="text-xs text-subtle" role="status" aria-live="polite" x-text="polling ? 'обновява се…' : ''"></span>
+                    <a href="{{ route('client.org.live') }}" class="text-xs text-primary hover:text-primary-hover">Детайли →</a>
+                </div>
             </div>
 
             <template x-if="state.active_runs.length === 0 && state.recent_runs.length === 0">
@@ -107,40 +128,30 @@
 
         {{-- Странична колона --}}
         <div class="space-y-6">
-            {{-- Чакащи решения --}}
+            {{-- Чакащи предложения --}}
             <div class="rounded-xl border border-line bg-surface p-4">
-                <div class="flex items-center justify-between mb-2">
-                    <h2 class="text-sm font-semibold text-ink">Чакащи решения</h2>
+                <div class="flex items-center justify-between mb-1">
+                    <h2 class="text-sm font-semibold text-ink">Чакащи предложения</h2>
                     <a href="{{ route('client.org.decisions') }}" class="text-xs text-primary hover:text-primary-hover">Виж всички →</a>
                 </div>
-                @forelse ($pending->take(4) as $d)
-                    <div class="py-2 border-t border-line first:border-t-0 text-sm">
-                        <p class="text-ink truncate">{{ $d['title'] ?? ($d['type'] ?? ($d['node_name'] ?? 'Решение')) }}</p>
-                        <p class="text-xs text-subtle">{{ $d['kind'] === 'assistant_task' ? 'Предложена задача' : ($d['kind'] === 'run_approval' ? 'Одобрение на изпълнение' : 'Структурно предложение') }}</p>
+                @if ($decisionsPreview['total'] > 0)
+                    <div class="flex flex-wrap items-center gap-1.5 mb-2 text-[10px] text-muted">
+                        @if ($decisionsPreview['counts']['structural'] > 0)
+                            <span class="rounded-full border border-line bg-surface-subtle px-2 py-0.5">Структурни: {{ $decisionsPreview['counts']['structural'] }}</span>
+                        @endif
+                        @if ($decisionsPreview['counts']['tasks'] > 0)
+                            <span class="rounded-full border border-line bg-surface-subtle px-2 py-0.5">Задачи: {{ $decisionsPreview['counts']['tasks'] }}</span>
+                        @endif
+                        @if ($decisionsPreview['counts']['runs'] > 0)
+                            <span class="rounded-full border border-line bg-surface-subtle px-2 py-0.5">Изпълнения: {{ $decisionsPreview['counts']['runs'] }}</span>
+                        @endif
                     </div>
+                @endif
+                @forelse ($decisionsPreview['items'] as $item)
+                    @include('client.org._dashboard-decision-row', ['item' => $item])
                 @empty
-                    <p class="text-sm text-muted">Няма чакащи решения.</p>
+                    <p class="text-sm text-muted py-2">Няма чакащи предложения.</p>
                 @endforelse
-            </div>
-
-            {{-- Екип --}}
-            <div class="rounded-xl border border-line bg-surface p-4">
-                <div class="flex items-center justify-between mb-2">
-                    <h2 class="text-sm font-semibold text-ink">Екип</h2>
-                    <a href="{{ route('client.org.skill-tree') }}" class="text-xs text-primary hover:text-primary-hover">Карта на уменията →</a>
-                </div>
-                <div class="space-y-2">
-                    @foreach ($members->take(6) as $m)
-                        @php $c = $m->functionColor(); @endphp
-                        <a href="{{ route('client.org.member', $m->id) }}" class="flex items-center gap-2 text-sm hover:text-ink">
-                            <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-char-{{ $c }}-soft text-char-{{ $c }}-strong text-xs font-semibold">{{ mb_strtoupper(mb_substr($m->fullName(), 0, 1)) }}</span>
-                            <span class="min-w-0 flex-1">
-                                <span class="text-ink truncate block leading-tight">{{ $m->fullName() }}</span>
-                                <span class="text-xs text-subtle truncate block leading-tight">{{ $m->roleTitle() }}</span>
-                            </span>
-                        </a>
-                    @endforeach
-                </div>
             </div>
         </div>
     </div>

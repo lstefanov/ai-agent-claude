@@ -23,7 +23,32 @@
     ];
     $grouped = $events->groupBy(fn ($e) => optional($e->created_at)->format('Y-m-d') ?? '');
 @endphp
-<div x-data="{ busy: false, msg: '', filter: 'all' }">
+<div x-data="{
+    busy: false,
+    msg: '',
+    msgError: false,
+    filter: 'all',
+    runReview() {
+        if (this.busy) return;
+        this.busy = true;
+        this.msg = '';
+        this.msgError = false;
+        fetch('{{ route('client.org.review') }}', {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
+        })
+            .then(r => r.json().then(d => ({ ok: r.ok, d })))
+            .then(({ ok, d }) => {
+                this.msg = d.message || (ok ? 'Готово.' : 'Грешка.');
+                this.msgError = ! ok || d.ok === false;
+            })
+            .catch(() => {
+                this.msg = 'Възникна грешка — опитай отново.';
+                this.msgError = true;
+            })
+            .finally(() => { this.busy = false; });
+    },
+}">
     <div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <div>
             <h1 class="text-2xl font-semibold text-ink">Хроника на организацията</h1>
@@ -37,12 +62,13 @@
                 <option value="review">Ревюта</option>
                 <option value="knowledge_added">Знание</option>
             </select>
-            <x-button size="sm" variant="secondary" x-bind:disabled="busy"
-                x-on:click="busy = true; fetch('{{ route('client.org.review') }}', { method: 'POST', headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' } }).then(r => r.json()).then(d => { msg = d.message || ''; busy = false; })">
+            <x-button size="sm" variant="secondary" x-bind:disabled="busy" x-on:click="runReview()">
                 Пусни ревю сега</x-button>
         </div>
     </div>
-    <p x-show="msg" x-text="msg" class="text-sm text-success-strong mb-4"></p>
+    <p x-show="msg" x-text="msg"
+        class="text-sm mb-4"
+        x-bind:class="msgError ? 'text-danger' : 'text-success-strong'"></p>
 
     @if ($events->isEmpty())
         <x-empty-state title="Празна история" description="Събитията се появяват тук с развитието на организацията." />

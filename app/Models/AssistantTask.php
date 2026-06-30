@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\ModelLevel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AssistantTask extends Model
 {
@@ -13,6 +14,7 @@ class AssistantTask extends Model
         'title', 'description', 'trigger', 'schedule', 'act_mode',
         'approval_policy', 'star_tier', 'tier_stale', 'kpi', 'status', 'gen_token',
         'run_after_generate', 'proposal',
+        'knowledge_status', 'knowledge_evaluated_at',
         'approved_at', 'approved_by', 'rejected_at', 'rejected_by', 'rejection_reason',
     ];
 
@@ -20,6 +22,7 @@ class AssistantTask extends Model
         'run_after_generate' => 'boolean',
         'tier_stale' => 'boolean',
         'proposal' => 'array',
+        'knowledge_evaluated_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
     ];
@@ -39,6 +42,24 @@ class AssistantTask extends Model
     public function flow(): BelongsTo
     {
         return $this->belongsTo(Flow::class);
+    }
+
+    /** Изискванията за знание на задачата (§2-етапни задачи). */
+    public function knowledgeRequirements(): HasMany
+    {
+        return $this->hasMany(AssistantTaskKnowledgeRequirement::class);
+    }
+
+    /** Задачата чака знание от Управителя преди да може да се изпълни/генерира. */
+    public function needsKnowledge(): bool
+    {
+        return $this->knowledge_status === 'needs_knowledge';
+    }
+
+    /** Знанието още не е оценявано (нова задача или backfill) → пре-оценка при първи екран/run. */
+    public function knowledgeUnknown(): bool
+    {
+        return $this->knowledge_status === 'unknown';
     }
 
     /** Задачата извършва реално действие (write конектор), не само чернова. */

@@ -137,7 +137,8 @@ class BusinessProfilerService
      */
     public function synthesizeFeedback(BusinessProfile $profile, ?callable $onStage = null): void
     {
-        if ($profile->synthesis_completed_at) {
+        $version = $profile->transcriptVersion();
+        if ($profile->synthesis_completed_at && (int) $profile->synthesis_version === $version) {
             return;
         }
 
@@ -174,6 +175,7 @@ class BusinessProfilerService
             'needs' => $clean($raw['needs'] ?? []),
             'opportunities' => $clean($raw['opportunities'] ?? []),
             'synthesis_completed_at' => now(),
+            'synthesis_version' => $version,
         ]);
     }
 

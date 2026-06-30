@@ -36,15 +36,11 @@
 
         {{-- Старт / прогрес --}}
         <div x-show="!done">
-            <template x-if="!running">
-                <x-button x-on:click="start()">Стартирай проучването</x-button>
-            </template>
-            <template x-if="running">
-                <div class="flex items-center gap-3 text-sm text-muted">
-                    <x-org.bolt-spinner size="22" />
-                    <span x-text="stage || 'Проучвам…'"></span>
-                </div>
-            </template>
+            <x-org.busy-button busy="running" loading-text="Изпълнява се…" :spinner="false" x-on:click="start()">Стартирай проучването</x-org.busy-button>
+            <p x-show="running" x-cloak class="mt-3 flex items-center gap-2 text-sm text-muted">
+                <x-org.bolt-spinner :size="16" />
+                <span x-text="stage || 'Проучвам…'"></span>
+            </p>
             <p x-show="error" x-text="error" class="text-sm text-danger mt-3"></p>
         </div>
 

@@ -117,6 +117,14 @@ class OrgMember extends Model
     /** Стабилен функционален цвят (домейн → цвят, §10.1) — не member.id % 7. */
     public function functionColor(): string
     {
+        // Явен цвят на отдела (override на Director-плейсмънта) бие домейна — каскадира към асистентите.
+        $placement = $this->placement();
+        $dirPlacement = $placement instanceof Director ? $placement
+            : ($placement instanceof Assistant ? $placement->director : null);
+        if ($dirPlacement && ! empty($dirPlacement->color)) {
+            return (string) $dirPlacement->color;
+        }
+
         $domain = mb_strtolower((string) $this->resolveDomain());
         foreach ((array) config('organization.function_colors', []) as $needle => $color) {
             if ($domain !== '' && str_contains($domain, mb_strtolower((string) $needle))) {

@@ -18,8 +18,6 @@
     $busyAssistants = $rows->filter(fn ($r) => $r['active']->isNotEmpty())->count();
 @endphp
 <div>
-    @include('client.org._lens-tabs', ['active' => 'live'])
-
     <h1 class="text-2xl font-semibold text-ink mb-1">Текущ поток</h1>
     <p class="text-muted mb-4">Снимка на текущата работа. За живо проследяване без презареждане виж <a href="{{ route('client.org.dashboard') }}" class="text-primary hover:text-primary-hover">Табло</a>.</p>
 

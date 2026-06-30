@@ -60,13 +60,168 @@ class OrgInterviewService
             // Depth LLM не върна въпрос → НЕ блокирай онбординга; обзорът вече дава пълнотата.
         }
 
-        // Всичко покрито (или достигнат лимит) → готови.
+        // Всичко покрито (или достигнат лимит) → готови / follow-up.
+        if (preg_match('/^Отговор на «followup_/u', trim($userInput))) {
+            $onStage && $onStage('Отговарям…');
+            $display = preg_replace('/^Отговор на «followup_[^»]+»:\s*/u', '', trim($userInput));
+
+            return $this->followUpAck($profile, $display, $selected);
+        }
+
+        if ($this->isFreeTextFollowUp($userInput)) {
+            $onStage && $onStage('Отговарям…');
+
+            return $this->followUpReply($profile, $userInput, $selected);
+        }
+
         return [
             'phase' => 'ready',
             'reply' => 'Имам ясна и пълна представа за нуждите ви. Да сглобим екипа.',
             'question' => null,
             'recap' => $this->recap($selected),
             'cost_usd' => 0.0,
+        ];
+    }
+
+    /** Свободен текст след структурираните въпроси (не празен старт, не checkbox отговор). */
+    private function isFreeTextFollowUp(string $userInput): bool
+    {
+        $text = trim($userInput);
+
+        return $text !== '' && ! str_starts_with($text, 'Отговор на «');
+    }
+
+    /**
+     * Follow-up след завършено интервю: памет на целия разговор + проактивен режим
+     * (може да върне нов структуриран въпрос при нова нужда).
+     *
+     * @param  array<int, string>  $selected
+     * @return array{phase: string, reply: string, question: ?array, recap: array, cost_usd: float}
+     */
+    private function followUpReply(BusinessProfile $profile, string $userInput, array $selected): array
+    {
+        $company = $profile->company;
+        $answers = (array) $profile->interview_answers;
+        $followups = count(array_filter(
+            array_keys($answers),
+            fn ($k) => str_starts_with((string) $k, 'followup_'),
+        ));
+        $maxFollowups = (int) config('organization.manager.max_followup_questions', 3);
+        $canAskMore = $followups < $maxFollowups;
+
+        $coveredLabels = array_values(array_filter(array_map(
+            fn ($d) => $this->interviewAreas()[$d] ?? null,
+            $selected,
+        )));
+
+        $system = <<<'TXT'
+Ти си Управителят — вече си провел интервюто и имаш ясна представа за бизнеса.
+Прочети целия разговор по-долу и отговори на последното съобщение на собственика (на български).
+TXT;
+        if ($canAskMore) {
+            $system .= "\n".<<<'TXT'
+АКТИВНО: ако съобщението разкрива НОВА нужда или област (не сред вече покритите), върни phase="interview" + един структуриран въпрос с 3–5 опции (input_type="checkbox", allow_other=true).
+Иначе phase="ready" с кратък разговорен отговор в 1–3 изречения.
+Не повтаряй вече зададени въпроси от разговора.
+TXT;
+        } else {
+            $system .= "\n".<<<'TXT'
+Вече си задал достатъчно уточнения — върни phase="ready" с кратък разговорен отговор в 1–3 изречения.
+Ако питат за следващи стъпки, насочи ги към анализа и сглобяването на екипа.
+TXT;
+        }
+        $system .= "\n".PromptData::NO_TECH_TERMS;
+
+        $user = "Бизнес: {$company?->name} ({$company?->industry}).\n"
+            .'Ситуационен анализ:'."\n".((string) $profile->situational_analysis ?: '(няма)')
+            ."\n\n".'Покрити области: '.($coveredLabels !== [] ? implode(', ', $coveredLabels) : '(няма)')
+            ."\n\n".'Разговор досега:'."\n".($profile->chatHistory() ?: '(празно)')
+            ."\n\n".'Собственик: '.$userInput;
+
+        try {
+            $raw = $this->generator->chatJson($system, $user, 'org_interview', $this->schema(), [
+                'temperature' => 0.5,
+                'num_predict' => 800,
+            ]);
+        } catch (\Throwable) {
+            return $this->readyFallback($selected, 'Благодаря — запазих това. Можеш да продължиш към анализа, когато си готов.', (float) (LlmUsage::take()['cost_usd'] ?? 0.0));
+        }
+
+        $cost = (float) (LlmUsage::take()['cost_usd'] ?? 0.0);
+        $phase = ($raw['phase'] ?? 'ready') === 'interview' && $canAskMore ? 'interview' : 'ready';
+        $question = $phase === 'interview' ? $this->normalizeQuestion($raw['question'] ?? null) : null;
+        if ($question !== null) {
+            $question['key'] = 'followup_'.substr(md5($question['text']), 0, 8);
+        } else {
+            $phase = 'ready';
+        }
+
+        $reply = trim((string) ($raw['reply'] ?? ''));
+        if ($reply !== '' && (($reply[0] ?? '') === '{' || ($reply[0] ?? '') === '[')) {
+            $reply = '';
+        }
+        if ($reply === '' && $question === null) {
+            return $this->readyFallback($selected, 'Благодаря — запазих това. Можеш да продължиш към анализа, когато си готов.', $cost);
+        }
+
+        return [
+            'phase' => $phase,
+            'reply' => $reply !== '' ? $reply : (string) ($question['text'] ?? ''),
+            'question' => $question,
+            'recap' => $this->recap($selected),
+            'cost_usd' => $cost,
+        ];
+    }
+
+    /**
+     * Кратко потвърждение след отговор на проактивен follow-up въпрос → винаги ready.
+     *
+     * @param  array<int, string>  $selected
+     * @return array{phase: string, reply: string, question: ?array, recap: array, cost_usd: float}
+     */
+    private function followUpAck(BusinessProfile $profile, string $answerDisplay, array $selected): array
+    {
+        $company = $profile->company;
+        $system = <<<'TXT'
+Ти си Управителят. Собственикът отговори на твой уточняващ въпрос.
+Потвърди накратко (1–2 изречения на български), че си разбрал отговора, и че си готов за следващата стъпка.
+Върни САМО JSON: phase="ready", reply=текст, question=null, recap=[].
+TXT;
+        $system .= "\n".PromptData::NO_TECH_TERMS;
+
+        $user = "Бизнес: {$company?->name} ({$company?->industry}).\n"
+            .'Разговор досега:'."\n".($profile->chatHistory() ?: '(празно)')
+            ."\n\n".'Отговор на уточняващия въпрос: '.$answerDisplay;
+
+        try {
+            $raw = $this->generator->chatJson($system, $user, 'org_interview', $this->schema(), [
+                'temperature' => 0.4,
+                'num_predict' => 300,
+            ]);
+            $cost = (float) (LlmUsage::take()['cost_usd'] ?? 0.0);
+            $reply = trim((string) ($raw['reply'] ?? ''));
+            if ($reply !== '' && (($reply[0] ?? '') !== '{' && ($reply[0] ?? '') !== '[')) {
+                return $this->readyFallback($selected, $reply, $cost);
+            }
+        } catch (\Throwable) {
+            // fall through
+        }
+
+        return $this->readyFallback($selected, 'Записах. Имам ясна представа — можем да продължим към анализа.', (float) (LlmUsage::take()['cost_usd'] ?? 0.0));
+    }
+
+    /**
+     * @param  array<int, string>  $selected
+     * @return array{phase: string, reply: string, question: ?array, recap: array, cost_usd: float}
+     */
+    private function readyFallback(array $selected, string $reply, float $cost): array
+    {
+        return [
+            'phase' => 'ready',
+            'reply' => $reply,
+            'question' => null,
+            'recap' => $this->recap($selected),
+            'cost_usd' => $cost,
         ];
     }
 
@@ -143,7 +298,7 @@ class OrgInterviewService
         $label = (string) ($catalog[$domain]['interview_label'] ?? $domain);
         $hint = (string) ($catalog[$domain]['mandate'] ?? '');
         $company = $profile->company;
-        $asked = $this->askedQuestionTexts($profile);
+        $asked = $this->askedContext($profile);
 
         $system = <<<'TXT'
 Ти си Управителят — задаваш ЕДИН уточняващ въпрос за КОНКРЕТНА област от бизнеса, за да
@@ -161,7 +316,7 @@ TXT;
         $user = "Бизнес: {$company?->name} ({$company?->industry}).\n"
             .'Ситуационен анализ:'."\n".((string) $profile->situational_analysis ?: '(няма)')
             ."\n\n".'ОБЛАСТ ВЪВ ФОКУС: '.$label.($hint !== '' ? ' — '.$hint : '')
-            ."\n\n".'Вече зададени въпроси (НЕ повтаряй):'."\n".($asked !== '' ? $asked : '(няма)');
+            ."\n\n".'Вече зададени въпроси и отговори (НЕ повтаряй):'."\n".($asked !== '' ? $asked : '(няма)');
 
         try {
             $raw = $this->generator->chatJson($system, $user, 'org_interview', $this->schema(), [
@@ -187,18 +342,23 @@ TXT;
         return [$question, $reply, $cost];
     }
 
-    /** Текстовете на вече зададените въпроси (от транскрипта) — за да не се повтарят. */
-    private function askedQuestionTexts(BusinessProfile $profile): string
+    /** Въпроси + отговори от транскрипта — за depth/follow-up без повторения. */
+    private function askedContext(BusinessProfile $profile): string
     {
-        $texts = [];
-        foreach ((array) $profile->interview_transcript as $entry) {
-            $q = $entry['question'] ?? null;
-            if (is_array($q) && ! empty($q['text'])) {
-                $texts[] = '- '.(string) $q['text'];
+        $rows = (array) $profile->interview_transcript;
+        $lines = [];
+        for ($i = 0, $n = count($rows); $i < $n; $i++) {
+            $e = $rows[$i];
+            if (! empty($e['question']['text'])) {
+                $lines[] = 'Въпрос: '.(string) $e['question']['text'];
+                $next = $rows[$i + 1] ?? null;
+                if (($next['role'] ?? '') === 'user' && ! empty($next['content'])) {
+                    $lines[] = 'Отговор: '.(string) $next['content'];
+                }
             }
         }
 
-        return implode("\n", $texts);
+        return implode("\n", $lines);
     }
 
     /** Кратко обобщение от избраните области (за финалния екран). */

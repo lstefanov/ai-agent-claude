@@ -11,6 +11,7 @@ use App\Models\OrgProposal;
 use App\Models\User;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Services\PlanLibraryService;
+// KnowledgeRequiredException е в текущия namespace (App\Services\Org).
 use App\Support\ModelLevel;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -74,7 +75,32 @@ class DecisionBoxService
                 'created_at' => $t->created_at,
             ]);
 
-        return $taskProposals->concat($proposals)->concat($runs);
+        // (г) задачи, чакащи знание (§2-етапни задачи) — одобрени/предложени, но гейтнати: те са
+        // request КЪМ Управителя да въведе информация, преди задачата да тръгне.
+        $knowledgeTasks = AssistantTask::where('knowledge_status', 'needs_knowledge')
+            ->whereIn('status', ['ready', 'proposed', 'failed'])
+            ->whereHas('orgMember', fn ($q) => $q->where('company_id', $company->id))
+            ->with('orgMember.persona', 'knowledgeRequirements')
+            ->latest()->get()
+            ->map(fn (AssistantTask $t) => [
+                'kind' => 'assistant_task_knowledge',
+                'id' => $t->id,
+                'title' => $t->title,
+                'description' => $t->description,
+                'member' => $t->orgMember,
+                'requirements' => $t->knowledgeRequirements->map(fn ($r) => [
+                    'key' => $r->key, 'label' => $r->label, 'sourceability' => $r->sourceability,
+                    'status' => $r->status, 'acknowledged' => $r->acknowledged, 'how_to_provide' => $r->how_to_provide,
+                ])->values()->all(),
+                'created_at' => $t->created_at,
+            ]);
+
+        return $taskProposals->concat($knowledgeTasks)->concat($proposals)->concat($runs);
+    }
+
+    public function pendingCount(Company $company): int
+    {
+        return $this->pending($company)->count();
     }
 
     /**
@@ -175,6 +201,29 @@ class DecisionBoxService
     }
 
     /**
+     * Компактен preview за Таблото: най-новите N решения от deck(), без групиране.
+     *
+     * @return array{items: array<int, array<string, mixed>>, total: int, counts: array{structural: int, tasks: int, runs: int}}
+     */
+    public function preview(Company $company, int $limit = 4): array
+    {
+        $deck = $this->deck($company);
+
+        $items = collect($deck['groups'])
+            ->flatMap(fn (array $g) => $g['items'] ?? [])
+            ->sortByDesc(fn (array $item) => $item['created_at']?->getTimestamp() ?? 0)
+            ->take($limit)
+            ->values()
+            ->all();
+
+        return [
+            'items' => $items,
+            'total' => $deck['total'],
+            'counts' => $deck['counts'],
+        ];
+    }
+
+    /**
      * Обогатява един суров item (proposal | assistant_task | run_approval) до карта-решение
      * + ключ на групата. Връща ['group' => key, 'domain' => ?string, 'vm' => array].
      */
@@ -209,6 +258,38 @@ class DecisionBoxService
                 'same_person' => $card !== null,
                 'flow_id' => $it['flow_id'] ?? null,
                 'action' => ['kind' => 'assistant_task', 'id' => $it['id']],
+            ];
+
+            return ['group' => $domain ?? '__leadership__', 'domain' => $domain, 'vm' => $vm];
+        }
+
+        if ($kind === 'assistant_task_knowledge') {
+            $member = $it['member'] ?? null;
+            $domain = $member ? ($domainByMember[$member->id] ?? null) : null;
+            $card = $this->memberCard($member);
+
+            $vm = [
+                'uid' => 'assistant_task_knowledge-'.$it['id'],
+                'kind' => 'assistant_task_knowledge',
+                'type_meta' => $this->typeMeta('assistant_task_knowledge'),
+                'title' => (string) ($it['title'] ?? ''),
+                'rationale' => null,
+                'description' => $it['description'] ?? null,
+                'expected_impact' => null,
+                'steps' => [],
+                'tools' => [],
+                'est_credits' => null,
+                'act_mode' => null,
+                'tier' => null,
+                'created_at' => $it['created_at'] ?? null,
+                'proposer' => $card,
+                'assignee' => $card,
+                'assignee_label' => 'Възложено на',
+                'assignee_role_label' => null,
+                'same_person' => $card !== null,
+                'flow_id' => null,
+                'requirements' => $it['requirements'] ?? [],
+                'action' => ['kind' => 'assistant_task_knowledge', 'id' => $it['id']],
             ];
 
             return ['group' => $domain ?? '__leadership__', 'domain' => $domain, 'vm' => $vm];
@@ -331,7 +412,9 @@ class DecisionBoxService
             'key' => $key,
             'domain' => $key,
             'label' => $label,
-            'color' => $this->colorForDomain($key),
+            // Явен цвят-override на отдела (Director.color) бие домейна — за да съвпада с
+            // директорския чип (functionColor); NULL → fallback по домейн.
+            'color' => $director?->color ?? $this->colorForDomain($key),
             'is_neutral' => false,
             'director' => $this->memberCard($director?->orgMember),
             'icon' => null,
@@ -463,6 +546,9 @@ class DecisionBoxService
                 $result['run_id'] = $runModel->id;
             } catch (InsufficientCreditsException) {
                 $result['run_skipped'] = 'no_credits';
+            } catch (KnowledgeRequiredException) {
+                // Одобрена е, но чака знания → не пускай; картата ще покаже „Добави знания".
+                $result['run_skipped'] = 'needs_knowledge';
             } catch (\Throwable $e) {
                 report($e);
                 $result['run_skipped'] = 'error';

@@ -1,6 +1,6 @@
 @extends('layouts.client')
 
-@section('title', 'Решения')
+@section('title', 'Предложения')
 
 @section('content')
 <div x-data="decisions({
@@ -9,17 +9,17 @@
         csrf: '{{ csrf_token() }}',
      })" class="space-y-6">
     <div>
-        <h1 class="text-2xl font-semibold text-ink">Решения</h1>
+        <h1 class="text-2xl font-semibold text-ink">Предложения</h1>
         <p class="text-muted">Чакащи предложения от екипа, подредени по департаменти. Едно място за всичко.</p>
     </div>
 
     @if ($deck['total'] === 0)
-        <x-empty-state title="Няма чакащи решения" description="Когато екип предложи задача, директор предложи промяна или изпълнение спре за одобрение, ще се появи тук." />
+        <x-empty-state title="Няма чакащи предложения" description="Когато екип предложи задача, директор предложи промяна или изпълнение спре за одобрение, ще се появи тук." />
     @else
         {{-- Резюме: общ брой + разбивка по категория --}}
         <div class="flex flex-wrap items-center gap-2 text-xs">
             <span class="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 font-medium text-primary">
-                <x-icon name="inbox-stack" size="4" />{{ $deck['total'] }} {{ $deck['total'] === 1 ? 'чакащо решение' : 'чакащи решения' }}
+                <x-icon name="inbox-stack" size="4" />{{ $deck['total'] }} {{ $deck['total'] === 1 ? 'чакащо предложение' : 'чакащи предложения' }}
             </span>
             @if ($deck['counts']['structural'] > 0)
                 <span class="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-muted">Структурни: <span class="font-semibold text-ink tabular-nums">{{ $deck['counts']['structural'] }}</span></span>
@@ -48,7 +48,7 @@
                         <span class="font-mono text-[11px] font-semibold uppercase tracking-wider" style="color: var(--color-char-{{ $gc }}-strong)">{{ $group['domain'] }}</span>
                         <h2 class="text-base font-semibold text-ink">{{ $group['label'] }}</h2>
                         <div class="ml-auto flex items-center gap-3">
-                            <span class="inline-flex items-center rounded-full bg-surface/70 px-2.5 py-0.5 text-xs text-muted tabular-nums">{{ $group['count'] }} {{ $group['count'] === 1 ? 'решение' : 'решения' }}</span>
+                            <span class="inline-flex items-center rounded-full bg-surface/70 px-2.5 py-0.5 text-xs text-muted tabular-nums">{{ $group['count'] }} {{ $group['count'] === 1 ? 'предложение' : 'предложения' }}</span>
                             @if ($group['director'])
                                 @php $d = $group['director']; $dc = $d['color'] ?? $gc; @endphp
                                 <button type="button" x-on:click="openMember({{ \Illuminate\Support\Js::from($d) }})" class="flex items-center gap-2 rounded-full transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" title="Виж профила на {{ $d['name'] }}">
@@ -90,7 +90,7 @@
 
                             {{-- Контекст за изпълнение (run_approval) --}}
                             @if ($item['kind'] === 'run_approval')
-                                <p class="mt-1 text-sm text-muted">Изпълнение #{{ $item['flow_run_id'] }} спря на тази стъпка и чака решение.</p>
+                                <p class="mt-1 text-sm text-muted">Изпълнение #{{ $item['flow_run_id'] }} спря на тази стъпка и чака одобрение.</p>
                             @endif
 
                             {{-- Обосновка / описание (свиваемо при дълъг текст) --}}
@@ -157,6 +157,10 @@
                                     <button type="button" x-on:click="rejectTask({{ $item['action']['id'] }})" class="text-sm font-medium text-danger hover:text-danger-strong">Отхвърли</button>
                                     <x-button size="sm" variant="secondary" x-on:click="approveTask({{ $item['action']['id'] }}, false)">Одобри</x-button>
                                     <x-button size="sm" x-on:click="approveTask({{ $item['action']['id'] }}, true)">Одобри и пусни</x-button>
+                                @elseif ($item['kind'] === 'assistant_task_knowledge')
+                                    <p class="mr-auto text-xs text-muted">Задачата чака да въведеш информация, преди да тръгне.</p>
+                                    <x-button size="sm" variant="secondary" icon="book-open"
+                                              x-on:click="$dispatch('knowledge-open', { taskId: {{ $item['action']['id'] }}, requirements: {{ \Illuminate\Support\Js::from($item['requirements'] ?? []) }} })">Добави знания</x-button>
                                 @else
                                     <x-button size="sm" variant="secondary" x-on:click="act('reject', {{ \Illuminate\Support\Js::from($item['action']) }})">Отхвърли</x-button>
                                     <x-button size="sm" x-on:click="act('approve', {{ \Illuminate\Support\Js::from($item['action']) }})">Одобри</x-button>
@@ -266,6 +270,21 @@
     </div>
 
     <div x-show="error" x-cloak class="fixed bottom-4 right-4 z-50 rounded-lg bg-danger-soft text-danger-strong px-4 py-2 text-sm shadow-card" x-text="error"></div>
+
+    <div x-show="success" x-cloak class="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-line bg-surface px-4 py-3 text-sm shadow-popover">
+        <p class="font-medium text-ink" x-text="success?.message"></p>
+        <div class="mt-2 flex flex-wrap items-center gap-3">
+            <template x-if="success?.tasks_url">
+                <a :href="success.tasks_url" class="text-sm font-medium text-primary hover:text-primary-hover">Към Задачи →</a>
+            </template>
+            <template x-if="success?.decisions_url">
+                <a :href="success.decisions_url" class="text-sm font-medium text-primary hover:text-primary-hover">Остани в Предложения</a>
+            </template>
+            <button type="button" class="text-xs text-subtle hover:text-ink" x-on:click="success = null">Затвори</button>
+        </div>
+    </div>
+
+    @include('client.org._knowledge-modal')
 </div>
 
 @push('scripts')
@@ -276,6 +295,7 @@ function decisions(cfg) {
         rejecting: null,
         reason: '',
         error: '',
+        success: null,
         member: null,
         traitLabels: { risk: 'Риск', creativity: 'Креативност', precision: 'Прецизност', autonomy: 'Автономност', tempo: 'Темпо' },
         openMember(m) { this.member = m; },
@@ -291,6 +311,17 @@ function decisions(cfg) {
                 return d;
             } catch (e) { this.error = 'Мрежова грешка.'; return null; }
         },
+        showSuccess(d) {
+            if (d.message) {
+                this.success = {
+                    message: d.message,
+                    tasks_url: d.tasks_url || null,
+                    decisions_url: d.decisions_url || null,
+                };
+            } else if (d.materialize && d.materialize !== 'task') {
+                this.success = { message: 'Одобрено.', tasks_url: null, decisions_url: null };
+            }
+        },
         // Структурни предложения + run approvals.
         async act(decision, item) {
             if (decision === 'reject') {
@@ -304,12 +335,18 @@ function decisions(cfg) {
                 ? { kind: 'proposal', id: item.id }
                 : { kind: 'run_approval', flow_run_id: item.flow_run_id, node_key: item.node_key };
             const d = await this._post(url, body);
-            if (d) this.done.push(item.kind + '-' + (item.id || (item.flow_run_id + '-' + item.node_key)));
+            if (d) {
+                this.done.push(item.kind + '-' + (item.id || (item.flow_run_id + '-' + item.node_key)));
+                if (decision === 'approve') this.showSuccess(d);
+            }
         },
         // Предложени задачи.
         async approveTask(id, run) {
             const d = await this._post(cfg.approveUrl, { kind: 'assistant_task', id, run });
-            if (d) this.done.push('assistant_task-' + id);
+            if (d) {
+                this.done.push('assistant_task-' + id);
+                this.showSuccess(d);
+            }
         },
         rejectTask(id) { this.rejecting = id; this.reason = ''; },
         async submitReject() {

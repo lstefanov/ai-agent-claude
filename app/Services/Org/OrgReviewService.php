@@ -17,8 +17,11 @@ use Illuminate\Support\Facades\Log;
  */
 class OrgReviewService
 {
-    /** Таван на новите предложения в едно ревю; реалният брой идва от чертата Риск. */
+    /** Таван на новите задачи в едно ревю; реалният брой идва от чертата Риск. */
     private const MAX_TASK_PROPOSALS = 3;
+
+    /** Общ таван на предложенията от LLM (задачи + структурни). */
+    private const MAX_PROPOSALS_PER_REVIEW = 4;
 
     public function __construct(
         private PersonaService $personas,
@@ -67,7 +70,7 @@ class OrgReviewService
         // (ревизиран §6.1: край на „generic proposal → задача после"). Лимит за разход.
         $ids = [];
         $taskCount = 0;
-        foreach (array_slice((array) ($design['proposals'] ?? []), 0, 4) as $p) {
+        foreach (array_slice((array) ($design['proposals'] ?? []), 0, self::MAX_PROPOSALS_PER_REVIEW) as $p) {
             if (empty($p['title'])) {
                 continue;
             }
@@ -86,7 +89,7 @@ class OrgReviewService
                 continue;
             }
 
-            $ids[] = $this->createProposal($company, $manager, $p, $type)->id;
+            $ids[] = $this->createProposal($company, $manager, $p, $type, $assistantMembers)->id;
         }
 
         // Детерминистичен под: нищо предложено, но има болки → една задача по водещата болка.
@@ -119,7 +122,7 @@ class OrgReviewService
     }
 
     /** Създава durable org_proposal(pending) за Кутията — само структурни (hire/fire/mandate). */
-    private function createProposal(Company $company, $manager, array $p, string $type): OrgProposal
+    private function createProposal(Company $company, $manager, array $p, string $type, Collection $assistantMembers): OrgProposal
     {
         return OrgProposal::create([
             'company_id' => $company->id,
@@ -127,12 +130,35 @@ class OrgReviewService
             'payload' => [
                 'title' => (string) $p['title'],
                 'description' => (string) ($p['description'] ?? $p['title']),
-                'target_member_id' => $p['target_member_id'] ?? null,
+                'target_member_id' => $this->resolveMemberId($company, $p['target_member_id'] ?? null, $assistantMembers),
                 'proposed_by' => $manager->persona?->name ?? 'Управителя',
                 'proposed_by_member_id' => $manager->id,
             ],
             'base_org_version_id' => $company->active_org_version_id,
         ]);
+    }
+
+    /**
+     * LLM member_id → валиден OrgMember на компанията или null.
+     *
+     * @param  Collection<int, OrgMember>  $knownMembers
+     */
+    private function resolveMemberId(Company $company, mixed $memberId, Collection $knownMembers): ?int
+    {
+        if ($memberId === null || $memberId === '') {
+            return null;
+        }
+
+        $id = (int) $memberId;
+        if ($id <= 0) {
+            return null;
+        }
+
+        if ($knownMembers->firstWhere('id', $id)) {
+            return $id;
+        }
+
+        return $company->members()->where('id', $id)->exists() ? $id : null;
     }
 
     /**

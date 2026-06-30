@@ -45,7 +45,7 @@
                             <p class="text-sm whitespace-pre-line">{{ $msg->content }}</p>
                         @endif
                         @if ($msg->role === 'assistant' && ($msg->payload['proposal'] ?? null))
-                            <p class="text-xs text-char-{{ $c }}-strong mt-1">💡 Предложение → в <a href="{{ route('client.org.decisions') }}" class="underline">Кутията</a></p>
+                            <p class="text-xs text-char-{{ $c }}-strong mt-1">💡 Предложение → в <a href="{{ route('client.org.decisions') }}" class="underline">Предложения</a></p>
                         @endif
                     </div>
                 </div>
@@ -61,7 +61,7 @@
                             <p class="text-sm whitespace-pre-line" x-text="msg.content"></p>
                         </template>
                         <template x-if="msg.proposal">
-                            <p class="text-xs text-{{ 'char-'.$c }}-strong mt-1">💡 Предложение → в <a href="{{ route('client.org.decisions') }}" class="underline">Кутията</a></p>
+                            <p class="text-xs text-{{ 'char-'.$c }}-strong mt-1">💡 Предложение → в <a href="{{ route('client.org.decisions') }}" class="underline">Предложения</a></p>
                         </template>
                     </div>
                 </div>

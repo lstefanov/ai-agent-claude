@@ -82,6 +82,8 @@ class OrgInterviewTurnJob implements ShouldQueue
 
             if ($result['phase'] === 'ready') {
                 BusinessProfile::whereKey($profile->id)->update(['status' => 'ready']);
+            } elseif ($result['phase'] === 'interview') {
+                BusinessProfile::whereKey($profile->id)->update(['status' => 'interviewing']);
             }
 
             Cache::put($key, ['status' => 'completed'] + $result + ['updated_at' => now()->timestamp], now()->addMinutes(15));

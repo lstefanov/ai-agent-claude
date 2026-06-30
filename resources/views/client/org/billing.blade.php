@@ -14,8 +14,6 @@
         csrf: '{{ csrf_token() }}',
         balance: {{ (int) $wallet->balance }},
      })">
-    @include('client.org._lens-tabs', ['active' => null])
-
     <h1 class="text-2xl font-semibold text-ink mb-1">Кредити & планове</h1>
     <p class="text-muted mb-6">Кредитите са горивото — харчат се при всяко пускане. Звездите са мощността (нивото на модела).</p>
 

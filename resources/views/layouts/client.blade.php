@@ -59,8 +59,9 @@
     @php
         $navItems = [
             'Табло'      => ['route' => 'client.org.dashboard',    'match' => 'client.org.dashboard'],
+            'Екип'       => ['route' => 'client.org.roster',       'match' => 'client.org.roster|client.org.skill-tree|client.org.live|client.org.member*'],
             'Задачи'     => ['route' => 'client.org.tasks.index',  'match' => 'client.org.tasks.*'],
-            'Решения'    => ['route' => 'client.org.decisions',    'match' => 'client.org.decisions*'],
+            'Предложения' => ['route' => 'client.org.decisions',    'match' => 'client.org.decisions*'],
             'Интеграции' => ['route' => 'client.org.integrations', 'match' => 'client.org.integrations'],
             'Кредити'    => ['route' => 'client.org.billing',      'match' => 'client.org.billing*'],
             'Хроника'    => ['route' => 'client.org.chronicle',    'match' => 'client.org.chronicle'],
@@ -80,23 +81,21 @@
                     @foreach($navItems as $label => $item)
                         <a href="{{ route($item['route']) }}"
                            @if(request()->routeIs($item['match'])) aria-current="page" @endif
-                           class="flex items-center px-4 border-b-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40
+                           class="flex items-center gap-1.5 px-4 border-b-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40
                                   {{ request()->routeIs($item['match'])
                                      ? 'border-primary text-primary font-semibold'
                                      : 'border-transparent text-muted hover:text-ink hover:border-line-strong' }}">
                             {{ $label }}
+                            @if ($item['route'] === 'client.org.decisions' && ($pendingProposalsCount ?? 0) > 0)
+                                <span class="inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white tabular-nums" aria-label="{{ $pendingProposalsCount }} чакащи предложения">{{ $pendingProposalsCount > 99 ? '99+' : $pendingProposalsCount }}</span>
+                            @endif
                         </a>
                     @endforeach
                 </div>
             </div>
 
-            {{-- Right: изпъкващ CTA + фирма dropdown --}}
+            {{-- Right: фирма dropdown --}}
             <div class="flex items-center gap-3">
-                <a href="{{ route('client.org.tasks.new') }}"
-                   class="hidden sm:inline-flex items-center justify-center gap-2 h-10 px-4 text-sm font-semibold rounded-md bg-primary text-primary-fg hover:bg-primary-hover shadow-card transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-                    <x-icon name="plus" size="4" /> Нова задача
-                </a>
-
                 <div class="relative hidden md:block" @click.outside="menu = false">
                     <button type="button" @click="menu = !menu" :aria-expanded="menu"
                             class="inline-flex items-center gap-2 h-10 px-3 rounded-md text-sm text-muted hover:text-ink hover:bg-surface-subtle transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
@@ -114,6 +113,7 @@
                                 <p class="text-xs text-subtle">{{ $currentUser->role === 'owner' ? 'Собственик' : 'Потребител' }}</p>
                             </div>
                         @endif
+                        <a href="{{ route('client.org.design.review') }}" class="block px-3 py-2 text-sm text-muted hover:text-ink hover:bg-surface-subtle transition">Препроектирай</a>
                         <a href="{{ route('client.flows.index') }}" class="block px-3 py-2 text-sm text-muted hover:text-ink hover:bg-surface-subtle transition">Моите Flows</a>
                         <a href="{{ route('client.login') }}" class="block px-3 py-2 text-sm text-muted hover:text-ink hover:bg-surface-subtle transition">Смени фирма/потребител</a>
                         <form action="{{ route('client.logout') }}" method="POST">
@@ -141,14 +141,16 @@
                 @foreach($navItems as $label => $item)
                     <a href="{{ route($item['route']) }}"
                        @if(request()->routeIs($item['match'])) aria-current="page" @endif
-                       class="block px-3 py-2 rounded-md text-sm font-medium transition
+                       class="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition
                               {{ request()->routeIs($item['match'])
                                  ? 'bg-info-soft text-primary'
                                  : 'text-muted hover:text-ink hover:bg-surface-subtle' }}">
                         {{ $label }}
+                        @if ($item['route'] === 'client.org.decisions' && ($pendingProposalsCount ?? 0) > 0)
+                            <span class="inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white tabular-nums" aria-label="{{ $pendingProposalsCount }} чакащи предложения">{{ $pendingProposalsCount > 99 ? '99+' : $pendingProposalsCount }}</span>
+                        @endif
                     </a>
                 @endforeach
-                <a href="{{ route('client.org.tasks.new') }}" class="block px-3 py-2 rounded-md text-sm font-semibold bg-primary text-primary-fg">＋ Нова задача</a>
                 <form action="{{ route('client.logout') }}" method="POST" class="pt-1">
                     @csrf
                     <button type="submit" class="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-danger hover:bg-danger-soft transition">Изход</button>

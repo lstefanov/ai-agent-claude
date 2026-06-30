@@ -5,10 +5,7 @@ namespace App\Http\Controllers\Client\Org;
 use App\Http\Controllers\Controller;
 use App\Jobs\Org\OrgReviewJob;
 use App\Models\Company;
-use App\Models\OrgMember;
-use App\Models\OrgProposal;
-use App\Support\FlowRunStats;
-use App\Support\ModelLevel;
+use App\Services\Org\OrgGraphService;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -17,23 +14,30 @@ use Illuminate\Http\JsonResponse;
  */
 class OrgGraphController extends Controller
 {
+    public function __construct(private OrgGraphService $graph) {}
+
     public function graph(): JsonResponse
     {
-        return response()->json($this->buildGraph($this->company()));
+        return response()->json($this->graph->build($this->company()));
     }
 
     public function roster()
     {
         $company = $this->company();
 
-        return view('client.org.roster', ['graph' => $this->buildGraph($company), 'company' => $company]);
+        return view('client.org.roster', ['graph' => $this->graph->build($company), 'company' => $company]);
     }
 
     public function skillTree()
     {
         $company = $this->company();
+        $graph = $this->graph->build($company);
 
-        return view('client.org.skill-tree', ['graph' => $this->buildGraph($company), 'company' => $company]);
+        return view('client.org.skill-tree', [
+            'graph' => $graph,
+            'company' => $company,
+            'lens' => $this->graph->skillLens($graph),
+        ]);
     }
 
     /** Текущ поток (Леща 3, §6) — кои асистенти имат активни runs. */
@@ -41,7 +45,7 @@ class OrgGraphController extends Controller
     {
         $company = $this->company();
 
-        return view('client.org.live', ['graph' => $this->buildGraph($company), 'company' => $company]);
+        return view('client.org.live', ['graph' => $this->graph->build($company), 'company' => $company]);
     }
 
     /** Хроника на фирмата (§7.4) — org_events хронологично. */
@@ -56,134 +60,37 @@ class OrgGraphController extends Controller
     }
 
     /** Ръчно „Пусни ревю сега" (§7.1) → OrgReviewJob. */
-    public function reviewNow(): JsonResponse
+    public function reviewNow(AutonomousBudgetService $budget): JsonResponse
     {
         $company = $this->company();
+
+        if (! $company->active_org_version_id) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Няма активна организация — завърши онбординга преди ревю.',
+            ], 422);
+        }
+
+        if (! $budget->allows($company, 'org_review')) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Дневният лимит за автономни действия е достигнат.',
+            ], 429);
+        }
+
+        if (! OrgReviewLock::acquire($company->id)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Ревю вече тече или е пуснато наскоро — изчакай малко.',
+            ], 409);
+        }
+
         OrgReviewJob::dispatch($company->id)->onQueue('org');
 
-        return response()->json(['ok' => true, 'message' => 'Ревюто е пуснато — предложенията ще се появят в Кутията.']);
-    }
-
-    /** Сглобява org графа от активната версия. */
-    private function buildGraph(Company $company): array
-    {
-        $version = $company->activeOrgVersion;
-        $manager = $this->memberCard($company->manager);
-
-        if (! $version) {
-            return ['manager' => $manager, 'directors' => [], 'assistants' => [], 'version' => null,
-                'igniting' => 0, 'decisions' => ['pending_tasks' => 0, 'open_proposals' => 0, 'total' => 0]];
-        }
-
-        $placements = $version->assistants()->with(['orgMember.persona', 'orgMember.tasks', 'director'])->get();
-
-        // Run-статистики за всички flow-ове на задачите наведнъж (без N+1).
-        $flowIds = $placements
-            ->flatMap(fn ($a) => $a->orgMember->tasks->pluck('flow_id'))
-            ->filter()->unique()->values()->all();
-        $flowStats = FlowRunStats::forFlows($flowIds);
-
-        $assistants = $placements->map(function ($a) use ($flowStats) {
-            $tasks = $a->orgMember->tasks;
-            $taskFlowIds = $tasks->pluck('flow_id')->filter();
-
-            $active = $completed = $failed = 0;
-            $lastRunAt = null;
-            foreach ($taskFlowIds as $fid) {
-                $s = $flowStats[$fid] ?? null;
-                if (! $s) {
-                    continue;
-                }
-                $active += $s['active'];
-                $completed += $s['completed'];
-                $failed += $s['failed'];
-                if ($s['last_run_at'] && (! $lastRunAt || $s['last_run_at']->gt($lastRunAt))) {
-                    $lastRunAt = $s['last_run_at'];
-                }
-            }
-
-            return [
-                'placement_id' => $a->id,
-                'director_id' => $a->director_id,
-                'title' => $a->title,
-                'mandate' => $a->mandate,
-                'member' => $this->memberCard($a->orgMember),
-                'tasks' => $tasks->map(fn ($t) => [
-                    'id' => $t->id,
-                    'title' => $t->title,
-                    'star_tier' => $t->effectiveStarTier()->value,
-                    'stars' => $t->effectiveStarTier()->rank() + 1,
-                    'inherits' => $t->inheritsTier(),
-                    'status' => $t->status,
-                    'act_mode' => $t->act_mode,
-                    'run' => $t->flow_id ? ($flowStats[$t->flow_id]['latest'] ?? null) : null,
-                ])->values(),
-                'stats' => [
-                    'tasks_total' => $tasks->count(),
-                    'flows_total' => $taskFlowIds->count(),
-                    'active' => $active,
-                    'completed' => $completed,
-                    'failed' => $failed,
-                    'last_run_at' => $lastRunAt,
-                ],
-            ];
-        })->values();
-
-        $directors = $version->directors()->with('orgMember.persona')->get()->map(function ($d) use ($assistants) {
-            $own = $assistants->where('director_id', $d->id);
-
-            return [
-                'placement_id' => $d->id,
-                'title' => $d->title,
-                'domain' => $d->domain,
-                'mandate' => $d->mandate,
-                'priorities' => (array) ($d->priorities ?? []),
-                'member' => $this->memberCard($d->orgMember),
-                'stats' => [
-                    'assistants_count' => $own->count(),
-                    'flows_total' => (int) $own->sum(fn ($a) => $a['stats']['flows_total']),
-                    'active' => (int) $own->sum(fn ($a) => $a['stats']['active']),
-                ],
-            ];
-        })->values();
-
-        // Видимост (§F): запалване в ход + чакащи решения → банери на roster-а.
-        $allTasks = $placements->flatMap(fn ($a) => $a->orgMember?->tasks ?? collect());
-        $pendingApproval = $allTasks->where('status', 'pending_approval')->count();
-        $igniting = $allTasks->whereIn('status', ['proposed', 'generating'])->count();
-        $openProposals = OrgProposal::where('company_id', $company->id)->pending()->count();
-
-        return ['manager' => $manager, 'directors' => $directors, 'assistants' => $assistants, 'version' => $version->version,
-            'igniting' => $igniting,
-            'decisions' => ['pending_tasks' => $pendingApproval, 'open_proposals' => $openProposals, 'total' => $pendingApproval + $openProposals]];
-    }
-
-    /** Лека карта на член за графа/roster. */
-    private function memberCard(?OrgMember $member): ?array
-    {
-        if (! $member) {
-            return null;
-        }
-
-        $persona = $member->persona;
-        $tier = ModelLevel::tryFrom($member->default_star_tier) ?? ModelLevel::Medium;
-
-        return [
-            'id' => $member->id,
-            'kind' => $member->kind,
-            'name' => $member->fullName(),          // две имена (персона), не роля
-            'role' => $member->roleTitle(),         // ролята отделно (§9.1)
-            'color' => $member->functionColor(),    // цвят = функция/домейн (§10.1)
-            'age' => $persona->age ?? null,
-            'tone' => $persona->tone ?? null,
-            'tier' => $member->default_star_tier,
-            'stars' => $tier->rank() + 1,
-            'traits' => (array) ($persona->traits ?? []),
-            'skills' => (array) ($persona->skills ?? []),
-            'avatar_url' => ($persona && $persona->hasReadyAvatar()) ? $persona->avatar_url : null,
-            'avatar_status' => $persona->avatar_status ?? 'pending',
-            'initial' => mb_strtoupper(mb_substr($member->fullName(), 0, 1)),
-        ];
+        return response()->json([
+            'ok' => true,
+            'message' => 'Ревюто е пуснато — предложенията ще се появят в Кутията (обикновено за 1–3 мин).',
+        ]);
     }
 
     private function company(): Company

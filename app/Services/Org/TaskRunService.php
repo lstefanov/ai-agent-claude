@@ -51,6 +51,10 @@ class TaskRunService
         }
 
         if ($task->status === 'proposed') {
+            // Preflight ПРЕДИ генерация: очевидно частна зависимост при празна база → паркирай.
+            if (app(KnowledgeRequirementService::class)->preflight($task)) {
+                return ['status' => 'needs_knowledge'];
+            }
             $this->dispatchGeneration($task, $runAfterGenerate, origin: $origin);
 
             return ['status' => 'generating'];
@@ -80,6 +84,11 @@ class TaskRunService
             return ['status' => $task->status];
         }
 
+        // Preflight ПРЕДИ генерация — спестява planner разход за очевидно недоставими задачи.
+        if (app(KnowledgeRequirementService::class)->preflight($task)) {
+            return ['status' => 'needs_knowledge'];
+        }
+
         $this->dispatchGeneration($task, $runAfterGenerate, $minimalQa, $origin, $firstReviewDone);
 
         return ['status' => 'generating', 'token' => $task->fresh()->gen_token];
@@ -105,6 +114,11 @@ class TaskRunService
         if ($flow->status !== 'active') {
             throw new RuntimeException('Flow-ът на задачата не е активен — изисква одобрение.');
         }
+
+        // Гейт по знание (§2-етапни задачи): не създавай FlowRun/резервация, ако липсва нужно
+        // знание. Хвърля KnowledgeRequiredException (контролерът → 422 + popup; auto/scheduled →
+        // паркира). Преди резервацията → без осиротяла кредитна резервация.
+        app(KnowledgeRequirementService::class)->gate($task);
 
         // Lazy re-pin (§6.1): stale задача → re-pin server-side към effectiveStarTier() ПРЕДИ старт.
         if ($task->tier_stale) {

@@ -10,15 +10,9 @@
 
 @section('content')
 @php($persona = $manager->persona)
-<div class="max-w-3xl mx-auto px-6 py-8"
-     x-data="interview({
-        sendUrl: '{{ route('client.org.interview.send') }}',
-        statusTpl: '{{ route('client.org.interview.status', ['token' => 'TOKEN']) }}',
-        ready: {{ $profile->status === 'ready' ? 'true' : 'false' }},
-        transcript: @js($transcript ?? []),
-     })">
+<div class="max-w-3xl mx-auto px-6 py-8">
     <header class="mb-6 flex items-start justify-between gap-4">
-        <div>
+        <div class="min-w-0">
             <p class="text-xs font-mono uppercase tracking-wider text-muted mb-1">Стъпка 3 от 3 · Интервю</p>
             <h1 class="text-2xl font-semibold text-ink">{{ $persona?->name ?? 'Управителят' }} иска да разбере бизнеса</h1>
             <p class="text-muted mt-1">Няколко въпроса, за да си състави ясна представа преди да проектира екипа.</p>
@@ -26,14 +20,21 @@
         @include('client.org._wizard-reset')
     </header>
 
+    <div x-data="interview({
+        sendUrl: '{{ route('client.org.interview.send') }}',
+        statusTpl: '{{ route('client.org.interview.status', ['token' => 'TOKEN']) }}',
+        ready: {{ $profile->status === 'ready' ? 'true' : 'false' }},
+        transcript: @js($transcript ?? []),
+     })">
     <div class="rounded-xl border border-line bg-surface flex flex-col" style="height: 68vh">
         {{-- Транскрипт --}}
-        <div class="flex-1 overflow-y-auto p-4 space-y-3" x-ref="scroll">
+        <div class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" x-ref="scroll" style="min-height:0">
             <template x-for="msg in messages" :key="msg.uid">
                 <div :data-uid="msg.uid">
                     {{-- Балонът се показва само при текст (празен reply + въпрос → само картата). --}}
                     <template x-if="msg.content && msg.content.trim()">
-                        <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+                        <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start msg-bot-bubble'"
+                             x-init="msg.role === 'assistant' && messages.at(-1)?.uid === msg.uid && $nextTick(() => scrollToMsg(msg.uid))">
                             <div :class="msg.role === 'user'
                                 ? 'bg-primary text-primary-fg rounded-2xl rounded-br-sm px-4 py-2 max-w-[85%]'
                                 : (msg.failed ? 'bg-danger-soft text-danger-strong rounded-2xl rounded-bl-sm px-4 py-2 max-w-[90%]' : 'bg-surface-subtle text-ink rounded-2xl rounded-bl-sm px-4 py-2 max-w-[90%]')">
@@ -75,8 +76,9 @@
                                     </div>
                                 </template>
                             </div>
-                            <x-button size="sm" x-on:click="answer(msg)"
-                                      x-bind:disabled="msg.selected.length === 0 && !(msg.otherChecked && msg.other.trim())">Изпрати отговор</x-button>
+                            <x-org.busy-button size="sm" busy="thinking" loading-text="Изпращам…" :spinner="false"
+                                      x-on:click="answer(msg)"
+                                      x-bind:disabled="msg.selected.length === 0 && !(msg.otherChecked && msg.other.trim())">Изпрати отговор</x-org.busy-button>
                         </div>
                     </template>
                 </div>
@@ -88,24 +90,26 @@
             </template>
         </div>
 
-        {{-- Готово --}}
-        <template x-if="ready">
-            <div class="border-t border-line p-4 flex items-center justify-between gap-3" x-cloak>
-                <p class="text-sm text-success-strong">✓ Управителят има ясна представа.</p>
-                <x-button :href="route('client.org.analysis')">Виж анализа →</x-button>
-            </div>
-        </template>
+        {{-- Свободен вход — винаги достъпен, дори след завършено интервю --}}
+        <div class="border-t border-line p-3">
+            <form @submit.prevent="sendText()" class="flex items-end gap-2">
+                <textarea x-model="input" rows="1"
+                          :placeholder="ready ? 'Имаш още въпроси? Напиши…' : 'Напиши свободно…'"
+                          @keydown.enter.prevent="sendText()"
+                          class="flex-1 resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"></textarea>
+                <x-org.busy-button type="submit" size="sm" busy="thinking" loading-text="Изпращам…" :spinner="false"
+                          x-bind:disabled="!input.trim() || thinking">Изпрати</x-org.busy-button>
+            </form>
+        </div>
+    </div>
 
-        {{-- Свободен вход --}}
-        <template x-if="!ready">
-            <div class="border-t border-line p-3">
-                <form @submit.prevent="sendText()" class="flex items-end gap-2">
-                    <textarea x-model="input" rows="1" placeholder="Напиши свободно…" @keydown.enter.prevent="sendText()"
-                              class="flex-1 resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"></textarea>
-                    <x-button type="submit" size="sm" x-bind:disabled="!input.trim() || thinking">Изпрати</x-button>
-                </form>
-            </div>
-        </template>
+    {{-- Готово — под чата, широко колкото панела --}}
+    <template x-if="ready">
+        <div class="mt-4 space-y-3" x-cloak>
+            <p class="text-sm text-success-strong text-center">✓ Управителят има ясна представа.</p>
+            <x-button :href="route('client.org.analysis')" class="w-full">Виж анализа →</x-button>
+        </div>
+    </template>
     </div>
 </div>
 
@@ -154,7 +158,10 @@ function interview(cfg) {
             if (!this.ready && t.length) {
                 const last = t[t.length - 1];
                 if (last.role === 'assistant' && last.question) {
-                    this.messages[this.messages.length - 1].answered = false;
+                    const open = this.messages[this.messages.length - 1];
+                    open.answered = false;
+                    this.scrollToMsg(open.uid);
+                    return;
                 }
             }
             this.scroll();
@@ -164,21 +171,67 @@ function interview(cfg) {
                      selected: [], otherChecked: false, other: '' };
         },
         pushBot(content, question = null, failed = false) {
-            const m = this.mkMsg('assistant', content, question); m.failed = failed; this.messages.push(m); this.scrollToMsg(m.uid);
+            const m = this.mkMsg('assistant', content, question);
+            m.failed = failed;
+            this.messages.push(m);
+            this.scrollToMsg(m.uid);
         },
         pushUser(content) { this.messages.push(this.mkMsg('user', content)); this.scroll(); },
-        scroll() { this.$nextTick(() => { const el = this.$refs.scroll; if (el) el.scrollTop = el.scrollHeight; }); },
-        // Скрол до НАЧАЛОТО на дадено съобщение (последния отговор на бота), за да се чете отгоре,
-        // а не до края на дълъг текст. Markdown-ът/опциите/шрифтовете се „доизрисуват" след вмъкването,
-        // затова смятаме позицията наново на няколко прохода (вмъкване → след paint → след доизрисуване).
+        scheduleScroll(fn, delays = [0, 120, 300, 500, 800]) {
+            this.$nextTick(() => {
+                delays.forEach(ms => (ms ? setTimeout(fn, ms) : fn()));
+                requestAnimationFrame(fn);
+            });
+        },
+        scroll() {
+            this.scheduleScroll(() => {
+                const el = this.$refs.scroll;
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        },
+        // Скрол до началото на балона. Alpine x-if рендира балона асинхронно — ResizeObserver + retry.
         scrollToMsg(uid) {
-            const go = () => {
-                const el = this.$refs.scroll; if (!el) return;
-                const node = el.querySelector('[data-uid="' + uid + '"]');
-                if (!node) { el.scrollTop = el.scrollHeight; return; }
-                el.scrollTop += node.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
+            const pad = 12;
+            const el = () => this.$refs.scroll;
+
+            const scrollBubble = (fallbackBottom = false) => {
+                const box = el();
+                if (!box) return false;
+                if (fallbackBottom) {
+                    box.scrollTop = box.scrollHeight;
+                    return true;
+                }
+                const wrap = box.querySelector('[data-uid="' + uid + '"]');
+                if (!wrap) return false;
+                const bubble = wrap.querySelector('.msg-bot-bubble');
+                const target = (bubble && bubble.offsetHeight > 0) ? bubble : wrap;
+                if (target.offsetHeight < 1) return false;
+
+                const top = box.scrollTop
+                    + target.getBoundingClientRect().top
+                    - box.getBoundingClientRect().top
+                    - pad;
+                box.scrollTop = Math.max(0, top);
+                return true;
             };
-            this.$nextTick(() => { go(); requestAnimationFrame(go); setTimeout(go, 300); });
+
+            const run = (last = false) => {
+                if (!scrollBubble(last)) scrollBubble(true);
+            };
+
+            this.$nextTick(() => {
+                run();
+                requestAnimationFrame(() => run());
+                [120, 300, 500, 800, 1200].forEach(ms => setTimeout(() => run(ms === 1200), ms));
+
+                const box = el();
+                const wrap = box?.querySelector('[data-uid="' + uid + '"]');
+                if (wrap && typeof ResizeObserver !== 'undefined') {
+                    const ro = new ResizeObserver(() => scrollBubble(false));
+                    ro.observe(wrap);
+                    setTimeout(() => ro.disconnect(), 2500);
+                }
+            });
         },
         toggleOpt(msg, value) {
             if (msg.question.input_type === 'radio') { msg.selected = [value]; return; }
@@ -188,6 +241,7 @@ function interview(cfg) {
         sendText() {
             const text = this.input.trim(); if (!text || this.thinking) return;
             this.pushUser(text); this.input = ''; this.thinking = true;
+            this.scroll();
             this.dispatch({ message: text });
         },
         answer(msg) {
@@ -198,6 +252,7 @@ function interview(cfg) {
             if (other) labels.push(other);
             const display = labels.join(', ');
             this.pushUser(display); this.thinking = true;
+            this.scroll();
             this.dispatch({ answer: { key: msg.question.key, values, other }, display });
         },
         dispatch(body) {
@@ -222,7 +277,7 @@ function interview(cfg) {
                     stop();
                     if (d.status === 'failed' || d.status === 'expired') { this.pushBot(d.error || 'Грешка.', null, true); return; }
                     this.pushBot(d.reply || (d.question && d.question.text) || '', d.question || null);   // въпросът носи текста
-                    if (d.phase === 'ready') this.ready = true;
+                    this.ready = d.phase === 'ready';
                 } catch (e) {
                     if (++fails >= 8) { stop(); this.pushBot('Връзката се губи. Опитай пак.', null, true); }
                 }

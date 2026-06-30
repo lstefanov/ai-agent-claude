@@ -7,6 +7,7 @@ use App\Jobs\Org\ResearchBusinessJob;
 use App\Models\Company;
 use App\Models\CreditWallet;
 use App\Models\OrgMember;
+use App\Services\Org\OrgResetService;
 use App\Services\Org\PersonaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -114,28 +115,23 @@ class OnboardingController extends Controller
     }
 
     /**
-     * Нулира организацията (бързи експерименти): трие Управителя + всички членове
-     * (CASCADE → персони/директори/асистенти/задачи/чатове), бизнес профила, версиите
-     * и хрониката. Билингът (wallet/subscription) се пази. → връща в casting.
+     * Нулира компанията (бързи експерименти): трие ВСИЧКО свързано с нея — org, flows +
+     * изпълнения, решения, чат/бележки, шаблони, интеграции и билинг — освен секцията
+     * „Знания" (knowledge_*) и потребителските акаунти. Логиката е в OrgResetService.
+     * → връща в casting.
      */
-    public function reset(Request $request)
+    public function reset(Request $request, OrgResetService $reset)
     {
         $company = $this->company();
 
-        // Освобождаваме FK-а първо, за да може да трием версиите и рутирането да падне на casting.
-        $company->update(['active_org_version_id' => null]);
-
-        $company->members()->delete();          // CASCADE: персони, директори, асистенти, задачи, чатове
-        $company->businessProfile()->delete();   // проучване + отговори от интервюто
-        $company->orgVersions()->delete();       // CASCADE: директори/асистенти от минали дизайни
-        $company->orgEvents()->delete();         // чиста хроника
+        $reset->reset($company);
 
         if ($request->wantsJson()) {
             return response()->json(['ok' => true, 'redirect' => route('client.org.casting')]);
         }
 
         return redirect()->route('client.org.casting')
-            ->with('success', 'Организацията е нулирана. Започни отначало.');
+            ->with('success', 'Компанията е нулирана. Знанията са запазени. Започни отначало.');
     }
 
     /** Страница на проучването (прогрес + старт). */

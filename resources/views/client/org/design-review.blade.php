@@ -213,6 +213,8 @@
                              <template x-for> засяда и блокира кликовете; състоянието „заето" се показва
                              само през x-show на child span-овете (то работи), а JS guard-ът пази от двойно подаване. --}}
                         <button type="button" x-on:click="addAssistant(dir)"
+                                :class="addingAssistant[dir.key] ? 'opacity-60 pointer-events-none' : ''"
+                                :aria-busy="addingAssistant[dir.key] ? 'true' : 'false'"
                                 class="rounded-xl border border-dashed border-line-strong p-4 min-h-[132px] flex items-center justify-center gap-2 text-sm text-muted hover:text-primary hover:border-primary/50 transition">
                             <span x-show="!addingAssistant[dir.key]" class="inline-flex items-center gap-2"><x-icon name="plus" size="4" /> Добави асистент</span>
                             <span x-show="addingAssistant[dir.key]" x-cloak class="inline-flex items-center gap-2"><x-org.bolt-spinner size="18" /> Управителят пише…</span>
@@ -259,11 +261,10 @@
                         </div>
                         <div class="flex flex-wrap items-center justify-end gap-2">
                             <span x-show="addingDept" x-cloak class="inline-flex items-center gap-2 text-sm text-muted mr-auto"><x-org.bolt-spinner size="18" /> Управителят съставя нов отдел…</span>
-                            <button type="button" x-on:click="addDepartment()"
-                                    class="rounded-lg border border-line-strong px-3 py-2 text-sm text-ink hover:bg-surface transition">
-                                Нека Управителят реши
-                            </button>
-                            <x-button x-on:click="addDepartment({ name: newDept.name, description: newDept.description })">Създай отдел</x-button>
+                            <x-org.busy-button variant="secondary" busy="addingDept" loading-text="Управителят решава…"
+                                               x-on:click="addDepartment()">Нека Управителят реши</x-org.busy-button>
+                            <x-org.busy-button busy="addingDept" loading-text="Създавам отдел…"
+                                               x-on:click="addDepartment({ name: newDept.name, description: newDept.description })">Създай отдел</x-org.busy-button>
                         </div>
                         <p x-show="addError.dept" x-text="addError.dept" x-cloak class="text-sm text-danger"></p>
                     </div>
@@ -273,9 +274,9 @@
 
         <div class="flex items-center justify-end gap-3 pt-2">
             <p x-show="approveMsg" x-text="approveMsg" class="text-sm text-muted mr-auto"></p>
-            <x-button x-on:click="approve()" x-bind:disabled="approving">
-                <span x-text="approving ? 'Създавам организацията…' : 'Одобри и създай екипа'"></span>
-            </x-button>
+            <x-org.busy-button busy="approving" loading-text="Създавам организацията…" x-on:click="approve()">
+                Одобри и създай екипа
+            </x-org.busy-button>
         </div>
     </div>
 

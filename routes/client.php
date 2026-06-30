@@ -96,7 +96,14 @@ Route::middleware('client_auth')->group(function () {
         Route::get('skill-tree', [Client\Org\OrgGraphController::class, 'skillTree'])->name('client.org.skill-tree');
         Route::get('graph.json', [Client\Org\OrgGraphController::class, 'graph'])->name('client.org.graph');
         Route::get('members/{member}', [Client\Org\MemberController::class, 'show'])->name('client.org.member');
+        Route::get('members/{member}/persona', [Client\Org\MemberController::class, 'persona'])->name('client.org.member.persona');
         Route::post('members/{member}/avatar/regenerate', [Client\Org\MemberController::class, 'regenerateAvatar'])->name('client.org.member.avatar');
+
+        // Жива редакция на roster-а (apply immediately, §7.3) — тънък RosterMutationController.
+        Route::post('roster/assistants', [Client\Org\RosterMutationController::class, 'addAssistant'])->name('client.org.roster.add-assistant');
+        Route::post('roster/departments', [Client\Org\RosterMutationController::class, 'addDepartment'])->name('client.org.roster.add-department');
+        Route::put('roster/departments/{director}', [Client\Org\RosterMutationController::class, 'updateDepartment'])->name('client.org.roster.update-department');
+        Route::delete('roster/members/{member}', [Client\Org\RosterMutationController::class, 'removeMember'])->name('client.org.roster.remove-member');
         Route::post('members/{member}/tier', [Client\Org\MemberController::class, 'setTier'])->name('client.org.member.tier');
         Route::post('members/{member}/promote-department', [Client\Org\MemberController::class, 'promoteDepartment'])->name('client.org.member.promote-dept');
         Route::post('tasks/{task}/tier', [Client\Org\AssistantTaskController::class, 'setTier'])->name('client.org.tasks.tier');
@@ -109,6 +116,10 @@ Route::middleware('client_auth')->group(function () {
         Route::post('tasks/{task}/generate', [Client\Org\AssistantTaskController::class, 'generate'])->name('client.org.tasks.generate');
         Route::get('tasks/{task}/gen-status/{token}', [Client\Org\AssistantTaskController::class, 'genStatus'])->name('client.org.tasks.gen-status');
         Route::post('tasks/{task}/run', [Client\Org\AssistantTaskController::class, 'run'])->name('client.org.tasks.run');
+        // Гейт по знание (§2-етапни задачи): добави бележка, разреши уеб-търсене, провери достатъчност.
+        Route::post('tasks/{task}/knowledge/note', [Client\Org\AssistantTaskController::class, 'addKnowledgeNote'])->name('client.org.tasks.knowledge.note');
+        Route::post('tasks/{task}/knowledge/ack', [Client\Org\AssistantTaskController::class, 'ackKnowledge'])->name('client.org.tasks.knowledge.ack');
+        Route::get('tasks/{task}/knowledge/status', [Client\Org\AssistantTaskController::class, 'knowledgeStatus'])->name('client.org.tasks.knowledge.status');
         Route::get('tasks', [Client\Org\TaskLogController::class, 'index'])->name('client.org.tasks.index');
         Route::get('live', [Client\Org\OrgGraphController::class, 'live'])->name('client.org.live');
 
@@ -136,6 +147,8 @@ Route::middleware('client_auth')->group(function () {
 
         // Фаза 7: хроника + ръчно ревю на Управителя.
         Route::get('chronicle', [Client\Org\OrgGraphController::class, 'chronicle'])->name('client.org.chronicle');
-        Route::post('review', [Client\Org\OrgGraphController::class, 'reviewNow'])->name('client.org.review');
+        Route::post('review', [Client\Org\OrgGraphController::class, 'reviewNow'])
+            ->middleware('throttle:5,1')
+            ->name('client.org.review');
     });
 });

@@ -21,7 +21,7 @@ class MemberController extends Controller
     {
         $this->authorizeMember($member);
 
-        $member->load('persona', 'tasks');
+        $member->load('persona', 'tasks.knowledgeRequirements');
 
         // Run-статус per задача (последен run + броячи) за секцията „Задачи".
         $taskRuns = FlowRunStats::forFlows(
@@ -35,6 +35,31 @@ class MemberController extends Controller
         ]);
     }
 
+    /** Пълна персона за inline редактора в roster-а (memberCard не носи gender/ethnicity/skills/archetype). */
+    public function persona(OrgMember $member): JsonResponse
+    {
+        $this->authorizeMember($member);
+        $p = $member->persona;
+
+        return response()->json([
+            'persona' => [
+                'id' => $p?->id,
+                'name' => $p?->name ?? $member->display_name,
+                'age' => $p?->age,
+                'gender' => $p?->gender,
+                'ethnicity' => $p?->ethnicity,
+                'background' => $p?->background,
+                'education' => $p?->education,
+                'tone' => $p?->tone,
+                'bio' => $p?->bio,
+                'traits' => (array) ($p?->traits ?? []),
+                'skills' => (array) ($p?->skills ?? []),
+                'archetype_key' => $p?->archetype_key,
+                'color' => $member->functionColor(),
+            ],
+        ]);
+    }
+
     /** Ръчно „Регенерирай аватар" → нулира pending + диспечира job. */
     public function regenerateAvatar(OrgMember $member): JsonResponse
     {
@@ -44,7 +69,13 @@ class MemberController extends Controller
             return response()->json(['ok' => false, 'error' => 'Няма персона.'], 422);
         }
 
-        $persona->update(['avatar_status' => 'pending']);
+        $meta = is_array($persona->avatar_meta) ? $persona->avatar_meta : [];
+        $meta['regen_salt'] = ((int) ($meta['regen_salt'] ?? 0)) + 1;
+
+        $persona->update([
+            'avatar_status' => 'pending',
+            'avatar_meta' => $meta,
+        ]);
         GenerateMemberAvatarJob::dispatch($persona->id)->onQueue('org');
 
         return response()->json(['ok' => true]);

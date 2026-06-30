@@ -7,6 +7,7 @@ return [
         'provider' => env('ORG_PLANNER_PROVIDER', ''),     // празно → planner default
         'model' => env('ORG_PLANNER_MODEL', ''),
         'max_questions' => (int) env('ORG_INTERVIEW_MAX_QUESTIONS', 12),
+        'max_followup_questions' => (int) env('ORG_INTERVIEW_MAX_FOLLOWUP_QUESTIONS', 3),
         'min_questions' => (int) env('ORG_INTERVIEW_MIN_QUESTIONS', 3),   // под този праг „ready" без въпрос е забранено
     ],
     'director' => ['default_level' => env('ORG_DIRECTOR_LEVEL', 'high')],
@@ -29,6 +30,11 @@ return [
             'max_open_proposals' => (int) env('ORG_DIRECTOR_MAX_OPEN_PROPOSALS', 7),
             'propose_limit' => (int) env('ORG_DIRECTOR_PROPOSE_LIMIT', 2),
         ],
+    ],
+
+    // Стартови кредити при одобрение на нов екип (след ресет или първо създаване).
+    'ignition' => [
+        'startup_credits' => (int) env('ORG_IGNITION_STARTUP_CREDITS', 1000),
     ],
 
     'seed_verticals' => ['fitness', 'restaurant', 'services'],   // §11 — 3 seed вертикали
@@ -78,9 +84,18 @@ return [
         'mandate' => ['label' => 'Промяна на мандат', 'category' => 'Структурно', 'color' => 'amber',  'icon' => 'identification'],
         'tier_change' => ['label' => 'Промяна на ниво',   'category' => 'Структурно', 'color' => 'purple', 'icon' => 'arrow-trending-up'],
         'assistant_task' => ['label' => 'Предложена задача', 'category' => 'Задача',     'color' => 'teal', 'icon' => 'sparkles'],
+        'assistant_task_knowledge' => ['label' => 'Чака знания', 'category' => 'Задача', 'color' => 'amber', 'icon' => 'book-open'],
         'run_approval' => ['label' => 'Изпълнение',         'category' => 'Изпълнение', 'color' => 'pink', 'icon' => 'play-circle'],
     ],
     'proposal_type_fallback' => ['label' => 'Предложение', 'category' => 'Структурно', 'color' => 'blue', 'icon' => 'document'],
+
+    // Гейт по знание (§2-етапни задачи): задача не стига до FlowRun, ако изисква фирмено
+    // знание, което липсва. enabled=false → гейтът е no-op (fail open). satisfied_threshold е
+    // долната граница за best_score (coverage judge-ът е реалното решение, не само резултатът).
+    'knowledge_gate' => [
+        'enabled' => (bool) env('ORG_KNOWLEDGE_GATE', true),
+        'satisfied_threshold' => (float) env('ORG_KNOWLEDGE_GATE_THRESHOLD', 0.55),
+    ],
 
     // Композиция на екипа според маркираните проблеми (§smart-composition). Управителят
     // ПРЕДЛАГА набор от отдели, който покрива фокус-областите; КОДЪТ дедуплицира по домейн,

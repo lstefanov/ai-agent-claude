@@ -34,12 +34,15 @@ class OrgReviewJob implements ShouldQueue
     {
         $company = Company::find($this->companyId);
         if (! $company || ! $company->active_org_version_id) {
+            OrgReviewLock::release($this->companyId);
+
             return;
         }
 
         // Дневен автономен таван: ревюто е автономно → спира при достигнат лимит.
         if (! $budget->allows($company, 'org_review')) {
             Log::info('[OrgReview] пропуснато (дневен автономен лимит), company '.$company->id);
+            OrgReviewLock::release($this->companyId);
 
             return;
         }
@@ -71,6 +74,7 @@ class OrgReviewJob implements ShouldQueue
         } catch (\Throwable $e) {
             Log::error('[OrgReview] failed: '.$e->getMessage());
         } finally {
+            OrgReviewLock::release($this->companyId);
             if ($reservation) {
                 LlmContext::clear();
                 $meter->settle($reservation, $meter->actualFor($reservation));
