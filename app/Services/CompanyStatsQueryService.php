@@ -1276,6 +1276,7 @@ class CompanyStatsQueryService
 
     /**
      * Дата-диапазон за charts: ако не е зададен в филтрите, взима от данните.
+     * Без явен филтър винаги показва поне 30 дни (нули за дни без разход).
      * Ограничен до 370 дни.
      *
      * @return array{0: Carbon, 1: Carbon}
@@ -1283,6 +1284,7 @@ class CompanyStatsQueryService
     private function dateRange(Company $company, array $filters): array
     {
         $tz = config('app.timezone', 'UTC');
+        $hasExplicitRange = ($filters['from'] ?? null) || ($filters['to'] ?? null);
 
         $from = ($filters['from'] ?? null)
             ? Carbon::parse($filters['from'], $tz)->startOfDay()->utc()
@@ -1297,6 +1299,10 @@ class CompanyStatsQueryService
             $max = $base->max('llm_requests.created_at');
             $from = $from ?? ($min ? Carbon::parse($min)->startOfDay() : now()->subDays(29)->startOfDay());
             $to = $to ?? ($max ? Carbon::parse($max)->endOfDay() : now()->endOfDay());
+        }
+
+        if (! $hasExplicitRange && $from->diffInDays($to) + 1 < 30) {
+            $from = $to->copy()->subDays(29)->startOfDay();
         }
 
         if (abs($from->diffInDays($to)) > 370) {

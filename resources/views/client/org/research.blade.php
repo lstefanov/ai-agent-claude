@@ -63,16 +63,6 @@
                         </div>
                     </div>
                 </template>
-                <template x-if="arr(research.gaps).length">
-                    <div class="rounded-lg border border-line p-3 md:col-span-2">
-                        <p class="text-xs font-medium text-muted mb-2">Какво ще изясни интервюто</p>
-                        <ul class="space-y-1 text-sm text-ink">
-                            <template x-for="gap in arr(research.gaps).slice(0, 3)" :key="gap.key || gap.question">
-                                <li class="leading-snug" x-text="gap.question || gap.reason"></li>
-                            </template>
-                        </ul>
-                    </div>
-                </template>
             </div>
 
             <template x-if="arr(research.evidence).length">

@@ -19,6 +19,8 @@ class GenerateMemberAvatarJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public const QUEUE = 'org-avatars';
+
     public int $timeout = 300;
 
     public int $tries = 2;

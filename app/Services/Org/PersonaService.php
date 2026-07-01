@@ -7,6 +7,7 @@ use App\Models\OrgMember;
 use App\Models\Persona;
 use App\Models\PersonaArchetype;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /**
  * Двигателят на персоните (§5): демография → стартови черти (само ПОДСКАЗВА, §5.3),
@@ -261,7 +262,7 @@ class PersonaService
         if (config('organization.persona.portraits') && $newSignature !== $oldSignature) {
             if (! $this->avatars->reuseArchetypeAvatar($persona)) {
                 $persona->update(['avatar_status' => 'pending']);
-                GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue('org');
+                GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue(GenerateMemberAvatarJob::QUEUE);
             }
         }
 

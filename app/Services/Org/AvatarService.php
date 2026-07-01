@@ -160,7 +160,7 @@ class AvatarService
 
         $count = 0;
         foreach ($query->get() as $persona) {
-            GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue('org');
+            GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue(GenerateMemberAvatarJob::QUEUE);
             $count++;
         }
 

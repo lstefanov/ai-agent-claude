@@ -60,7 +60,7 @@ class AuditMemberAvatarsCommand extends Command
             ]);
             $persona->orgMember()->update(['avatar_url' => null]);
 
-            GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue('org');
+            GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue(GenerateMemberAvatarJob::QUEUE);
             $this->info('  → queued for regeneration');
         }
 

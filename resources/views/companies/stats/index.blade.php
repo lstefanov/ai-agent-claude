@@ -449,43 +449,70 @@
                 <template x-if="!resModal.loading && resModal.data">
                     <div class="space-y-4">
                         {{-- Хедър --}}
-                        <div class="grid grid-cols-2 gap-3 text-sm">
-                            <div><p class="text-xs text-muted">Услуга</p><p class="font-medium" x-text="resModal.data.reservation.context_label"></p></div>
-                            <div><p class="text-xs text-muted">Статус</p><p class="font-medium" x-text="resModal.data.reservation.status"></p></div>
-                            <div><p class="text-xs text-muted">Субект</p><p class="font-medium" x-text="resModal.data.reservation.subject_label || '—'"></p></div>
-                            <div><p class="text-xs text-muted">Произход</p><p class="font-medium" x-text="resModal.data.reservation.origin_label"></p></div>
-                            <div><p class="text-xs text-muted">Резервирано</p><p class="font-medium tabular-nums" x-text="resModal.data.reservation.estimated_credits + ' кр.'"></p></div>
-                            <div><p class="text-xs text-muted">Похарчено</p><p class="font-medium tabular-nums text-danger-strong" x-text="resModal.data.reservation.spent_credits + ' кр.'"></p></div>
-                            <div><p class="text-xs text-muted">Върнато</p><p class="font-medium tabular-nums text-success-strong" x-text="Math.max(0, resModal.data.reservation.estimated_credits - resModal.data.reservation.spent_credits) + ' кр.'"></p></div>
+                        <div class="space-y-3">
+                            <div class="flex items-start justify-between gap-4">
+                                <p class="font-semibold text-ink text-sm" x-text="resModal.data.reservation.context_label"></p>
+                                <span class="shrink-0 inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-md"
+                                      :class="resStatusClass(resModal.data.reservation.status)"
+                                      x-text="resStatusLabel(resModal.data.reservation.status)"></span>
+                            </div>
+                            <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+                                <span><span class="text-subtle">Субект:</span> <span class="text-ink" x-text="resModal.data.reservation.subject_label || '—'"></span></span>
+                                <span><span class="text-subtle">Произход:</span> <span class="text-ink" x-text="resModal.data.reservation.origin_label"></span></span>
+                                <span x-show="resModal.data.reservation.created_at"><span class="text-subtle">Дата:</span> <span class="text-ink tabular-nums" x-text="resModal.data.reservation.created_at"></span></span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-3">
+                                <div class="bg-surface border border-line rounded-xl px-4 py-3">
+                                    <p class="text-xs text-muted mb-0.5">Резервирано</p>
+                                    <p class="font-bold text-ink tabular-nums" x-text="fmt(resModal.data.reservation.estimated_credits) + ' кр.'"></p>
+                                </div>
+                                <div class="bg-surface border border-line rounded-xl px-4 py-3">
+                                    <p class="text-xs text-muted mb-0.5">Похарчено</p>
+                                    <p class="font-bold text-danger-strong tabular-nums" x-text="fmt(resModal.data.reservation.spent_credits) + ' кр.'"></p>
+                                </div>
+                                <div class="bg-surface border border-line rounded-xl px-4 py-3">
+                                    <p class="text-xs text-muted mb-0.5">Върнато</p>
+                                    <p class="font-bold text-success-strong tabular-nums"
+                                       x-text="fmt(Math.max(0, resModal.data.reservation.estimated_credits - resModal.data.reservation.spent_credits)) + ' кр.'"></p>
+                                </div>
+                            </div>
                         </div>
                         {{-- Ledger --}}
                         <div>
                             <h4 class="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Ledger редове</h4>
-                            <div class="space-y-1">
+                            <x-table :headers="['Дата', 'Тип', 'Сума', 'Баланс след']">
                                 <template x-for="e in resModal.data.ledger" :key="e.id">
-                                    <div class="flex items-center gap-3 text-xs text-muted">
-                                        <span class="w-36 tabular-nums" x-text="e.created_at"></span>
-                                        <span class="w-24" x-text="e.type_label"></span>
-                                        <span :class="e.direction === 'debit' ? 'text-danger-strong' : 'text-success-strong'"
-                                              x-text="(e.direction === 'debit' ? '−' : '+') + fmt(e.amount) + ' кр.'"></span>
-                                        <span class="text-muted" x-text="e.wallet_balance_after !== null ? '→ ' + fmt(e.wallet_balance_after) + ' кр.' : ''"></span>
-                                    </div>
+                                    <tr class="text-xs">
+                                        <td class="px-4 py-2 text-muted tabular-nums whitespace-nowrap" x-text="e.created_at"></td>
+                                        <td class="px-4 py-2 text-ink" x-text="e.type_label"></td>
+                                        <td class="px-4 py-2 text-right tabular-nums font-medium"
+                                            :class="e.direction === 'debit' ? 'text-danger-strong' : 'text-success-strong'"
+                                            x-text="(e.direction === 'debit' ? '−' : '+') + fmt(e.amount) + ' кр.'"></td>
+                                        <td class="px-4 py-2 text-right tabular-nums text-muted"
+                                            x-text="e.wallet_balance_after !== null ? fmt(e.wallet_balance_after) + ' кр.' : '—'"></td>
+                                    </tr>
                                 </template>
-                            </div>
+                            </x-table>
                         </div>
                         {{-- LLM заявки --}}
                         <div>
                             <h4 class="text-xs font-semibold text-muted uppercase tracking-wide mb-2">LLM заявки</h4>
-                            <div class="space-y-1">
-                                <template x-for="req in resModal.data.requests" :key="req.id">
-                                    <div class="flex items-center gap-3 text-xs text-muted">
-                                        <span class="w-36 tabular-nums" x-text="req.created_at"></span>
-                                        <span class="w-24 truncate" x-text="req.provider + '/' + req.model"></span>
-                                        <span class="w-16 tabular-nums" x-text="(req.prompt_tokens || 0) + '+' + (req.completion_tokens || 0) + ' tok'"></span>
-                                        <span class="tabular-nums text-ink" x-text="'$' + fmtUsd(req.cost_usd)"></span>
-                                    </div>
-                                </template>
-                            </div>
+                            <template x-if="(resModal.data.requests ?? []).length === 0">
+                                <p class="text-sm text-muted">Няма LLM заявки за тази резервация.</p>
+                            </template>
+                            <template x-if="(resModal.data.requests ?? []).length > 0">
+                                <x-table :headers="['Дата', 'Модел', 'Токени', 'USD']">
+                                    <template x-for="req in resModal.data.requests" :key="req.id">
+                                        <tr class="text-xs">
+                                            <td class="px-4 py-2 text-muted tabular-nums whitespace-nowrap" x-text="req.created_at"></td>
+                                            <td class="px-4 py-2 text-ink truncate max-w-[200px]" x-text="req.provider + '/' + req.model"></td>
+                                            <td class="px-4 py-2 text-right tabular-nums text-muted"
+                                                x-text="(req.prompt_tokens || 0) + '+' + (req.completion_tokens || 0) + ' tok'"></td>
+                                            <td class="px-4 py-2 text-right tabular-nums text-ink" x-text="'$' + fmtUsd(req.cost_usd)"></td>
+                                        </tr>
+                                    </template>
+                                </x-table>
+                            </template>
                         </div>
                     </div>
                 </template>
@@ -563,9 +590,10 @@ function companyStats() {
             };
             const mk = (ref, cfg) => { const el = this.$refs[ref]; if (el) this.charts[ref] = new Chart(el, cfg); };
 
-            // Разход по ден — линия
+            // Разход по ден — линия (при малко дни по-големи точки, за да се виждат)
             const sd = c.spendByDay || { labels: [], cost: [] };
-            mk('chartSpend', { type: 'line', data: { labels: sd.labels, datasets: [{ label: 'USD', data: sd.cost, borderColor: PALETTE[0], backgroundColor: PALETTE[0] + '22', fill: true, tension: 0.3, pointRadius: 2 }] }, options: base });
+            const spendPointRadius = (sd.labels?.length ?? 0) <= 3 ? 5 : 2;
+            mk('chartSpend', { type: 'line', data: { labels: sd.labels, datasets: [{ label: 'USD', data: sd.cost, borderColor: PALETTE[0], backgroundColor: PALETTE[0] + '22', fill: true, tension: 0.3, pointRadius: spendPointRadius, pointHoverRadius: spendPointRadius + 2 }] }, options: base });
 
             // Кредитни движения по ден — stacked bar
             const cd = c.creditsByDay || { labels: [], datasets: [] };
@@ -586,9 +614,17 @@ function companyStats() {
             const pv = this.overview.providers || [];
             mk('chartProvider', { type: 'doughnut', data: { labels: pv.map(p => p.provider), datasets: [{ data: pv.map(p => p.cost), backgroundColor: PALETTE }] }, options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } } } });
 
-            // Топ модели — хоризонтален bar
+            // Топ модели — хоризонтален bar (x = USD стойности, y = категории)
             const bm = c.byModel || { labels: [], data: [] };
-            mk('chartModel', { type: 'bar', data: { labels: bm.labels, datasets: [{ label: 'USD', data: bm.data, backgroundColor: PALETTE[1] }] }, options: { ...base, indexAxis: 'y' } });
+            mk('chartModel', { type: 'bar', data: { labels: bm.labels, datasets: [{ label: 'USD', data: bm.data, backgroundColor: PALETTE[1] }] }, options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { beginAtZero: true, grid: { color: GRID }, ticks: { font: { size: 10 }, callback: v => '$' + Number(v).toFixed(4) } },
+                    y: { grid: { color: GRID }, ticks: { font: { size: 10 } } },
+                },
+            } });
         },
 
         async loadCredits(page = 1) {
@@ -657,6 +693,24 @@ function companyStats() {
         fmtUsd(v) {
             if (v === null || v === undefined) return '—';
             return Number(v).toFixed(4);
+        },
+
+        resStatusLabel(status) {
+            return {
+                reserved: 'Резервирано',
+                settled: 'Уредено',
+                refunded: 'Върнато',
+                expired: 'Изтекло',
+            }[status] ?? status;
+        },
+
+        resStatusClass(status) {
+            return {
+                reserved: 'bg-warning-soft text-warning-strong',
+                settled: 'bg-success-soft text-success-strong',
+                refunded: 'bg-info-soft text-info-strong',
+                expired: 'bg-neutral-soft text-neutral-strong',
+            }[status] ?? 'bg-neutral-soft text-neutral-strong';
         },
 
         fmtK(v) {

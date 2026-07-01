@@ -8,6 +8,7 @@ use App\Models\Company;
 use App\Models\CreditReservation;
 use App\Models\CreditWallet;
 use App\Models\FlowRun;
+use App\Models\OrgProposal;
 use App\Services\Org\DecisionBoxService;
 use App\Services\Org\TaskRunService;
 use Illuminate\Http\JsonResponse;
@@ -57,6 +58,7 @@ class OrgDashboardController extends Controller
             'recent_runs' => $recent->map(fn (FlowRun $r) => $this->runSummary($r))->all(),
             'task_counts' => $this->taskCounts($company),
             'credits' => $this->credits($company),
+            'activation' => $this->activationState($company),
             'updated_at' => now()->toIso8601String(),
         ];
     }
@@ -109,6 +111,78 @@ class OrgDashboardController extends Controller
             'completed' => $completed,
             'rejected' => (int) ($byStatus['rejected'] ?? 0),
             'needs_knowledge' => $needsKnowledge,
+        ];
+    }
+
+    /**
+     * Начална активация след одобрение на екип: реален progress от версия, ticks,
+     * seed задачи, предложения и аватари. Без fake предложения и без нова таблица.
+     */
+    private function activationState(Company $company): array
+    {
+        $version = $company->activeOrgVersion;
+        if (! $version) {
+            return [
+                'active' => false,
+                'version_id' => null,
+                'version' => null,
+                'directors_total' => 0,
+                'directors_reviewed' => 0,
+                'avatar_ready' => 0,
+                'avatar_pending' => 0,
+                'avatar_failed' => 0,
+                'members_total' => 0,
+                'seed_tasks_generating' => 0,
+                'pending_decisions' => 0,
+            ];
+        }
+
+        $directors = $version->directors()
+            ->where('status', 'active')
+            ->get(['id', 'last_proposed_at']);
+        $directorsTotal = $directors->count();
+        $directorsReviewed = $directors->whereNotNull('last_proposed_at')->count();
+
+        $members = $company->members()
+            ->whereIn('kind', ['manager', 'director', 'assistant'])
+            ->where('status', 'active')
+            ->with('persona:id,org_member_id,avatar_status')
+            ->get(['id']);
+        $membersTotal = $members->count();
+        $avatarReady = $members->filter(fn ($member) => $member->persona?->avatar_status === 'ready')->count();
+        $avatarFailed = $members->filter(fn ($member) => $member->persona?->avatar_status === 'failed')->count();
+        $avatarPending = max(0, $membersTotal - $avatarReady - $avatarFailed);
+
+        $taskBase = $this->tasks->tasksForActiveAssistants($company);
+        $seedTasksGenerating = (clone $taskBase)
+            ->whereIn('status', ['proposed', 'generating'])
+            ->count();
+        $pendingTaskDecisions = (clone $taskBase)
+            ->where('status', 'pending_approval')
+            ->count();
+        $openProposals = OrgProposal::where('company_id', $company->id)->pending()->count();
+        $pendingDecisions = $pendingTaskDecisions + $openProposals;
+
+        $activationStartedAt = $version->approved_at ?? $version->created_at;
+        $recentAvatarWork = $activationStartedAt?->gt(now()->subHours(2)) ?? false;
+
+        return [
+            'active' => $directorsTotal > 0 && (
+                $directorsReviewed < $directorsTotal
+                || $seedTasksGenerating > 0
+                || $pendingDecisions > 0
+                || ($recentAvatarWork && $avatarPending > 0)
+            ),
+            'version_id' => $version->id,
+            'version' => $version->version,
+            'directors_total' => $directorsTotal,
+            'directors_reviewed' => $directorsReviewed,
+            'avatar_ready' => $avatarReady,
+            'avatar_pending' => $avatarPending,
+            'avatar_failed' => $avatarFailed,
+            'members_total' => $membersTotal,
+            'seed_tasks_generating' => $seedTasksGenerating,
+            'pending_decisions' => $pendingDecisions,
         ];
     }
 
