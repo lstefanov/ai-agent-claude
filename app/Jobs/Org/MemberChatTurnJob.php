@@ -4,12 +4,8 @@ namespace App\Jobs\Org;
 
 use App\Models\MemberChat;
 use App\Models\MemberMessage;
-use App\Services\Org\Billing\CreditMeterService;
-use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\MemberChatService;
-use App\Support\BillableUnit;
-use App\Support\LlmContext;
-use App\Support\ModelLevel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -33,7 +29,7 @@ class MemberChatTurnJob implements ShouldQueue
 
     public function __construct(public string $token, public int $chatId, public int $userMessageId, public int $replyMessageId) {}
 
-    public function handle(MemberChatService $chatService, CreditMeterService $meter): void
+    public function handle(MemberChatService $chatService, BillableOperationService $billable): void
     {
         $key = "member_chat_{$this->token}";
         $chat = MemberChat::find($this->chatId);
@@ -46,55 +42,39 @@ class MemberChatTurnJob implements ShouldQueue
             return;
         }
 
-        $reservation = null;
         try {
-            $reservation = $meter->reserve(
-                $chat->company_id, 'member_chat', $chat->orgMember,
-                BillableUnit::estimateFor('member_chat', ModelLevel::Medium),
+            // Best-effort билинг + пълна атрибуция + settle/refund през централния wrapper.
+            // opKey = reply id → стабилен при retry, уникален per ход (без idempotency reuse).
+            $billable->run(
+                $chat->company_id,
+                'member_chat',
+                $chat->orgMember,
+                function () use ($chatService, $chat, $userMessage, $reply, $key) {
+                    $onStage = fn (string $s) => Cache::put($key, ['status' => 'pending', 'stage' => $s, 'updated_at' => now()->timestamp], now()->addMinutes(15));
+                    $result = $chatService->turn($chat, $userMessage, $onStage);
+
+                    $reply->update([
+                        'content' => $result['reply'],
+                        'payload' => ['proposal' => $result['proposal']],
+                        'cost_usd' => $result['cost_usd'],
+                        'status' => 'completed',
+                    ]);
+                    $chat->update(['last_message_at' => now()]);
+
+                    Cache::put($key, [
+                        'status' => 'completed',
+                        'reply' => $result['reply'],
+                        'proposal' => $result['proposal'],
+                        'message_id' => $reply->id,
+                        'updated_at' => now()->timestamp,
+                    ], now()->addMinutes(15));
+                },
+                opKey: "msg:{$this->replyMessageId}",
             );
-        } catch (InsufficientCreditsException) {
-            Log::info('[MemberChat] best-effort (no credits) company '.$chat->company_id);
-        }
-
-        if ($reservation) {
-            LlmContext::set([
-                'purpose' => 'member_chat',
-                'company_id' => $chat->company_id,
-                'context_type' => 'member_chat',
-                'subject_type' => $chat->orgMember->getMorphClass(),
-                'subject_id' => $chat->org_member_id,
-                'reservation_id' => $reservation->id,
-            ]);
-        }
-
-        try {
-            $onStage = fn (string $s) => Cache::put($key, ['status' => 'pending', 'stage' => $s, 'updated_at' => now()->timestamp], now()->addMinutes(15));
-            $result = $chatService->turn($chat, $userMessage, $onStage);
-
-            $reply->update([
-                'content' => $result['reply'],
-                'payload' => ['proposal' => $result['proposal']],
-                'cost_usd' => $result['cost_usd'],
-                'status' => 'completed',
-            ]);
-            $chat->update(['last_message_at' => now()]);
-
-            Cache::put($key, [
-                'status' => 'completed',
-                'reply' => $result['reply'],
-                'proposal' => $result['proposal'],
-                'message_id' => $reply->id,
-                'updated_at' => now()->timestamp,
-            ], now()->addMinutes(15));
         } catch (\Throwable $e) {
             Log::error('[MemberChat] failed: '.$e->getMessage());
             $reply->update(['status' => 'failed', 'error' => $e->getMessage()]);
             Cache::put($key, ['status' => 'failed', 'error' => 'Грешка в чата. Опитай пак.', 'updated_at' => now()->timestamp], now()->addMinutes(15));
-        } finally {
-            if ($reservation) {
-                LlmContext::clear();
-                $meter->settle($reservation, $meter->actualFor($reservation));
-            }
         }
     }
 }

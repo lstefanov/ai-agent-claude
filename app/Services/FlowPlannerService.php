@@ -1163,6 +1163,7 @@ PROMPT;
             'subject_type' => $prevCtx['subject_type'] ?? null,
             'subject_id' => $prevCtx['subject_id'] ?? null,
             'reservation_id' => $prevCtx['reservation_id'] ?? null,
+            'operation_id' => $prevCtx['operation_id'] ?? null,
         ]);
 
         try {

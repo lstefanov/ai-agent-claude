@@ -16,23 +16,32 @@ use Illuminate\Http\Request;
  */
 class BillingController extends Controller
 {
+    private const CLIENT_VISIBLE_PLAN_KEYS = ['free', 'starter', 'professional', 'business'];
+
     public function index()
     {
         $company = $this->company();
         $wallet = $company->creditWallet ?? CreditWallet::firstOrCreate(['company_id' => $company->id]);
+        $plans = Plan::where('is_active', true)
+            ->whereIn('key', self::CLIENT_VISIBLE_PLAN_KEYS)
+            ->get()
+            ->sortBy(fn (Plan $plan) => array_search($plan->key, self::CLIENT_VISIBLE_PLAN_KEYS, true))
+            ->values();
 
         return view('client.org.billing', [
             'company' => $company,
             'wallet' => $wallet,
-            'ledger' => $wallet->ledger()->latest('id')->take(20)->get(),
-            'plans' => Plan::where('is_active', true)->orderBy('price_cents')->get(),
+            'plans' => $plans,
             'subscription' => $company->subscription?->load('plan'),
         ]);
     }
 
     public function subscribe(Request $request, BillingService $billing): JsonResponse
     {
-        $plan = Plan::where('key', (string) $request->input('plan'))->where('is_active', true)->firstOrFail();
+        $plan = Plan::where('key', (string) $request->input('plan'))
+            ->whereIn('key', self::CLIENT_VISIBLE_PLAN_KEYS)
+            ->where('is_active', true)
+            ->firstOrFail();
         $subscription = $billing->subscribe($this->company(), $plan);
 
         return response()->json(['ok' => true, 'status' => $subscription->status, 'plan' => $plan->key]);

@@ -4,6 +4,7 @@ namespace App\Services\Org;
 
 use App\Models\Company;
 use App\Services\GeneratorService;
+use App\Services\Org\Billing\BillableOperationService;
 use Illuminate\Support\Str;
 
 /**
@@ -16,7 +17,10 @@ class PersonaFieldService
     /** Per-field максимуми = DB колоните / input maxlength (синхрон с _persona-fields.blade.php). */
     private const MAX = ['name' => 80, 'ethnicity' => 40, 'background' => 240, 'tone' => 120, 'bio' => 600];
 
-    public function __construct(private GeneratorService $llm) {}
+    public function __construct(
+        private GeneratorService $llm,
+        private BillableOperationService $billable,
+    ) {}
 
     /**
      * @param  array<string,mixed>  $context  вече попълнени полета (name/age/tone/traits/...)
@@ -32,14 +36,21 @@ class PersonaFieldService
 
         $seed = filled($seed) ? trim((string) $seed) : null;
 
-        $value = trim($this->llm->assist(
-            systemPrompt: $this->systemPrompt($field, $meta, $seed),
-            userMessage: $this->userMessage($company, $field, $role, $context, $seed),
-            options: ['temperature' => 0.7, 'num_predict' => match ($field) {
-                'bio' => 400, 'background' => 200, 'tone' => 120, default => 80
-            }],
-            provider: (string) config('persona.assist.provider', 'openai'),
-            model: (string) config('persona.assist.model', 'gpt-4o-mini'),
+        // Таксуваме реални кредити към фирмата (best-effort — не блокираме при липса).
+        $value = trim($this->billable->run(
+            companyId: $company->id,
+            contextType: 'text_assist',
+            subject: null,
+            work: fn () => $this->llm->assist(
+                systemPrompt: $this->systemPrompt($field, $meta, $seed),
+                userMessage: $this->userMessage($company, $field, $role, $context, $seed),
+                options: ['temperature' => 0.7, 'num_predict' => match ($field) {
+                    'bio' => 400, 'background' => 200, 'tone' => 120, default => 80
+                }],
+                provider: (string) config('persona.assist.provider', 'openai'),
+                model: (string) config('persona.assist.model', 'gpt-4o-mini'),
+            ),
+            opKey: (string) Str::uuid(),
         ));
 
         // Махни обгръщащи кавички (някои модели ги слагат) + кламп до DB max.

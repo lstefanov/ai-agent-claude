@@ -1,6 +1,6 @@
-# MCP Конектори — Агенти, Които Действат
+# MCP Конектори - Агенти, Които Действат
 
-> Имплементационен план — готов за изпълнение.
+> Имплементационен план - готов за изпълнение.
 >
 > **КРИТИЧНО:** MCP конекторите позволяват на агентите да четат и пишат в
 > реални системи. Грешка в auth архитектурата или в передаването на credentials
@@ -13,17 +13,17 @@
 
 ```
 Company (ниво: auth)
-    └── CompanyConnector (oauth tokens / api keys, scopes)
+    └── CompanyConnector (oauth tokens, scopes)
             └── Flow (ниво: routing + настройки)
                     └── FlowNode (type=mcp_action, config: connector_id, tool, params)
                             └── McpClientService (изпълнява tool call)
-                                    └── Реална система (Gmail, Sheets, Slack…)
+                                    └── Google услуга (Gmail, Sheets, Drive, Docs, Calendar)
 ```
 
 **Принцип:** Auth живее на Company ниво (веднъж свързваш Gmail на фирмата).
-Flow-specific настройки (коя папка в Drive, кой Slack канал) живеят в `FlowNode.config`.
-Агентите НИКОГА не получават raw tokens — само `connector_id` + `tool` + `params`.
-`McpClientService` е единственото място, което резолвира token → HTTP call.
+Flow-specific настройки (коя папка в Drive, кой лист в Sheets) живеят в `FlowNode.config`.
+Агентите НИКОГА не получават raw tokens - само `connector_id` + `tool` + `params`.
+`McpClientService` е единственото място, което резолвира token → Google API call.
 
 ---
 
@@ -36,10 +36,9 @@ CREATE TABLE company_connectors (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id      INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     connector_type  VARCHAR(50) NOT NULL,  -- 'gmail','google_drive','google_sheets',
-                                           --  'slack','notion','airtable','hubspot',
-                                           --  'github','trello','mailchimp','http_api'
+                                           --  'google_docs','google_calendar'
     display_name    VARCHAR(255),          -- "Фирмен Gmail" (може да имаш 2 Gmail акаунта)
-    auth_type       VARCHAR(20) NOT NULL,  -- 'oauth2' | 'api_key' | 'bearer' | 'basic'
+    auth_type       VARCHAR(20) NOT NULL,  -- 'oauth2' only
     credentials     TEXT NOT NULL,         -- ENCRYPTED JSON (виж §2.3)
     scopes          JSON,                  -- ['gmail.readonly','gmail.send'] etc.
     status          VARCHAR(20) DEFAULT 'active',  -- active|expired|revoked|error
@@ -89,7 +88,7 @@ public function getCredentialsAttribute(string $value): array
 }
 ```
 
-`APP_KEY` в `.env` е ключа за криптиране — не го сменяй, докато имаш записани credentials.
+`APP_KEY` в `.env` е ключа за криптиране - не го сменяй, докато имаш записани credentials.
 
 ### 2.4 Migration файлове
 
@@ -118,7 +117,7 @@ class CompanyConnector extends Model
         'last_tested_at' => 'datetime',
     ];
 
-    // credentials: custom getter/setter с encrypt() — виж §2.3
+    // credentials: custom getter/setter с encrypt() - виж §2.3
 
     public function company(): BelongsTo
     {
@@ -175,7 +174,7 @@ readonly class McpToolResult
 }
 ```
 
-### 4.3 `McpClientService` — централен router
+### 4.3 `McpClientService` - централен router
 
 ```php
 // app/Services/McpClientService.php
@@ -187,41 +186,28 @@ class McpClientService
         private GmailConnector        $gmail,
         private GoogleSheetsConnector $sheets,
         private GoogleDriveConnector  $drive,
-        private SlackConnector        $slack,
-        private NotionConnector       $notion,
-        private AirtableConnector     $airtable,
-        private HubSpotConnector      $hubspot,
-        private GitHubConnector       $github,
-        private TrelloConnector       $trello,
-        private MailchimpConnector    $mailchimp,
-        private HttpApiConnector      $httpApi,
+        private GoogleDocsConnector   $docs,
+        private GoogleCalendarConnector $calendar,
     ) {}
 
     /**
      * Взима connector instance за конкретен CompanyConnector запис.
-     * Инжектира credentials — единственото място в кода!
+     * Резолвира от config('mcp.registry') - единственото място където credentials влизат!
      */
     public function resolve(CompanyConnector $connector): McpConnectorInterface
     {
-        return match ($connector->connector_type) {
-            'gmail'          => $this->gmail->withCredentials($connector->credentials),
-            'google_sheets'  => $this->sheets->withCredentials($connector->credentials),
-            'google_drive'   => $this->drive->withCredentials($connector->credentials),
-            'slack'          => $this->slack->withCredentials($connector->credentials),
-            'notion'         => $this->notion->withCredentials($connector->credentials),
-            'airtable'       => $this->airtable->withCredentials($connector->credentials),
-            'hubspot'        => $this->hubspot->withCredentials($connector->credentials),
-            'github'         => $this->github->withCredentials($connector->credentials),
-            'trello'         => $this->trello->withCredentials($connector->credentials),
-            'mailchimp'      => $this->mailchimp->withCredentials($connector->credentials),
-            'http_api'       => $this->httpApi->withCredentials($connector->credentials),
-            default          => throw new \InvalidArgumentException("Непознат конектор: {$connector->connector_type}"),
-        };
+        $connectorClass = config("mcp.registry.{$connector->connector_type}");
+        if (!$connectorClass) {
+            throw new \InvalidArgumentException("Непознат конектор: {$connector->connector_type}");
+        }
+
+        $instance = app($connectorClass);
+        return $instance->withCredentials($connector->credentials);
     }
 
     /**
      * Изпълнява tool call + логва в connector_tool_logs.
-     * Агентите НЕ извикват resolve() директно — минават само през callTool().
+     * Агентите НЕ извикват resolve() директно - минават само през callTool().
      */
     public function callTool(
         CompanyConnector $connector,
@@ -272,69 +258,39 @@ class McpClientService
 
 ---
 
-## 5. Топ 11 Конектора — Имплементационни приоритети
+## 5. Петте Google конектора
 
-| # | Connector | Auth | Клас | Приоритет |
+| # | Connector | Auth | Клас | Инструменти |
 |---|-----------|------|------|-----------|
-| 1 | **Gmail** | OAuth2 | `GmailConnector` | Задължително първо |
-| 2 | **Google Sheets** | OAuth2 | `GoogleSheetsConnector` | Задължително |
-| 3 | **Google Drive** | OAuth2 | `GoogleDriveConnector` | Задължително |
-| 4 | **Slack** | OAuth2 / Webhook | `SlackConnector` | Задължително |
-| 5 | **Notion** | OAuth2 / API key | `NotionConnector` | Високо |
-| 6 | **Airtable** | API key | `AirtableConnector` | Високо |
-| 7 | **HubSpot** | OAuth2 | `HubSpotConnector` | Средно |
-| 8 | **GitHub** | API key (PAT) | `GitHubConnector` | Средно |
-| 9 | **Trello** | API key + token | `TrelloConnector` | Средно |
-| 10 | **Mailchimp** | API key | `MailchimpConnector` | Средно |
-| 11 | **HTTP API** | Bearer/Basic/API key | `HttpApiConnector` | Задължително (generic fallback) |
+| 1 | **Gmail** | OAuth2 | `GmailConnector` | list, get, send, reply, draft, label |
+| 2 | **Google Sheets** | OAuth2 | `GoogleSheetsConnector` | read_range, append_row, update_range, create_sheet, get_values |
+| 3 | **Google Drive** | OAuth2 | `GoogleDriveConnector` | list_files, get_file_content, upload_file, create_doc |
+| 4 | **Google Docs** | OAuth2 | `GoogleDocsConnector` | list_documents, get_document, create_document, append_text |
+| 5 | **Google Calendar** | OAuth2 | `GoogleCalendarConnector` | list_calendars, list_events, get_event, create_event |
 
 ### 5.1 Tools по конектор
 
 #### Gmail (`GmailConnector`)
-- `gmail.list_emails` — последни N имейли с филтри (от, тема, дата)
-- `gmail.get_email` — пълно съдържание по message_id
-- `gmail.send_email` — изпраща имейл (to, subject, body, attachments)
-- `gmail.create_draft` — създава чернова (за human approval преди изпращане)
-- `gmail.reply` — отговаря на нишка
-- `gmail.label_email` — маркира с label
+- Read: `gmail.list_emails`, `gmail.get_email`
+- Write: `gmail.send_email`, `gmail.reply`, `gmail.create_draft`, `gmail.label_email`
 
 #### Google Sheets (`GoogleSheetsConnector`)
-- `sheets.read_range` — чете клетки (A1:D100)
-- `sheets.append_row` — добавя ред в края
-- `sheets.update_range` — обновява клетки
-- `sheets.create_sheet` — нов sheet в spreadsheet
-- `sheets.get_values` — всички данни от sheet
+- Read: `sheets.read_range`, `sheets.get_values`
+- Write: `sheets.append_row`, `sheets.update_range`, `sheets.create_sheet`
 
 #### Google Drive (`GoogleDriveConnector`)
-- `drive.list_files` — файлове в папка (с филтър по тип, дата)
-- `drive.get_file_content` — съдържание на файл (text/pdf)
-- `drive.upload_file` — качва файл в папка
-- `drive.create_doc` — нов Google Doc с текст
+- Read: `drive.list_files`, `drive.get_file_content` (auto-exports Google Docs to text)
+- Write: `drive.upload_file`, `drive.create_doc`
 
-#### Slack (`SlackConnector`)
-- `slack.post_message` — публикува в канал
-- `slack.list_messages` — последни N съобщения от канал
-- `slack.create_thread` — отговор в нишка
-- `slack.upload_file` — прикачва файл
-- `slack.list_channels` — наличните канали
+#### Google Docs (`GoogleDocsConnector`)
+- Read: `docs.list_documents`, `docs.get_document` (accepts doc id or full Docs URL)
+- Write: `docs.create_document`, `docs.append_text`
+- Scopes: documents, drive.readonly
 
-#### Notion (`NotionConnector`)
-- `notion.query_database` — query на database с филтри
-- `notion.create_page` — нова страница в database
-- `notion.update_page` — обновява page properties
-- `notion.get_page_content` — чете текстово съдържание на страница
-
-#### Airtable (`AirtableConnector`)
-- `airtable.list_records` — записи с филтри и сортиране
-- `airtable.create_record` — нов запис
-- `airtable.update_record` — обновява поле
-- `airtable.find_records` — търси по стойност на поле
-
-#### HTTP API (`HttpApiConnector`) — generic
-- `http_api.get` — GET заявка към произволен endpoint
-- `http_api.post` — POST заявка с JSON body
-- `http_api.put` / `http_api.patch` — update заявки
-- SSRF guard: само https://, whitelist по домейн (config)
+#### Google Calendar (`GoogleCalendarConnector`)
+- Read: `calendar.list_calendars`, `calendar.list_events` (defaults to next 30 days), `calendar.get_event`
+- Write: `calendar.create_event`
+- Scopes: calendar.readonly, calendar.events
 
 ---
 
@@ -345,8 +301,8 @@ class McpClientService
 ```php
 'mcp_action' => [
     'label'       => 'MCP Действие',
-    'description' => 'Изпълнява конкретно действие в свързана система (Gmail, Sheets, Slack…)',
-    'output_role' => 'action',   // нов output_role — не е 'body', не е 'transform'
+    'description' => 'Изпълнява конкретно действие в Google услуга (Gmail, Sheets, Drive, Docs, Calendar)',
+    'output_role' => 'action',   // нов output_role - не е 'body', не е 'transform'
     'icon'        => '🔌',
     'has_prompt'  => false,      // не генерира текст, изпълнява action
 ],
@@ -372,10 +328,10 @@ class McpClientService
 ### 6.3 Variable interpolation в `tool_params`
 
 Специален resolver (нов `McpParamResolver`) разпознава:
-- `{{flow.input.X}}` — от входния prompt/variables на run-а
-- `{{agent.NODE_KEY.output}}` — изход от предишен агент (от `context['nodes']`)
-- `{{connector.setting.X}}` — от `CompanyConnector.settings` (напр. default folder)
-- `{{flow.setting.X}}` — от `FlowNode.config` (flow-specific настройки)
+- `{{flow.input.X}}` - от входния prompt/variables на run-а
+- `{{agent.NODE_KEY.output}}` - изход от предишен агент (от `context['nodes']`)
+- `{{connector.setting.X}}` - от `CompanyConnector.settings` (напр. default folder)
+- `{{flow.setting.X}}` - от `FlowNode.config` (flow-specific настройки)
 
 **Важно:** Resolver работи СЛЕД fan-in (след predecessor агентите), така {{agent.X.output}} е достъпен.
 
@@ -420,28 +376,28 @@ class McpActionAgent extends BaseAgent
 }
 ```
 
-### 6.5 `requires_approval` — КРИТИЧНО
+### 6.5 `requires_approval` - КРИТИЧНО
 
 Всеки `mcp_action` node с деструктивни или изходящи действия **трябва** да мине
 през `human_approval` node преди него в DAG-а. Системата го налага на две нива:
 
-**Ниво 1 — Планерът:** В `FlowPlannerService::designPipeline()` се добавя правило:
+**Ниво 1 - Планерът:** В `FlowPlannerService::designPipeline()` се добавя правило:
 
 ```php
 private const MCP_WRITE_TOOLS = [
-    'gmail.send_email', 'gmail.reply', 'slack.post_message',
-    'sheets.append_row', 'sheets.update_range', 'drive.upload_file',
-    'drive.create_doc', 'notion.create_page', 'notion.update_page',
-    'airtable.create_record', 'airtable.update_record',
-    'http_api.post', 'http_api.put', 'http_api.patch',
-    // НЕ включва: list_, read_, get_ — те са read-only
+    'gmail.send_email', 'gmail.reply',
+    'sheets.append_row', 'sheets.update_range', 'sheets.create_sheet',
+    'drive.upload_file', 'drive.create_doc',
+    'docs.create_document', 'docs.append_text',
+    'calendar.create_event',
+    // НЕ включва: list_, read_, get_ - те са read-only
 ];
 ```
 
 Ако планерът постави `mcp_action` node с write tool, автоматично вмъква
 `human_approval` node като негов predecessor в DAG-а.
 
-**Ниво 2 — Executor:** `McpActionAgent::run()` проверява `requires_approval` flag.
+**Ниво 2 - Executor:** `McpActionAgent::run()` проверява `requires_approval` flag.
 Ако е `true` и нямаме `context['approvals'][node_key]['approved'] === true` →
 хвърля `ApprovalRequiredException` → `GraphFlowExecutor` пауза run-а.
 
@@ -476,11 +432,10 @@ private function buildMcpCapabilities(Flow $flow): array
 
 ```
 НАЛИЧНИ MCP ДЕЙСТВИЯ (реални системи):
-- gmail.send_email (connector_id:3, "Фирмен Gmail") — изпраща имейл; ИЗИСКВА human_approval преди него
-- slack.post_message (connector_id:5, "Slack Workspace") — публикува в Slack канал; ИЗИСКВА human_approval
-- sheets.append_row (connector_id:7, "Продажби Sheet") — добавя ред; ИЗИСКВА human_approval
-- gmail.list_emails (connector_id:3) — чете входяща поща; НЕ изисква approval
-- sheets.read_range (connector_id:7) — чете данни; НЕ изисква approval
+- gmail.send_email (connector_id:3, "Фирмен Gmail") - изпраща имейл; ИЗИСКВА human_approval преди него
+- sheets.append_row (connector_id:7, "Продажби Sheet") - добавя ред; ИЗИСКВА human_approval
+- gmail.list_emails (connector_id:3) - чете входяща поща; НЕ изисква approval
+- sheets.read_range (connector_id:7) - чете данни; НЕ изисква approval
 
 ПРАВИЛО: За всеки mcp_action node с write операция, постави human_approval node ПРЕДИ него в зависимостите.
 ```
@@ -527,7 +482,7 @@ private function buildMcpCapabilities(Flow $flow): array
 }
 ```
 
-### 8.2 В Builder-а — MCP Node конфигурационен панел
+### 8.2 В Builder-а - MCP Node конфигурационен панел
 
 Когато потребителят кликне на `mcp_action` node:
 
@@ -550,12 +505,12 @@ private function buildMcpCapabilities(Flow $flow): array
 
 ---
 
-## 9. Company Connectors страница (UI)
+## 9. Управление на конекторите
+
+### 9.1 Admin страница за конектори
 
 **Route:** `companies/{company}/connectors`
 **Controller:** `CompanyConnectorController`
-
-### 9.1 Списък с конектори
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -563,48 +518,62 @@ private function buildMcpCapabilities(Flow $flow): array
 ├─────────────────────────────────────────────────────────────┤
 │  📧 Gmail              igroup7@gmail.com   🟢 Активен  [⚙️] │
 │  📊 Google Sheets      Продажби 2026       🟢 Активен  [⚙️] │
-│  💬 Slack              #marketing          🟡 Изтекъл  [↺]  │
-│  📁 Google Drive       Доклади/            🟢 Активен  [⚙️] │
+│  📄 Google Docs        Доклади/            🟢 Активен  [⚙️] │
+│  📅 Google Calendar    Работен календар    🟡 Изтекъл  [↺]  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **Статуси:**
-- 🟢 Активен — credentials са валидни
-- 🟡 Изтекъл — OAuth token трябва refresh (бутон „Обнови")
-- 🔴 Грешка — connection тест е fail (бутон „Провери")
+- 🟢 Активен - credentials са валидни
+- 🟡 Изтекъл - OAuth token трябва refresh (бутон „Обнови")
+- 🔴 Грешка - connection тест е fail (бутон „Провери")
 
-### 9.2 OAuth flow за Google (Gmail, Sheets, Drive)
+### 9.2 Client портал - `/org/integrations`
+
+Клиентите имат пълна управа на конекторите във вътрешния портал:
+- Свързване на нови конектори (Google OAuth)
+- Отключване на съществуващи
+- Тестване на връзката
+- Преглед на historia на ползване
+
+### 9.3 Единен Google OAuth callback
+
+**Ключова характеристика:** Един глобален FlowAI Google OAuth app и един callback endpoint служи ВСИЧКИ surfaces (admin + client portal).
 
 ```
-Company Settings → [+ Свържи Gmail]
+Admin OR Client portal → [+ Свържи Gmail]
     → Redirect към Google OAuth consent screen
-    → Google callback: /connectors/google/callback?code=…&state={company_id}
-    → Записва access_token + refresh_token (encrypted) в company_connectors
-    → Redirect обратно към Company Settings с ✅
+    → Google callback: /oauth/google/callback?code=…&state={encrypted_origin}
+    → Callback декриптира state → разбира origin (admin vs client)
+    → Записва access_token + refresh_token в company_connectors
+    → Redirect обратно към правилния surface с ✅
 ```
 
-**Route:**
+**Routes:**
 ```php
-Route::get ('companies/{company}/connectors',          [CompanyConnectorController::class, 'index'])->name('connectors.index');
-Route::post('companies/{company}/connectors',          [CompanyConnectorController::class, 'store'])->name('connectors.store');
-Route::get ('companies/{company}/connectors/{c}/edit', [CompanyConnectorController::class, 'edit'])->name('connectors.edit');
-Route::put ('companies/{company}/connectors/{c}',      [CompanyConnectorController::class, 'update'])->name('connectors.update');
-Route::delete('companies/{company}/connectors/{c}',   [CompanyConnectorController::class, 'destroy'])->name('connectors.destroy');
+// Единствен callback - работи за admin и client
+Route::get('oauth/google/callback', [OAuthController::class, 'googleCallback'])->name('oauth.google.callback');
+
+// Admin CRUD
+Route::get('companies/{company}/connectors', [CompanyConnectorController::class, 'index'])->name('connectors.index');
+Route::post('companies/{company}/connectors', [CompanyConnectorController::class, 'store'])->name('connectors.store');
+Route::put('companies/{company}/connectors/{c}', [CompanyConnectorController::class, 'update'])->name('connectors.update');
+Route::delete('companies/{company}/connectors/{c}', [CompanyConnectorController::class, 'destroy'])->name('connectors.destroy');
 Route::post('companies/{company}/connectors/{c}/test', [CompanyConnectorController::class, 'test'])->name('connectors.test');
 
-// OAuth callbacks
-Route::get('oauth/google/redirect',  [OAuthController::class, 'googleRedirect'])->name('oauth.google.redirect');
-Route::get('oauth/google/callback',  [OAuthController::class, 'googleCallback'])->name('oauth.google.callback');
-Route::get('oauth/slack/redirect',   [OAuthController::class, 'slackRedirect'])->name('oauth.slack.redirect');
-Route::get('oauth/slack/callback',   [OAuthController::class, 'slackCallback'])->name('oauth.slack.callback');
+// Client portal integrations (on client domain / /client/org)
+Route::get('/org/integrations', [ClientIntegrationController::class, 'index'])->name('org.integrations.index');
+Route::post('/org/integrations/{type}', [ClientIntegrationController::class, 'initiate'])->name('org.integrations.initiate');
+Route::post('/org/integrations/{connector}/disconnect', [ClientIntegrationController::class, 'destroy'])->name('org.integrations.destroy');
+Route::post('/org/integrations/{connector}/test', [ClientIntegrationController::class, 'test'])->name('org.integrations.test');
 ```
 
 ---
 
-## 10. `AgentFactory` — нов тип агент
+## 10. `AgentFactory` - нов тип агент
 
 ```php
-// В app/Agents/AgentFactory.php — в match():
+// В app/Agents/AgentFactory.php - в match():
 'mcp_action' => app(McpActionAgent::class),
 ```
 
@@ -618,7 +587,7 @@ Route::get('oauth/slack/callback',   [OAuthController::class, 'slackCallback'])-
 В `executeNode()`, след взимането на FlowNode:
 
 ```php
-// Специален path за mcp_action — не минава през AgentLoop или OllamaService
+// Специален path за mcp_action - не минава през AgentLoop или OllamaService
 if ($flowNode->type === 'mcp_action') {
     $agent = AgentFactory::make('mcp_action');
     $output = $agent->run($flowNode, $flowRun, $this->predecessorOutputs($flowNode, $flowRun));
@@ -632,25 +601,26 @@ if ($flowNode->type === 'mcp_action') {
 
 ## 12. SSRF Guard и сигурност
 
-### 12.1 `HttpApiConnector` whitelist
+### 12.1 `SsrfGuard` за изходящи HTTP заявки
 
 ```php
 // config/mcp.php
-'http_api' => [
+'ssrf' => [
     'allowed_schemes' => ['https'],
     'blocked_hosts'   => ['localhost', '127.0.0.1', '0.0.0.0', '::1'],
     'blocked_cidrs'   => ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
-    'allowed_domains' => [],  // [] = всички external домейни; или whitelist
     'max_response_size_kb' => 512,
     'timeout_seconds' => 15,
 ],
 ```
 
+**Употреба:** `SsrfGuard` блокира небезопасни локални мрежови цели при операции като Gmail attachment downloads.
+
 ### 12.2 Credential isolation
 
 - Credentials НИКОГА не влизат в промптите на агентите.
 - `McpParamResolver` блокира `{{credentials.*}}` и `{{connector.credentials.*}}` в tool_params.
-- Логовете в `connector_tool_logs` пазят само `sanitizeParams()` — без tokens.
+- Логовете в `connector_tool_logs` пазят само `sanitizeParams()` - без tokens.
 
 ### 12.3 Scope enforcement
 
@@ -659,58 +629,100 @@ Scope-овете се записват при OAuth и се проверяват
 
 ---
 
-## 13. Ред на имплементация
+## 13. config/mcp.php структура
 
-| Стъпка | Действие | Файл | Приоритет |
-|--------|----------|------|-----------|
-| 1 | Migrations | `company_connectors`, `connector_tool_logs` | Задължително |
-| 2 | Models | `CompanyConnector`, `ConnectorToolLog` | Задължително |
-| 3 | Interface + Result | `McpConnectorInterface`, `McpToolResult` | Задължително |
-| 4 | Implement Gmail connector | `GmailConnector` — само list + get (read-only) | Задължително |
-| 5 | `McpClientService` — routing + logging | `McpClientService` | Задължително |
-| 6 | `McpParamResolver` — variable interpolation | `McpParamResolver` | Задължително |
-| 7 | `McpActionAgent` | `app/Agents/McpActionAgent.php` | Задължително |
-| 8 | `AgentFactory` добавяне | `AgentFactory` | Задължително |
-| 9 | `NodeExecutorService` промяна | добавяне на `mcp_action` path | Задължително |
-| 10 | SSRF guard в `HttpApiConnector` | `HttpApiConnector` | Задължително |
-| 11 | Company Connectors UI + routes | `CompanyConnectorController` + views | Задължително |
-| 12 | OAuth flow за Google | `OAuthController` | Задължително |
-| 13 | Gmail write tools (send, draft) | `GmailConnector` — write actions | Задължително |
-| 14 | Planner integration — динамичен registry | `FlowPlannerService` | Задължително |
-| 15 | Builder MCP node panel | `builder.blade.php` | Задължително |
-| 16 | Google Sheets connector | `GoogleSheetsConnector` | Високо |
-| 17 | Slack connector | `SlackConnector` | Високо |
-| 18 | Google Drive connector | `GoogleDriveConnector` | Високо |
-| 19 | Notion, Airtable | отделни connectors | Средно |
-| 20 | HubSpot, GitHub, Trello, Mailchimp | отделни connectors | По-късно |
-| 21 | HTTP API generic connector | `HttpApiConnector` | По-късно |
-| 22 | Approval enforcement в executor | `requires_approval` gate | Задължително (стъпка 9 зависи) |
-| 23 | OAuth Slack flow | `OAuthController` Slack | Средно |
+```php
+return [
+    //単一真実の源 - всички конектори, които система поддържа
+    'registry' => [
+        'gmail'          => \App\Services\Mcp\GmailConnector::class,
+        'google_sheets'  => \App\Services\Mcp\GoogleSheetsConnector::class,
+        'google_drive'   => \App\Services\Mcp\GoogleDriveConnector::class,
+        'google_docs'    => \App\Services\Mcp\GoogleDocsConnector::class,
+        'google_calendar' => \App\Services\Mcp\GoogleCalendarConnector::class,
+    ],
+
+    'tool_namespaces' => ['gmail', 'sheets', 'drive', 'docs', 'calendar'],
+
+    // Кои инструменти са деструктивни и изискват human_approval
+    'write_tools' => [
+        'gmail.send_email', 'gmail.reply',
+        'sheets.append_row', 'sheets.update_range', 'sheets.create_sheet',
+        'drive.upload_file', 'drive.create_doc',
+        'docs.create_document', 'docs.append_text',
+        'calendar.create_event',
+    ],
+
+    // Cada connectorის UI каталог (admin + client portal)
+    'catalog' => [
+        'gmail' => [
+            'label' => 'Gmail',
+            'icon' => '📧',
+            'description' => 'Четене и писане в Gmail',
+        ],
+        'google_sheets' => [
+            'label' => 'Google Sheets',
+            'icon' => '📊',
+            'description' => 'Работа със Sheets',
+        ],
+        'google_drive' => [
+            'label' => 'Google Drive',
+            'icon' => '📁',
+            'description' => 'Качване и четене на Drive',
+        ],
+        'google_docs' => [
+            'label' => 'Google Docs',
+            'icon' => '📄',
+            'description' => 'Работа с Docs',
+        ],
+        'google_calendar' => [
+            'label' => 'Google Calendar',
+            'icon' => '📅',
+            'description' => 'Управление на събитията',
+        ],
+    ],
+
+    // SSRF охрана за изходящ трафик (напр. Gmail attachment downloads)
+    'ssrf' => [
+        'allowed_schemes' => ['https'],
+        'blocked_hosts'   => ['localhost', '127.0.0.1', '0.0.0.0', '::1'],
+        'blocked_cidrs'   => ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
+        'max_response_size_kb' => 512,
+        'timeout_seconds' => 15,
+    ],
+];
+```
 
 **ENV промени:**
 ```env
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
 GOOGLE_OAUTH_REDIRECT_URI=https://yourdomain.com/oauth/google/callback
-
-SLACK_OAUTH_CLIENT_ID=...
-SLACK_OAUTH_CLIENT_SECRET=...
-SLACK_OAUTH_REDIRECT_URI=https://yourdomain.com/oauth/slack/callback
-
-MCP_HTTP_API_TIMEOUT=15
 ```
 
 ---
 
-## 14. Какво НЕ правим
+## 14. Ключови дизайн решения
 
-- **Не пазим connector credentials в `flow_nodes.config`** — само `connector_id`.
-  Flow nodes никога не знаят tokens — само `McpClientService` ги вижда.
-- **Не позволяваме `mcp_action` nodes без predecessor** — всеки write action
-  минава или през `human_approval` node, или изрично е маркиран `requires_approval: false`
-  от потребителя (не от планера).
-- **Не рестартираме целия flow при MCP грешка** — `mcp_action` nodes подлежат
-  на `max_retries` като нормалните агенти (default 2); при 3 провала → node fail,
-  `best_effort` policy продължава останалите.
-- **Не логваме финалния изход на write operations** — `result_summary` е само
-  „Изпратен имейл до X", без съдържанието на имейла.
+**Единствено Google OAuth.**
+Всички петте конектора са Google OAuth.
+Няма API-key connectors, няма HTTP API connector.
+Една глобална Google OAuth app, един callback endpoint.
+
+**Config-driven resolver.**
+`McpClientService::resolve()` чете от `config('mcp.registry')`, не hardcoded constructor.
+Лесно добавяне на нови конектори чрез конфиг, без промяна на сервиса.
+
+**Client portal parity.**
+Admin щета (`/companies/{company}/connectors`) и Client portal (`/org/integrations`) имат еднакви възможности.
+Клиентите могат да свързват, отключват, тестват и преглеждат история на всички конектори.
+
+**Credentials isolation.**
+Credentials НИКОГА не влизат в агент промптите.
+Само `McpClientService` има достъп до tokens.
+`McpParamResolver` блокира `{{credentials.*}}` в tool parameters.
+
+**No fallback connectors.**
+Няма HTTP API connector като резервен вариант.
+Agents проектирани за Google ecosystem само.
+Falls са fail-fast чрез message к user.

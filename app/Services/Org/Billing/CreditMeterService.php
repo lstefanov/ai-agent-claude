@@ -15,6 +15,7 @@ use App\Support\ModelLevel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Context-agnostic кредитна машина (§0.5.2): reserve → settle/refund, унифицирана за
@@ -38,13 +39,14 @@ class CreditMeterService
      *
      * @throws InsufficientCreditsException при недостиг
      */
-    public function reserve(int $companyId, string $contextType, ?Model $subject, int $estimate, string $origin = 'manual'): CreditReservation
+    public function reserve(int $companyId, string $contextType, ?Model $subject, int $estimate, string $origin = 'manual', ?string $opKey = null, ?ModelLevel $level = null): CreditReservation
     {
-        $estimate = max(1, $estimate);
+        $estimate = max((int) config('billing.min_reserve_credits', 1), $estimate);
         [$subjectType, $subjectId] = $this->subjectKey($subject);
-        $key = $this->reserveKey($contextType, $subjectType, $subjectId);
+        $key = $this->reserveKey($contextType, $subjectType, $subjectId, $opKey);
+        $meta = $this->pricingSnapshot($level);
 
-        return DB::transaction(function () use ($companyId, $contextType, $origin, $subjectType, $subjectId, $estimate, $key) {
+        return DB::transaction(function () use ($companyId, $contextType, $origin, $subjectType, $subjectId, $estimate, $key, $level, $meta) {
             // Идемпотентност: същият RESERVE ключ → връщаме съществуващата (без втори дебит).
             $existing = CreditReservation::where('idempotency_key', $key)->lockForUpdate()->first();
             if ($existing) {
@@ -75,12 +77,14 @@ class CreditMeterService
             $reservation = CreditReservation::create([
                 'company_id' => $companyId,
                 'context_type' => $contextType,
+                'model_level' => $level?->value,
                 'origin' => $origin,
                 'subject_type' => $subjectType,
                 'subject_id' => $subjectId,
                 'estimated_credits' => $estimate,
                 'spent_credits' => 0,
                 'status' => 'reserved',
+                'billing_meta' => $meta,
                 'idempotency_key' => $key,
             ]);
 
@@ -97,7 +101,7 @@ class CreditMeterService
     public function actualFor(CreditReservation $reservation): int
     {
         $rows = LlmRequest::where('reservation_id', $reservation->id)
-            ->get(['completion_tokens', 'cost_usd']);
+            ->get(['provider', 'kind', 'completion_tokens', 'cost_usd', 'options']);
 
         if ($rows->isEmpty()) {
             return 0;
@@ -107,14 +111,36 @@ class CreditMeterService
         $totalCompletion = (int) $rows->sum(fn ($r) => (int) $r->completion_tokens);
         $credits = BillableUnit::creditsForLlm($this->levelForReservation($reservation), $totalCompletion);
 
-        // Flat/tool редове (без completion токени, но с явна cost_usd) → през markup.
-        $flatUsd = (float) $rows->filter(fn ($r) => (int) $r->completion_tokens <= 0)
-            ->sum(fn ($r) => (float) $r->cost_usd);
-        if ($flatUsd > 0) {
-            $credits += (int) ceil($flatUsd * (float) config('billing.credit_markup', 3.0));
+        // Flat/tool редове (без completion токени) → таксуват се по config('billing.flat_costs')
+        // (brave/places/perplexity/ocr/avatar), не през markup. Fallback към markup само за непознат.
+        foreach ($rows->filter(fn ($r) => (int) $r->completion_tokens <= 0) as $row) {
+            $credits += $this->flatCreditsFor($row);
         }
 
         return $credits;
+    }
+
+    /** Flat кредити за един не-LLM ред по provider/kind → config('billing.flat_costs'). */
+    private function flatCreditsFor(LlmRequest $row): int
+    {
+        $tool = match (true) {
+            $row->provider === 'brave' => 'brave_search',
+            $row->provider === 'google_places' => 'places',
+            $row->provider === 'perplexity' => 'perplexity',
+            $row->provider === 'mistral' && $row->kind === 'ocr' => 'ocr_page',
+            $row->provider === 'comfyui' => 'avatar',
+            default => null,
+        };
+
+        if ($tool === null) {
+            // Непознат flat инструмент → fallback към реалния разход × markup.
+            return (int) ceil((float) $row->cost_usd * (float) config('billing.credit_markup', 3.0));
+        }
+
+        // OCR се таксува на страница; останалите — по един на ред.
+        $units = $tool === 'ocr_page' ? max(1, (int) (data_get($row->options, 'pages', 1))) : 1;
+
+        return BillableUnit::flatCredits($tool) * $units;
     }
 
     /**
@@ -122,31 +148,42 @@ class CreditMeterService
      * (estimate - actual), ако е положителен; ако actual > estimate → допълнителен дебит.
      * Идемпотентен по operation-scoped ключове; status → settled.
      */
-    public function settle(CreditReservation $reservation, int $actualSpent): void
+    public function settle(CreditReservation $reservation, int $actualSpent, string $outcome = 'completed'): void
     {
         $actualSpent = max(0, $actualSpent);
 
-        DB::transaction(function () use ($reservation, $actualSpent) {
+        DB::transaction(function () use ($reservation, $actualSpent, $outcome) {
             $reservation = CreditReservation::whereKey($reservation->id)->lockForUpdate()->first();
             if (! $reservation || $reservation->status !== 'reserved') {
                 return; // вече закрита — идемпотентен no-op
             }
 
             $estimate = (int) $reservation->estimated_credits;
-            $this->ledger($reservation, 'settle', 'debit', $actualSpent, 'run', "{$reservation->id}:settle");
 
+            // Първо движим баланса (refund/overage), за да отрази settle редът КРАЙНИЯ баланс (W4).
             if ($actualSpent < $estimate) {
                 // Връщаме непохарчения остатък в баланса.
                 $refund = $estimate - $actualSpent;
                 $this->creditWallet($reservation->company_id, $refund);
                 $this->ledger($reservation, 'refund', 'credit', $refund, 'refund', "{$reservation->id}:refund");
             } elseif ($actualSpent > $estimate) {
-                // Overage — допълнителен дебит (работата вече е извършена).
+                // Overage — допълнителен дебит (работата вече е извършена) + баланс-движещ ledger ред.
                 $extra = $actualSpent - $estimate;
                 $this->debitWallet($reservation->company_id, $extra);
+                $this->ledger($reservation, 'overage', 'debit', $extra, 'overage', "{$reservation->id}:overage");
             }
 
-            $reservation->update(['spent_credits' => $actualSpent, 'status' => 'settled']);
+            // Информативен ред — реалният разход (баланс ефект 0); пише се ПОСЛЕДЕН → wallet_balance_after
+            // отразява крайния баланс след refund/overage.
+            $this->ledger($reservation, 'settle', 'debit', $actualSpent, 'run', "{$reservation->id}:settle");
+
+            $reservation->update([
+                'spent_credits' => $actualSpent,
+                'status' => 'settled',
+                'outcome' => $outcome,
+                'settled_at' => now(),
+                'failed_at' => in_array($outcome, ['failed', 'partial'], true) ? now() : null,
+            ]);
         });
     }
 
@@ -168,7 +205,7 @@ class CreditMeterService
                 $this->ledger($reservation, 'refund', 'credit', $remaining, 'refund', "{$reservation->id}:refund");
             }
 
-            $reservation->update(['status' => 'refunded']);
+            $reservation->update(['status' => 'refunded', 'outcome' => 'refunded', 'refunded_at' => now()]);
         });
     }
 
@@ -183,6 +220,7 @@ class CreditMeterService
             $wallet = CreditWallet::firstOrCreate(['company_id' => $company->id]);
             DB::table('credit_wallets')->where('id', $wallet->id)
                 ->update(['balance' => DB::raw("balance + {$credits}"), 'updated_at' => now()]);
+            $balanceAfter = (int) (DB::table('credit_wallets')->where('id', $wallet->id)->value('balance') ?? 0);
 
             return CreditLedgerEntry::create([
                 'credit_wallet_id' => $wallet->id,
@@ -193,6 +231,7 @@ class CreditMeterService
                 'idempotency_key' => null,
                 'direction' => 'credit',
                 'amount' => $credits,
+                'wallet_balance_after' => $balanceAfter,
                 'reason' => $type === 'grant' ? 'monthly_grant' : 'top_up',
                 'meta' => $meta ?: null,
                 'created_at' => now(),
@@ -206,6 +245,8 @@ class CreditMeterService
     private function ledger(CreditReservation $r, string $type, string $direction, int $amount, string $reason, string $key): CreditLedgerEntry
     {
         $wallet = CreditWallet::firstOrCreate(['company_id' => $r->company_id]);
+        // Балансът СЛЕД wallet мутацията, която предхожда този ред (settle = текущ баланс, ефект 0).
+        $balanceAfter = (int) (DB::table('credit_wallets')->where('id', $wallet->id)->value('balance') ?? 0);
 
         return CreditLedgerEntry::firstOrCreate(
             ['idempotency_key' => $key],
@@ -217,6 +258,7 @@ class CreditMeterService
                 'origin' => $r->origin ?? 'manual',   // refund/settle наследяват origin-а на резервацията
                 'direction' => $direction,
                 'amount' => $amount,
+                'wallet_balance_after' => $balanceAfter,
                 'reason' => $reason,
                 'created_at' => now(),
             ],
@@ -263,20 +305,44 @@ class CreditMeterService
         return [$subject->getMorphClass(), (int) $subject->getKey()];
     }
 
-    private function reserveKey(string $contextType, ?string $subjectType, ?int $subjectId): string
+    private function reserveKey(string $contextType, ?string $subjectType, ?int $subjectId, ?string $opKey = null): string
     {
         $subj = $subjectType ? class_basename($subjectType)."#{$subjectId}" : 'none';
+        // $opKey прави ключа уникален per-операция (стабилен при retry, различен при нова операция).
+        // Без opKey → uuid, за да не реюзваме чужда (settled) резервация (idempotency бъг 0.1).
+        $op = $opKey ?? (string) Str::uuid();
 
-        return "{$contextType}:{$subj}:reserve";
+        return "{$contextType}:{$subj}:{$op}";
     }
 
-    /** Нивото за token→кредити преобразуване, изведено от субекта/контекста. */
+    /** Snapshot на тарифата към момента на резервацията (за обяснимост след промяна на .env). */
+    private function pricingSnapshot(?ModelLevel $level): array
+    {
+        return [
+            'model_level' => $level?->value,
+            'star_multiplier' => $level ? BillableUnit::base($level) : null,
+            'work_per_token' => (float) config('billing.work_per_token', 1.0),
+            'token_divisor' => (int) config('billing.token_divisor', 1000),
+            'credit_markup' => (float) config('billing.credit_markup', 3.0),
+            'pricing_version' => (string) config('billing.pricing_version', ''),
+        ];
+    }
+
+    /** Нивото за token→кредити: явно записаното при reserve, иначе config, иначе по контекст. */
     private function levelForReservation(CreditReservation $r): ModelLevel
     {
+        if ($r->model_level) {
+            return ModelLevel::fromRequest($r->model_level);
+        }
+
+        if ($configLevel = config("billing.context_levels.{$r->context_type}")) {
+            return ModelLevel::fromRequest($configLevel);
+        }
+
         return match ($r->context_type) {
             'task_run' => $this->taskLevelFromFlowRun((int) $r->subject_id),
             'generation' => optional(AssistantTask::find($r->subject_id))->effectiveStarTier() ?? ModelLevel::Medium,
-            'org_planning', 'interview', 'research', 'director_tick' => ModelLevel::fromRequest(config('organization.manager.level')),
+            'org_planning', 'org_digest', 'interview', 'research', 'director_tick' => ModelLevel::fromRequest(config('organization.manager.level')),
             default => ModelLevel::Medium,
         };
     }

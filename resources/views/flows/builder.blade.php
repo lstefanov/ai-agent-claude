@@ -3189,6 +3189,8 @@ function flowBuilder(config) {
                         role: this.selected.role || '',
                         system_prompt: this.selected.system_prompt || '',
                         prompt_template: this.selected.prompt_template || '',
+                        // Server-side company resolution: flow_id → flow->company_id (никога company_id директно).
+                        flow_id: config.flowId || null,
                     }),
                 });
 

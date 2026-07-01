@@ -10,6 +10,7 @@ use App\Http\Controllers\Client\Org\BillingController;
 use App\Http\Controllers\CompanyConnectorController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CompanyKnowledgeController;
+use App\Http\Controllers\CompanyStatsController;
 use App\Http\Controllers\FlowAssistantController;
 use App\Http\Controllers\FlowBuilderController;
 use App\Http\Controllers\FlowController;
@@ -148,12 +149,31 @@ Route::domain(config('app.domain'))->group(function () {
     // Знание на ниво flow — toggle от builder-а (огледало на flows.memory.toggle)
     Route::post('flows/{flow}/knowledge/toggle', [FlowKnowledgeController::class, 'toggle'])->name('flows.knowledge.toggle');
 
+    // Статистика по фирма — owner-facing разходи/кредити. is_admin guard (съответства на
+    // admin/costs и останалите admin-protected pages; companies/{company} областта е без
+    // собствен auth — stats показва prompts/responses/реален разход, затова изрично is_admin).
+    Route::middleware('is_admin')->prefix('companies/{company}/stats')->name('companies.stats.')->group(function () {
+        Route::get('/', [CompanyStatsController::class, 'index'])->name('index');
+        Route::get('data/overview', [CompanyStatsController::class, 'overview'])->name('data.overview');
+        Route::get('data/services', [CompanyStatsController::class, 'services'])->name('data.services');
+        Route::get('data/flows', [CompanyStatsController::class, 'flows'])->name('data.flows');
+        Route::get('data/org', [CompanyStatsController::class, 'org'])->name('data.org');
+        Route::get('data/credits', [CompanyStatsController::class, 'credits'])->name('data.credits');
+        Route::get('data/unbilled', [CompanyStatsController::class, 'unbilled'])->name('data.unbilled');
+        Route::get('data/external', [CompanyStatsController::class, 'external'])->name('data.external');
+        Route::get('data/knowledge', [CompanyStatsController::class, 'knowledge'])->name('data.knowledge');
+        Route::get('data/ocr', [CompanyStatsController::class, 'ocr'])->name('data.ocr');
+        Route::get('data/grid', [CompanyStatsController::class, 'grid'])->name('data.grid');
+        Route::get('detail', [CompanyStatsController::class, 'show'])->name('detail');
+        Route::get('group-detail', [CompanyStatsController::class, 'groupDetail'])->name('group-detail');
+        Route::get('reservation-detail', [CompanyStatsController::class, 'reservationDetail'])->name('reservation-detail');
+    });
+
     // MCP Конектори — „Свързани системи" на ниво фирма (страница + JSON endpoints)
     Route::prefix('companies/{company}/connectors')->name('companies.connectors.')->group(function () {
         Route::get('/', [CompanyConnectorController::class, 'index'])->name('index');
         Route::get('data', [CompanyConnectorController::class, 'data'])->name('data');
         Route::get('available', [CompanyConnectorController::class, 'available'])->name('available');
-        Route::post('/', [CompanyConnectorController::class, 'store'])->name('store');
         Route::put('{connector}', [CompanyConnectorController::class, 'update'])->name('update');
         Route::delete('{connector}', [CompanyConnectorController::class, 'destroy'])->name('destroy');
         Route::post('{connector}/test', [CompanyConnectorController::class, 'test'])->name('test');
@@ -161,12 +181,11 @@ Route::domain(config('app.domain'))->group(function () {
         Route::get('{connector}/options', [CompanyConnectorController::class, 'options'])->name('options');
     });
 
-    // OAuth (Socialite/Http) — Google (Gmail/Sheets/Drive) + Slack. Callback-ите са
-    // без {company} (URI-то трябва точно да съвпада с регистрирания redirect).
+    // OAuth (Socialite) — Google (Gmail/Sheets/Drive/Docs/Calendar). Callback-ът е
+    // без {company} (URI-то трябва точно да съвпада с регистрирания redirect) и
+    // stateless — обслужва и клиентския портал (origin в state).
     Route::get('companies/{company}/oauth/google/redirect', [OAuthController::class, 'googleRedirect'])->name('oauth.google.redirect');
     Route::get('oauth/google/callback', [OAuthController::class, 'googleCallback'])->name('oauth.google.callback');
-    Route::get('companies/{company}/oauth/slack/redirect', [OAuthController::class, 'slackRedirect'])->name('oauth.slack.redirect');
-    Route::get('oauth/slack/callback', [OAuthController::class, 'slackCallback'])->name('oauth.slack.callback');
 
     // Flow runs
     Route::get('flows/{flow}/runs-history', [FlowController::class, 'runsHistory'])->name('flows.runs-history');
@@ -188,8 +207,10 @@ Route::domain(config('app.domain'))->group(function () {
     // Human-in-the-loop: approve/reject a paused human_approval node (decision param).
     Route::post('runs/{flowRun}/nodes/{nodeKey}/approval', [FlowRunController::class, 'approval'])->name('flow-runs.approval');
 
-    // AJAX: generate AI text for a single agent field
+    // AJAX: generate AI text for a single agent field (global — builder path; company resolved from flow_id)
     Route::post('ai/generate-agent-field', [AgentController::class, 'generateAgentField'])->name('agents.generate-field');
+    // Scoped route за company template формата: фирмата от route binding, не от тялото (сигурност §A).
+    Route::post('companies/{company}/agent-templates/generate-field', [AgentController::class, 'generateAgentField'])->name('companies.agent-templates.generate-field');
 
     // Agent template picker (AJAX for popup)
     Route::get('agent-templates/picker', [AgentTemplateController::class, 'picker'])->name('agent-templates.picker');

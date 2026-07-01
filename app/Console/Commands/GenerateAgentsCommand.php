@@ -11,7 +11,7 @@ use App\Models\FlowDraft;
 use App\Services\AgentGeneratorService;
 use App\Services\FlowVersionService;
 use App\Services\GeneratorService;
-use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\PersonaService;
 use App\Services\Org\TaskProposalBriefService;
 use App\Services\Org\TaskRunService;
@@ -45,12 +45,13 @@ class GenerateAgentsCommand extends Command
 
         Log::info("[GenerateAgents] Starting for token {$token}, company {$request['company_id']}");
 
-        // Org задача (§0.5.6): резервацията за generation е създадена от TaskRunService
-        // по детерминистичен субект — намираме я тук за атрибуция + settle/refund.
+        // Generation резервацията се отваря в AgentGenerationLauncher за ВСИЧКИ пътища (§0.5):
+        // reservation_id + operation_id идват през кеша → атрибуция + partial-settle тук.
         $assistantTaskId = $request['assistant_task_id'] ?? null;
-        $genReservation = $assistantTaskId
-            ? $this->generationReservation((int) $assistantTaskId)
+        $genReservation = ! empty($request['generation_reservation_id'])
+            ? CreditReservation::find((int) $request['generation_reservation_id'])
             : null;
+        $operationId = $request['generation_operation_id'] ?? null;
 
         // Org (§0.5.5 разширен): персоната на асистента-собственик оформя и
         // ГЕНЕРАЦИЯТА — планерът пише агентите/промптовете в неговия стил. Същият
@@ -121,23 +122,22 @@ class GenerateAgentsCommand extends Command
             // Обвиваме генерацията в LlmContext с generation резервацията → planner
             // редовете влизат под нея (§0.5.6). Планерът наследява reservation_id от
             // тази рамка (FlowPlannerService::runPhase merge-ва билинг полетата).
-            if ($genReservation) {
-                LlmContext::set([
-                    'purpose' => 'org_generation',
-                    'company_id' => $company->id,
-                    'flow_id' => $flow->id,
-                    'context_type' => 'generation',
-                    'subject_type' => $genReservation->subject_type,
-                    'subject_id' => $genReservation->subject_id,
-                    'reservation_id' => $genReservation->id,
-                ]);
-            }
+            // Винаги атрибутираме към фирмата + operation_id (дори без резервация — best-effort 0.4);
+            // reservation_id само при реална резервация. Планерът наследява билинг полетата.
+            LlmContext::set(array_filter([
+                'purpose' => 'org_generation',
+                'company_id' => $company->id,
+                'flow_id' => $flow->id,
+                'context_type' => 'generation',
+                'subject_type' => $genReservation?->subject_type,
+                'subject_id' => $genReservation?->subject_id,
+                'reservation_id' => $genReservation?->id,
+                'operation_id' => $operationId,
+            ], fn ($v) => $v !== null));
             try {
                 $agents = $generator->generate($flow, $onProgress, $token, $level, (bool) ($request['minimal_qa'] ?? false), $personaBlock, $personaPolicy, forceWriteApproval: ! empty($request['assistant_task_id']));
             } finally {
-                if ($genReservation) {
-                    LlmContext::clear();
-                }
+                LlmContext::clear();
             }
 
             if (empty($agents)) {
@@ -212,6 +212,10 @@ class GenerateAgentsCommand extends Command
                 }
             }
 
+            // Централен settle на generation резервацията (org И ръчна) — реалните planner
+            // редове → кредити; remainder refund. Best-effort manual без резервация → no-op.
+            app(BillableOperationService::class)->finish($genReservation, 'completed');
+
             // The builder's save-as-template dialog needs the generation meta:
             // intent (plan library pairing), generator label/phases, cost, time.
             Cache::put($cacheKey, [
@@ -248,17 +252,6 @@ class GenerateAgentsCommand extends Command
         }
     }
 
-    /** Отворената generation резервация за задачата (детерминистичен субект, §0.5.6). */
-    private function generationReservation(int $taskId): ?CreditReservation
-    {
-        return CreditReservation::where('context_type', 'generation')
-            ->where('subject_type', (new AssistantTask)->getMorphClass())
-            ->where('subject_id', $taskId)
-            ->where('status', 'reserved')
-            ->latest('id')
-            ->first();
-    }
-
     /**
      * Успешна генерация на org задача: предпазливите служители оставят draft за човешко
      * одобрение, а силно автономните активират flow-а веднага. Settle-ва generation
@@ -282,10 +275,7 @@ class GenerateAgentsCommand extends Command
             'approved_at' => $autoApprove ? now() : null,
         ]);
 
-        if ($reservation) {
-            $meter = app(CreditMeterService::class);
-            $meter->settle($reservation, $meter->actualFor($reservation));
-        }
+        // settle-ът на generation резервацията е централен (success exit на handle() → finish('completed')).
 
         // Бриф от draft flow-а — best-effort (flow-ът вече е генериран; не проваляй).
         try {
@@ -356,8 +346,8 @@ class GenerateAgentsCommand extends Command
             $task->update(['status' => 'failed']);
         }
 
-        if ($reservation) {
-            app(CreditMeterService::class)->refund($reservation);
-        }
+        // Partial-settle (§0.5): ако planner-ът вече е похарчил → settle реалното (outcome=failed);
+        // само ако НЯМА никакви заявки → пълен refund. finish() решава кое.
+        app(BillableOperationService::class)->finish($reservation, 'failed');
     }
 }

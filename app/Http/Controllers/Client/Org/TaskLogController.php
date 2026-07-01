@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client\Org;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\OrgProposal;
+use App\Services\Org\TaskRunService;
 
 /**
  * Дневник на задачите (§5) — клиентският изглед към AssistantTask + Flow, по lifecycle лещи:

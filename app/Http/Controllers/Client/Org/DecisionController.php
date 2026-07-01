@@ -9,6 +9,7 @@ use App\Models\FlowRun;
 use App\Models\OrgProposal;
 use App\Models\User;
 use App\Services\Org\DecisionBoxService;
+use App\Services\Org\MemberLifecycleService;
 use App\Services\Org\OrgMutationService;
 use App\Services\Org\TaskRunService;
 use Illuminate\Http\JsonResponse;
@@ -110,13 +111,15 @@ class DecisionController extends Controller
             return $this->materializeTaskProposal($company, $payload, $run);
         }
 
+        // Backstop за съкращение: повторна проверка на guard-а преди материализация.
+        if ($type === 'fire') {
+            return $this->materializeFireProposal($company, $payload);
+        }
+
         $mutator = app(OrgMutationService::class);
 
         match ($type) {
             'hire' => $mutator->hireFromProposal($company, $payload, $this->user()),
-            'fire' => filled($payload['target_member_id'] ?? null)
-                ? $mutator->fireMember($company, (int) $payload['target_member_id'], $this->user())
-                : null,
             'mandate' => filled($payload['target_member_id'] ?? null)
                 ? $mutator->changeMandate($company, (int) $payload['target_member_id'], (string) ($payload['description'] ?? $payload['title'] ?? ''), $this->user())
                 : null,
@@ -125,6 +128,36 @@ class DecisionController extends Controller
                 : null,
             default => null,
         };
+
+        return null;
+    }
+
+    /**
+     * Одобрено съкращение (backstop): повторна проверка на guard-а преди материализация. Ако
+     * членът е в изпитателен срок / без реален шанс / с активна работа — НЕ съкращавай, върни
+     * съобщение. Гейтът важи само тук (автономните + одобрените предложения); ръчното човешко
+     * съкращение през org графа е отделен явен override и не минава оттук.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function materializeFireProposal(Company $company, array $payload): ?array
+    {
+        $memberId = (int) ($payload['target_member_id'] ?? 0);
+        $member = $memberId ? $company->members()->find($memberId) : null;
+        if (! $member) {
+            return null;
+        }
+
+        $lifecycle = app(MemberLifecycleService::class);
+        $reason = $lifecycle->fireBlockReason($member);
+        if ($reason !== null) {
+            return [
+                'blocked' => true,
+                'message' => 'Съкращението е блокирано: '.$lifecycle->fireBlockLabel($reason).'.',
+            ];
+        }
+
+        app(OrgMutationService::class)->fireMember($company, $memberId, $this->user());
 
         return null;
     }

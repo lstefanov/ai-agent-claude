@@ -31,7 +31,8 @@ class BillableUnit
         }
 
         $work = (float) config('billing.work_per_token', 1.0);
-        $kTokens = (int) ceil($completionTokens / 1000);
+        $divisor = max(1, (int) config('billing.token_divisor', 1000));
+        $kTokens = (int) ceil($completionTokens / $divisor);
 
         return (int) ceil(self::base($level) * $work * $kTokens);
     }
@@ -49,8 +50,9 @@ class BillableUnit
     public static function estimateFor(string $contextType, ModelLevel $level): int
     {
         $kTokens = (int) (config("billing.estimate_ktokens.{$contextType}") ?? 5);
+        $floor = max(1, (int) config('billing.min_estimate_credits', 1));
 
-        return max(1, (int) ceil(self::base($level) * (float) config('billing.work_per_token', 1.0) * $kTokens));
+        return max($floor, (int) ceil(self::base($level) * (float) config('billing.work_per_token', 1.0) * $kTokens));
     }
 
     /** Оценка за пускане на задача (по effective нивото ѝ). */

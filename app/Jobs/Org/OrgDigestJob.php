@@ -4,11 +4,9 @@ namespace App\Jobs\Org;
 
 use App\Models\Company;
 use App\Services\Org\Billing\AutonomousBudgetService;
-use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Services\Org\OrgDigestService;
-use App\Support\BillableUnit;
-use App\Support\LlmContext;
 use App\Support\ModelLevel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -33,7 +31,7 @@ class OrgDigestJob implements ShouldQueue
 
     public function __construct(public int $companyId) {}
 
-    public function handle(OrgDigestService $digest, CreditMeterService $meter, AutonomousBudgetService $budget): void
+    public function handle(OrgDigestService $digest, BillableOperationService $billable, AutonomousBudgetService $budget): void
     {
         $company = Company::find($this->companyId);
         if (! $company || ! $company->active_org_version_id) {
@@ -52,37 +50,27 @@ class OrgDigestJob implements ShouldQueue
             return;
         }
 
-        $reservation = null;
+        // opKey: uuid на job-а (стабилен при retry); резервен — детерминистичен от company id + дата.
+        // Датата влиза за да не reuse-ва вчерашния settled opKey (нов ден = нова операция).
+        $opKey = $this->job?->uuid() ?? 'org_digest:'.$this->companyId.':'.now()->toDateString();
+
         try {
-            $reservation = $meter->reserve(
-                $company->id, 'org_digest', $company,
-                BillableUnit::estimateFor('org_digest', ModelLevel::Medium),
-                'autonomous',
+            $billable->run(
+                $company->id,
+                'org_digest',
+                $company,
+                function () use ($digest, $company) {
+                    $digest->generate($company);
+                },
+                opKey: $opKey,
+                level: ModelLevel::Medium,
+                origin: 'autonomous',
             );
         } catch (InsufficientCreditsException) {
-            Log::info('[OrgDigest] best-effort (no credits) company '.$company->id);
-        }
-
-        if ($reservation) {
-            LlmContext::set([
-                'purpose' => 'org_digest',
-                'company_id' => $company->id,
-                'context_type' => 'org_digest',
-                'subject_type' => $company->getMorphClass(),
-                'subject_id' => $company->id,
-                'reservation_id' => $reservation->id,
-            ]);
-        }
-
-        try {
-            $digest->generate($company);
+            // Автономен контекст е hard-gated: log и тих skip при недостатъчно кредити.
+            Log::info('[OrgDigest] пропуснато (hard-gate, недостатъчно кредити), company '.$company->id);
         } catch (\Throwable $e) {
             Log::error('[OrgDigest] failed: '.$e->getMessage());
-        } finally {
-            if ($reservation) {
-                LlmContext::clear();
-                $meter->settle($reservation, $meter->actualFor($reservation));
-            }
         }
     }
 }

@@ -3,8 +3,10 @@
 namespace App\Services\Org;
 
 use App\Models\Assistant;
+use App\Models\AssistantTask;
 use App\Models\Company;
 use App\Models\Director;
+use App\Models\OrgProposal;
 use App\Models\OrgVersion;
 use App\Models\Persona;
 use App\Models\User;
@@ -53,14 +55,36 @@ class OrgMutationService
         return $this->materialize($company, $design, $approver);
     }
 
-    /** Пенсионира член (изважда го от дизайна → materialize го маркира retired). */
+    /** Пенсионира член (изважда го от дизайна → materialize го маркира retired) + изчиства висящото. */
     public function fireMember(Company $company, int $memberId, ?User $approver): ?OrgVersion
     {
         $design = $this->snapshotDesign($company);
         $design['directors'] = array_values(array_filter($design['directors'], fn ($d) => ($d['id'] ?? null) !== $memberId));
         $design['assistants'] = array_values(array_filter($design['assistants'], fn ($a) => ($a['id'] ?? null) !== $memberId));
 
-        return $this->materialize($company, $design, $approver);
+        $version = $this->materialize($company, $design, $approver);
+        if ($version !== null) {
+            $this->cleanupAfterFire($company, $memberId);
+        }
+
+        return $version;
+    }
+
+    /**
+     * След материализирано съкращение — изчисти висящото на пенсионирания член, за да не остане
+     * „осиротяло" в Кутията: висящите му предложения → superseded; нетерминалните му задачи → canceled.
+     */
+    private function cleanupAfterFire(Company $company, int $memberId): void
+    {
+        OrgProposal::where('company_id', $company->id)
+            ->where('status', 'pending')
+            ->get()
+            ->filter(fn (OrgProposal $p) => (int) (($p->payload['target_member_id'] ?? $p->payload['org_member_id'] ?? 0)) === $memberId)
+            ->each(fn (OrgProposal $p) => $p->update(['status' => 'superseded']));
+
+        AssistantTask::where('org_member_id', $memberId)
+            ->whereIn('status', ['proposed', 'generating', 'pending_approval', 'ready'])
+            ->update(['status' => 'canceled']);
     }
 
     /**

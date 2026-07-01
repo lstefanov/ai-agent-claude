@@ -23,6 +23,7 @@ class MemberChatService
         private GeneratorService $generator,
         private KnowledgeService $knowledge,
         private MemberMemoryService $memberMemory,
+        private OrgProposalService $proposals,
     ) {}
 
     /**
@@ -91,12 +92,11 @@ class MemberChatService
             return null;
         }
 
-        $record = OrgProposal::create([
-            'company_id' => $company->id,
-            'type' => $proposal['type'],
-            'payload' => $proposal,
-            'base_org_version_id' => $company->active_org_version_id,
-        ]);
+        // През funnel-а — guard-ът може да блокира (напр. съкращение на нов член).
+        $record = $this->proposals->create($company, $proposal['type'], $proposal);
+        if (! $record) {
+            return null;
+        }
 
         return ['kind' => 'proposal', 'id' => $record->id, 'type' => (string) $proposal['type']];
     }

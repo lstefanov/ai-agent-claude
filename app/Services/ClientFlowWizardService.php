@@ -7,6 +7,7 @@ use App\Agents\Tools\KnowledgeSearchTool;
 use App\Models\Company;
 use App\Models\FlowDraft;
 use App\Models\FlowDraftMessage;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
 use Illuminate\Support\Facades\Cache;
@@ -28,6 +29,7 @@ class ClientFlowWizardService
         private GeneratorService $generator,
         private AgentLoop $loop,
         private KnowledgeService $knowledge,
+        private BillableOperationService $billable,
     ) {}
 
     /**
@@ -111,62 +113,76 @@ class ClientFlowWizardService
         $options = ['temperature' => 0.3, 'num_predict' => 2500, 'http_timeout' => 120];
 
         LlmUsage::take();
-        LlmContext::set([
-            'purpose' => 'client_wizard',
-            'session_id' => $draft->session,
-            'company_id' => $draft->company_id,
-        ]);
 
+        // Billing wrapper: best-effort, owns company/context/reservation атрибуцията.
+        // opKey = reply message id → уникален per ход.
         try {
-            $result = $this->loop->run(
-                provider: $provider,
-                model: $model,
-                messages: $messages,
-                tools: $tools,
-                executor: fn (string $name, array $args): string => match ($name) {
-                    'knowledge_search' => $knowledgeTool->execute($args),
-                    'web_search' => $webTool->execute($args),
-                    default => json_encode(['error' => "Непознат инструмент: {$name}"], JSON_UNESCAPED_UNICODE),
+            $valid = $this->billable->run(
+                (int) $draft->company_id,
+                'client_wizard',
+                $draft,
+                function () use ($draft, $provider, $model, $messages, $tools, $maxSteps, $options, $forceReady, $onStage): array {
+                    // Допълнителни context ключове специфични за wizard хода.
+                    // Wrapper-ът вече е push-нал company_id/context_type/reservation_id/operation_id.
+                    LlmContext::push(['session_id' => $draft->session]);
+
+                    try {
+                        $result = $this->loop->run(
+                            provider: $provider,
+                            model: $model,
+                            messages: $messages,
+                            tools: $tools,
+                            executor: fn (string $name, array $args): string => match ($name) {
+                                'knowledge_search' => (new KnowledgeSearchTool(app(KnowledgeService::class), $draft->company_id))->execute($args),
+                                'web_search' => app(BraveSearchTool::class)->execute($args),
+                                default => json_encode(['error' => "Непознат инструмент: {$name}"], JSON_UNESCAPED_UNICODE),
+                            },
+                            maxSteps: $maxSteps,
+                            options: $options,
+                            onToolCall: $onStage
+                                ? fn (string $name, array $args) => $onStage($this->stageLabel($name))
+                                : null,
+                            wrapUpPrompt: $this->jsonInstruction($forceReady),
+                            wrapUpOptions: $options,
+                        );
+
+                        $content = $result['content'];
+                        $data = $this->parseJson($content);
+                        $validated = $data ? $this->validate($data) : null;
+
+                        // Невалиден JSON → един retry с nudge (без инструменти).
+                        if ($validated === null) {
+                            $retryMessages = [
+                                ...$messages,
+                                ['role' => 'assistant', 'content' => $content],
+                                ['role' => 'user', 'content' => 'Отговорът не беше валиден JSON. Върни САМО валиден JSON обект по схемата, без никакъв друг текст или ```.'],
+                            ];
+                            $retry = $this->generator->chatTurn($provider, $model, $retryMessages, [], $options);
+                            $content = $retry['content'];
+                            $validated = ($d = $this->parseJson($content)) ? $this->validate($d) : null;
+                        }
+
+                        // Връщаме и суровия текст → fallback-ът ползва реалния LLM отговор (S4).
+                        return ['valid' => $validated, 'content' => (string) $content];
+                    } finally {
+                        LlmContext::pop();
+                    }
                 },
-                maxSteps: $maxSteps,
-                options: $options,
-                onToolCall: $onStage
-                    ? fn (string $name, array $args) => $onStage($this->stageLabel($name))
-                    : null,
-                wrapUpPrompt: $this->jsonInstruction($forceReady),
-                wrapUpOptions: $options,
+                opKey: "wizard:{$userMessage->id}",
             );
-
-            $content = $result['content'];
-            $data = $this->parseJson($content);
-            $valid = $data ? $this->validate($data) : null;
-
-            // Невалиден JSON → един retry с nudge (без инструменти).
-            if ($valid === null) {
-                $retryMessages = [
-                    ...$messages,
-                    ['role' => 'assistant', 'content' => $content],
-                    ['role' => 'user', 'content' => 'Отговорът не беше валиден JSON. Върни САМО валиден JSON обект по схемата, без никакъв друг текст или ```.'],
-                ];
-                $retry = $this->generator->chatTurn($provider, $model, $retryMessages, [], $options);
-                $valid = ($d = $this->parseJson($retry['content'])) ? $this->validate($d) : null;
-                if ($valid === null) {
-                    $content = $retry['content'] !== '' ? $retry['content'] : $content;
-                }
-            }
+            $rawContent = (string) ($valid['content'] ?? '');
+            $valid = $valid['valid'] ?? null;
         } catch (Throwable $e) {
             Log::error('[ClientWizard] turn failed: '.$e->getMessage());
-            LlmContext::clear();
 
             return $this->softFallback($draft, 'Възникна проблем. Опиши ми с думи какво искаш и ще продължим.');
         }
 
-        LlmContext::clear();
         $usage = LlmUsage::take();
 
         if ($valid === null) {
-            // Меко: ползвай текста като отговор, остави свободното поле да движи разговора.
-            return $this->softFallback($draft, $content !== '' ? $content : 'Разкажи ми малко повече за това, което искаш.', $usage['cost_usd']);
+            // Меко: ползвай суровия LLM текст като отговор (S4), остави свободното поле да движи разговора.
+            return $this->softFallback($draft, $rawContent !== '' ? $rawContent : 'Разкажи ми малко повече за това, което искаш.', $usage['cost_usd']);
         }
 
         // Принудителна чернова при изчерпани въпроси.

@@ -15,7 +15,7 @@ class LlmRequest extends Model
         'provider', 'model', 'kind', 'purpose', 'session_id',
         'company_id', 'flow_id', 'flow_run_id', 'node_run_id', 'agent_name', 'agent_type',
         // Билинг-атрибуция (§0.5.1).
-        'context_type', 'subject_type', 'subject_id', 'reservation_id',
+        'context_type', 'subject_type', 'subject_id', 'reservation_id', 'operation_id',
         'system_prompt', 'user_message', 'response_text', 'options',
         'prompt_tokens', 'completion_tokens', 'total_tokens', 'cost_usd', 'duration_ms',
         'status', 'error',

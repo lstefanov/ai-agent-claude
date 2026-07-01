@@ -3,12 +3,9 @@
 namespace App\Jobs\Org;
 
 use App\Models\Company;
-use App\Services\Org\Billing\CreditMeterService;
-use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\BusinessProfilerService;
 use App\Services\Org\OrgPlannerService;
-use App\Support\BillableUnit;
-use App\Support\LlmContext;
 use App\Support\ModelLevel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -33,7 +30,7 @@ class ProposeOrganizationJob implements ShouldQueue
 
     public function __construct(public int $companyId, public string $token) {}
 
-    public function handle(OrgPlannerService $planner, CreditMeterService $meter, BusinessProfilerService $profiler): void
+    public function handle(OrgPlannerService $planner, BillableOperationService $billable, BusinessProfilerService $profiler): void
     {
         $key = "org_design_{$this->token}";
         $company = Company::find($this->companyId);
@@ -43,48 +40,36 @@ class ProposeOrganizationJob implements ShouldQueue
             return;
         }
 
-        $reservation = null;
+        // opKey: uuid на job-а (стабилен при retry); резервен — token уникален за дизайн сесия.
+        // origin не е подаден → 'manual' (default) → soft gate → best-effort при липса на кредити.
+        $opKey = $this->job?->uuid() ?? "org_design:{$this->token}";
+
         try {
-            $reservation = $meter->reserve(
-                $company->id, 'org_planning', $company,
-                BillableUnit::estimateFor('org_planning', ModelLevel::fromRequest(config('organization.manager.level'))),
+            $billable->run(
+                $company->id,
+                'org_planning',
+                $company,
+                function () use ($planner, $profiler, $company, $key) {
+                    $onStage = fn (string $s) => Cache::put($key, ['status' => 'pending', 'stage' => $s, 'updated_at' => now()->timestamp], now()->addMinutes(20));
+
+                    // Застраховка: ако анализ екранът е прескочен, синтезът се прави тук (идемпотентно),
+                    // за да има проблеми/нужди за композицията и възможности за приоритетите.
+                    if ($profile = $company->businessProfile) {
+                        $profiler->synthesizeFeedback($profile, $onStage);
+                    }
+
+                    $proposed = $planner->proposeOrganization($company, $onStage);
+                    $finalized = $planner->finalizeOrganization($proposed, $company->activeOrgVersion);
+
+                    Cache::put($key, ['status' => 'completed', 'design' => $finalized, 'updated_at' => now()->timestamp], now()->addMinutes(30));
+                },
+                opKey: $opKey,
+                level: ModelLevel::fromRequest(config('organization.manager.level')),
+                origin: 'manual',
             );
-        } catch (InsufficientCreditsException) {
-            Log::info('[OrgDesign] best-effort (no credits) company '.$company->id);
-        }
-
-        if ($reservation) {
-            LlmContext::set([
-                'purpose' => 'org_planning',
-                'company_id' => $company->id,
-                'context_type' => 'org_planning',
-                'subject_type' => $company->getMorphClass(),
-                'subject_id' => $company->id,
-                'reservation_id' => $reservation->id,
-            ]);
-        }
-
-        try {
-            $onStage = fn (string $s) => Cache::put($key, ['status' => 'pending', 'stage' => $s, 'updated_at' => now()->timestamp], now()->addMinutes(20));
-
-            // Застраховка: ако анализ екранът е прескочен, синтезът се прави тук (идемпотентно),
-            // за да има проблеми/нужди за композицията и възможности за приоритетите.
-            if ($profile = $company->businessProfile) {
-                $profiler->synthesizeFeedback($profile, $onStage);
-            }
-
-            $proposed = $planner->proposeOrganization($company, $onStage);
-            $finalized = $planner->finalizeOrganization($proposed, $company->activeOrgVersion);
-
-            Cache::put($key, ['status' => 'completed', 'design' => $finalized, 'updated_at' => now()->timestamp], now()->addMinutes(30));
         } catch (\Throwable $e) {
             Log::error('[OrgDesign] failed: '.$e->getMessage());
             Cache::put($key, ['status' => 'failed', 'error' => 'Дизайнът се провали. Опитай пак.', 'updated_at' => now()->timestamp], now()->addMinutes(20));
-        } finally {
-            if ($reservation) {
-                LlmContext::clear();
-                $meter->settle($reservation, $meter->actualFor($reservation));
-            }
         }
     }
 }

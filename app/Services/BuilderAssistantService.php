@@ -7,6 +7,7 @@ use App\Models\AssistantMessage;
 use App\Models\AssistantNote;
 use App\Models\Flow;
 use App\Models\LlmModel;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Support\GraphTopology;
 use App\Support\LlmContext;
 use App\Support\LlmUsage;
@@ -50,6 +51,7 @@ class BuilderAssistantService
         private FlowPlannerService $planner,
         private GraphNormalizer $normalizer,
         private AgentLoop $loop,
+        private BillableOperationService $billable,
     ) {}
 
     /**
@@ -110,32 +112,43 @@ class BuilderAssistantService
         ];
 
         LlmUsage::take(); // reset the accumulator — this turn's calls only
-        LlmContext::set([
-            'purpose' => 'assistant',
-            'session_id' => $userMessage->session,
-            'company_id' => $flow->company_id,
-            'flow_id' => $flow->id,
-        ]);
 
-        try {
-            $result = $this->loop->run(
-                provider: $provider,
-                model: $model,
-                messages: $messages,
-                tools: $tools,
-                executor: fn (string $name, array $args): string => $this->executeTool($flow, $name, $args, $mode),
-                maxSteps: $maxSteps,
-                options: ['temperature' => 0.2, 'num_predict' => 3000, 'http_timeout' => 180],
-                onToolCall: $onStage
-                    ? fn (string $name, array $args) => $onStage($this->stageLabel($name, $args))
-                    : null,
-                onContent: $onPartial,
-                wrapUpPrompt: '(Системно: лимитът на стъпки е изчерпан. Обобщи накратко какво откри/направи дотук — без повече инструменти.)',
-                wrapUpOptions: ['temperature' => 0.2, 'num_predict' => 1500, 'http_timeout' => 120],
-            );
-        } finally {
-            LlmContext::clear();
-        }
+        // Billing wrapper: best-effort, owns company/context/reservation атрибуцията.
+        // opKey = reply message id → уникален per ход, стабилен при retry.
+        $result = $this->billable->run(
+            (int) $flow->company_id,
+            'assistant',
+            $flow,
+            function () use ($flow, $userMessage, $provider, $model, $messages, $tools, $maxSteps, $onStage, $onPartial): array {
+                // Допълнителни context ключове специфични за copilot хода (session/flow).
+                // Wrapper-ът вече е push-нал company_id/context_type/reservation_id/operation_id.
+                LlmContext::push([
+                    'session_id' => $userMessage->session,
+                    'flow_id' => $flow->id,
+                ]);
+
+                try {
+                    return $this->loop->run(
+                        provider: $provider,
+                        model: $model,
+                        messages: $messages,
+                        tools: $tools,
+                        executor: fn (string $name, array $args): string => $this->executeTool($flow, $name, $args, $mode),
+                        maxSteps: $maxSteps,
+                        options: ['temperature' => 0.2, 'num_predict' => 3000, 'http_timeout' => 180],
+                        onToolCall: $onStage
+                            ? fn (string $name, array $args) => $onStage($this->stageLabel($name, $args))
+                            : null,
+                        onContent: $onPartial,
+                        wrapUpPrompt: '(Системно: лимитът на стъпки е изчерпан. Обобщи накратко какво откри/направи дотук — без повече инструменти.)',
+                        wrapUpOptions: ['temperature' => 0.2, 'num_predict' => 1500, 'http_timeout' => 120],
+                    );
+                } finally {
+                    LlmContext::pop();
+                }
+            },
+            opKey: "copilot:{$userMessage->id}",
+        );
 
         $usage = LlmUsage::take();
 
@@ -225,7 +238,7 @@ class BuilderAssistantService
     private function unknownNodeError(string $ref): string
     {
         return $this->json([
-            'error' => "Няма възел „{$ref}“.",
+            'error' => 'Няма възел \u{201E}'.$ref.'\u{201C}.',
             'налични' => collect($this->nodes)
                 ->map(fn ($n, $k) => $k.' = '.($n['name'] ?? '?'))
                 ->values()->all(),
@@ -278,7 +291,7 @@ class BuilderAssistantService
 изпълнения, оценяваш настройките и правиш промени по графа чрез инструментите.
 
 КАК РАБОТИ СИСТЕМАТА (накратко):
-- Flow = DAG от агенти (възли) + връзки. Изпълнява се на „вълни“ с реален паралелизъм;
+- Flow = DAG от агенти (възли) + връзки. Изпълнява се на „вълни" с реален паралелизъм;
   изходите на преките предшественици са вход на възела.
 - Всеки възел има system_prompt, prompt_template, модел и настройки. Placeholder-и в
   промптовете: {{input}} (обединен вход), {{node:Име}} (изход на конкретен възел),
@@ -309,7 +322,7 @@ class BuilderAssistantService
 2. Преди да твърдиш нещо за промптове/настройки/изпълнения — провери с инструментите.
 3. Промени прави САМО чрез инструментите (никога не описвай JSON в отговора). След
    промяна обобщи какво предлагаш и напомни, че трябва да се прегледа и запази.
-4. Ако потребителят каже предпочитание, което важи занапред („винаги…“, „запомни…“) —
+4. Ако потребителят каже предпочитание, което важи занапред („винаги…", „запомни…") —
    запази го с remember_note.
 5. Когато нещо не е еднозначно (кой възел, какъв праг) — попитай, не предполагай.
 PROMPT;
@@ -429,22 +442,22 @@ PROMPT;
         $name = $ref !== '' ? ($this->nodes[$this->resolveNodeKey($ref) ?? '']['name'] ?? $ref) : '';
 
         return match ($tool) {
-            'get_node' => 'Чета възел „'.$name.'“…',
+            'get_node' => 'Чета възел „'.$name.'"…',
             'get_flow_info' => 'Чета настройките на flow-а…',
             'get_capabilities' => 'Преглеждам каталога…',
             'list_runs' => 'Преглеждам изпълненията…',
             'get_run' => 'Чета изпълнение #'.($args['run_id'] ?? '').'…',
-            'get_node_run_output' => 'Чета изхода на „'.$name.'“…',
+            'get_node_run_output' => 'Чета изхода на „'.$name.'"…',
             'get_docs' => 'Чета документацията…',
             'validate_graph' => 'Валидирам графа…',
             'evaluate_flow' => 'Оценявам плана (отнема малко повече)…',
-            'add_agent' => 'Добавям агент „'.($args['name'] ?? '').'“…',
-            'update_agent' => 'Променям „'.$name.'“…',
-            'remove_agent' => 'Премахвам „'.$name.'“…',
+            'add_agent' => 'Добавям агент „'.($args['name'] ?? '').'"…',
+            'update_agent' => 'Променям „'.$name.'"…',
+            'remove_agent' => 'Премахвам „'.$name.'"…',
             'connect_agents' => 'Свързвам възли…',
             'disconnect_agents' => 'Разкачам връзка…',
             'remember_note' => 'Запомням бележка…',
-            'open_node' => 'Отварям „'.$name.'“…',
+            'open_node' => 'Отварям „'.$name.'"…',
             default => 'Работя…',
         };
     }
@@ -608,7 +621,7 @@ PROMPT;
         $nodeRun = $run->nodeRuns()->where('node_key', $key)->orderByDesc('id')->first();
         if (! $nodeRun) {
             return $this->json([
-                'error' => "В изпълнение #{$run->id} няма възел „{$ref}“.",
+                'error' => 'В изпълнение #'.$run->id.' няма възел \u{201E}'.$ref.'\u{201C}.',
                 'налични' => $run->nodeRuns()->pluck('node_key')->unique()->values()->all(),
             ]);
         }
@@ -729,7 +742,7 @@ PROMPT;
             ->push('custom')->unique();
 
         if (! $validTypes->contains($type)) {
-            return $this->json(['error' => "Непознат тип „{$type}“.", 'валидни_типове' => $validTypes->values()->all()]);
+            return $this->json(['error' => 'Непознат тип \u{201E}'.$type.'\u{201C}.', 'валидни_типове' => $validTypes->values()->all()]);
         }
 
         if ($warning = $this->modelProblem((string) ($args['model'] ?? ''))) {
@@ -817,7 +830,7 @@ PROMPT;
         return $this->json([
             'ok' => true,
             'node_key' => $nodeKey,
-            'info' => "Възел „{$name}“ е добавен в работното копие"
+            'info' => 'Възел \u{201E}'.$name.'\u{201C} е добавен в работното копие'
                 .($dependsOn ? ', вход от: '.implode(', ', array_map(fn ($k) => $this->nodes[$k]['name'], $dependsOn)) : '')
                 .($feeds ? ', захранва: '.implode(', ', array_map(fn ($k) => $this->nodes[$k]['name'], $feeds)) : '')
                 .'. Потребителят трябва да прегледа и запази.',
@@ -899,7 +912,7 @@ PROMPT;
 
         return $this->json([
             'ok' => true,
-            'info' => 'Променени полета на „'.$node['name'].'“: '.implode(', ', $changed).'. Потребителят трябва да прегледа и запази.',
+            'info' => 'Променени полета на „'.$node['name'].'": '.implode(', ', $changed).'. Потребителят трябва да прегледа и запази.',
         ]);
     }
 
@@ -937,7 +950,7 @@ PROMPT;
 
         return $this->json([
             'ok' => true,
-            'info' => "Възел „{$name}“ е премахнат от работното копие."
+            'info' => 'Възел \u{201E}'.$name.'\u{201C} е премахнат от работното копие.'
                 .($bridged ? ' Мостови връзки: '.implode('; ', $bridged).'.' : ''),
         ]);
     }
@@ -1015,7 +1028,7 @@ PROMPT;
 
         $this->ui[] = ['action' => 'open_node', 'node_key' => $key];
 
-        return $this->json(['ok' => true, 'info' => 'Панелът на „'.($this->nodes[$key]['name'] ?? $key).'“ ще се отвори при потребителя.']);
+        return $this->json(['ok' => true, 'info' => 'Панелът на „'.($this->nodes[$key]['name'] ?? $key).'" ще се отвори при потребителя.']);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -1051,7 +1064,7 @@ PROMPT;
         if (! array_key_exists((string) $provider, PaidModel::PREFIXES)) {
             return LlmModel::where('ollama_tag', $model)->exists()
                 ? null
-                : "Моделът „{$model}“ не е сред инсталираните и няма платен префикс — провери get_capabilities.";
+                : 'Моделът \u{201E}'.$model.'\u{201C} не е сред инсталираните и няма платен префикс — провери get_capabilities.';
         }
 
         if (! PaidModel::available((string) $provider)) {

@@ -128,6 +128,7 @@ class BudgetController extends Controller
             ->where('credit_ledger.origin', 'autonomous')
             ->where('credit_ledger.created_at', '>=', $from)
             ->where('credit_ledger.direction', 'debit')
+            ->whereIn('credit_ledger.type', ['reserve', 'overage'])
             ->selectRaw('DATE(credit_ledger.created_at) as d, COALESCE(credit_reservations.context_type, credit_ledger.reason) as ctx, SUM(credit_ledger.amount) as amt')
             ->groupByRaw('DATE(credit_ledger.created_at), COALESCE(credit_reservations.context_type, credit_ledger.reason)')
             ->get();
@@ -135,6 +136,7 @@ class BudgetController extends Controller
         // 2) Пълен дневен дебит/кредит (всички origin-и) за балансов поток.
         $flowRows = CreditLedgerEntry::where('company_id', $company->id)
             ->where('created_at', '>=', $from)
+            ->whereIn('type', ['reserve', 'refund', 'topup', 'grant', 'overage'])
             ->selectRaw('DATE(created_at) as d, direction, SUM(amount) as amt')
             ->groupByRaw('DATE(created_at), direction')
             ->get();

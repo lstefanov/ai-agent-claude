@@ -245,8 +245,11 @@ class FlowController extends Controller
             'company_id' => 'nullable|exists:companies,id',
         ]);
 
+        // company_id е валидиран (exists:companies,id) → безопасно да го ползваме за атрибуция.
+        $companyId = $request->filled('company_id') ? (int) $request->company_id : null;
+
         try {
-            $improved = $improver->improve((string) ($request->name ?? ''), (string) $request->description);
+            $improved = $improver->improve((string) ($request->name ?? ''), (string) $request->description, $companyId);
         } catch (\Throwable $e) {
             return response()->json(['error' => 'AI услугата не е достъпна. Провери ASSIST_PROVIDER и API ключа.'], 503);
         }

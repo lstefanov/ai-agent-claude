@@ -29,6 +29,7 @@ class DirectorAgentService
         private MemberMemoryService $memory,
         private EmbeddingService $embeddings,
         private KnowledgeService $knowledge,
+        private OrgProposalService $proposals,
     ) {}
 
     /**
@@ -69,15 +70,13 @@ class DirectorAgentService
         return ['ran' => [], 'proposals' => $proposals, 'report' => $report];
     }
 
-    /** Структурно/задачно предложение → durable org_proposal(pending) за Кутията (§A7). */
-    public function proposeDecision(Company $company, string $type, array $payload, string $rationale): OrgProposal
+    /**
+     * Структурно/задачно предложение → durable org_proposal(pending) за Кутията (§A7).
+     * През funnel-а (OrgProposalService): може да върне null, ако guard-ът блокира предложението.
+     */
+    public function proposeDecision(Company $company, string $type, array $payload, string $rationale): ?OrgProposal
     {
-        return OrgProposal::create([
-            'company_id' => $company->id,
-            'type' => $type,
-            'payload' => $payload + ['rationale' => $rationale],
-            'base_org_version_id' => $company->active_org_version_id,
-        ]);
+        return $this->proposals->create($company, $type, $payload, $rationale);
     }
 
     /**
@@ -206,7 +205,7 @@ class DirectorAgentService
             'proposed_by_member_id' => $directorMember->id,
         ];
 
-        return $this->proposeDecision($company, 'task', $payload, 'Начална тема за отдела (генерирана при стартиране на екипа).')->id;
+        return $this->proposeDecision($company, 'task', $payload, 'Начална тема за отдела (генерирана при стартиране на екипа).')?->id;
     }
 
     /** Отворени решения за отдела = pending_approval задачи на асистентите + pending org предложения. */
@@ -315,8 +314,11 @@ class DirectorAgentService
                 'proposed_by_member_id' => $directorMember->id,
             ];
 
-            $ids[] = $this->proposeDecision($company, $type, $payload, (string) ($p['rationale'] ?? ''))->id;
-            $existing[] = $this->normalize($title);
+            // Funnel-ът може да върне null (блокирано предложение) → не брой и не dedup-вай.
+            if ($rec = $this->proposeDecision($company, $type, $payload, (string) ($p['rationale'] ?? ''))) {
+                $ids[] = $rec->id;
+                $existing[] = $this->normalize($title);
+            }
         }
 
         return $ids;

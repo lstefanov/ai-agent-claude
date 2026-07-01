@@ -5,11 +5,9 @@ namespace App\Jobs\Org;
 use App\Models\Company;
 use App\Models\Director;
 use App\Services\Org\Billing\AutonomousBudgetService;
-use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Services\Org\DirectorAgentService;
-use App\Support\BillableUnit;
-use App\Support\LlmContext;
 use App\Support\ModelLevel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -34,7 +32,7 @@ class DirectorTickJob implements ShouldQueue
 
     public function __construct(public int $directorId, public string $trigger = 'scheduled') {}
 
-    public function handle(DirectorAgentService $directors, CreditMeterService $meter, AutonomousBudgetService $budget): void
+    public function handle(DirectorAgentService $directors, BillableOperationService $billable, AutonomousBudgetService $budget): void
     {
         $director = Director::with('orgVersion.company', 'orgMember')->find($this->directorId);
         $company = $director?->orgVersion?->company;
@@ -61,35 +59,30 @@ class DirectorTickJob implements ShouldQueue
             }
         }
 
+        // opKey: стабилен per-операция ключ — uuid-ът на job-а е непроменлив при retry.
+        // Резервния ключ (при null job) е детерминистичен от id-то на директора.
+        $opKey = $this->job?->uuid() ?? "director_tick:{$this->directorId}";
+
         try {
-            $reservation = $meter->reserve(
-                $company->id, 'director_tick', $director->orgMember,
-                BillableUnit::estimateFor('director_tick', ModelLevel::fromRequest(config('organization.manager.level'))),
-                $origin,
+            $billable->run(
+                $company->id,
+                'director_tick',
+                $director->orgMember,
+                function () use ($directors, $director, $company) {
+                    try {
+                        $directors->tick($director, $this->trigger);
+                    } catch (\Throwable $e) {
+                        Log::error('[DirectorTick] failed: '.$e->getMessage());
+                        $this->recordFailureEvent($company, $director, $e);
+                    }
+                },
+                opKey: $opKey,
+                level: ModelLevel::fromRequest(config('organization.manager.level')),
+                origin: $origin,
             );
         } catch (InsufficientCreditsException) {
+            // Автономен контекст е hard-gated: skip при недостатъчно кредити.
             Log::info('[DirectorTick] пропуснат (недостатъчно кредити), директор '.$director->id);
-
-            return;
-        }
-
-        LlmContext::set([
-            'purpose' => 'director_tick',
-            'company_id' => $company->id,
-            'context_type' => 'director_tick',
-            'subject_type' => $director->orgMember?->getMorphClass(),
-            'subject_id' => $director->orgMember?->id,
-            'reservation_id' => $reservation->id,
-        ]);
-
-        try {
-            $directors->tick($director, $this->trigger);
-        } catch (\Throwable $e) {
-            Log::error('[DirectorTick] failed: '.$e->getMessage());
-            $this->recordFailureEvent($company, $director, $e);
-        } finally {
-            LlmContext::clear();
-            $meter->settle($reservation, $meter->actualFor($reservation));
         }
     }
 

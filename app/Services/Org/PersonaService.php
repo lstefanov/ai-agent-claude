@@ -261,7 +261,7 @@ class PersonaService
         if (config('organization.persona.portraits') && $newSignature !== $oldSignature) {
             if (! $this->avatars->reuseArchetypeAvatar($persona)) {
                 $persona->update(['avatar_status' => 'pending']);
-                GenerateMemberAvatarJob::dispatch($persona->id)->onQueue('org');
+                GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue('org');
             }
         }
 

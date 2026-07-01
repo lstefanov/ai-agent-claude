@@ -27,7 +27,9 @@ class GenerateMemberAvatarJob implements ShouldQueue
     // orphan job за член, който е бил rollback-нат. $afterCommit идва от Queueable
     // (нетипизиран, default null) — задаваме го в конструктора, за да не пада
     // композицията на trait-а.
-    public function __construct(public int $personaId)
+    // $opToken е стабилен per-dispatch UUID (подаден при dispatch) — еднакъв при двата
+    // retry опита, гарантира идемпотентна резервация (без двойно таксуване).
+    public function __construct(public int $personaId, public string $opToken)
     {
         $this->afterCommit = true;
     }
@@ -36,7 +38,7 @@ class GenerateMemberAvatarJob implements ShouldQueue
     {
         $persona = Persona::find($this->personaId);
         if ($persona) {
-            $avatars->generateFor($persona);
+            $avatars->generateFor($persona, $this->opToken);
         }
     }
 }
