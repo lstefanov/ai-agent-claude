@@ -211,6 +211,7 @@ echo '{"tool_input":{"command":"php artisan migrate"}}' | bash scripts/claude-gu
 ```
 claude                       # старт на диригента (Max OAuth)
 /feature <описание>          # целият конвейер за нова промяна
+/fix <бъг>                   # по-лек конвейер за поправка на бъг
 /review-diff                 # бързо multi-perspective ревю на diff-а
 /agents                      # управление на субагентите
 /model opusplan              # Opus за план, после Sonnet за писане

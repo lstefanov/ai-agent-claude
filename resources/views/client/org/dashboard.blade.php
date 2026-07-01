@@ -18,6 +18,94 @@
         </div>
     </div>
 
+    {{-- Live activation after the organization wizard. --}}
+    <section x-show="state.activation && state.activation.active" x-cloak
+             class="rounded-xl border border-info/30 bg-info-soft/40 p-4 sm:p-5"
+             aria-live="polite">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-info-soft text-info-strong">
+                        <x-icon name="bolt" size="5" />
+                    </span>
+                    <div class="min-w-0">
+                        <h2 class="text-base font-semibold text-ink">Организацията се активира</h2>
+                        <p class="text-sm text-muted" x-text="activationText()"></p>
+                    </div>
+                </div>
+            </div>
+            <a href="{{ route('client.org.decisions') }}"
+               x-show="(state.activation?.pending_decisions || 0) > 0"
+               x-cloak
+               class="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-fg transition hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                <x-icon name="inbox-stack" size="4" />
+                <span><span class="tabular-nums" x-text="state.activation.pending_decisions"></span> за преглед</span>
+            </a>
+        </div>
+
+        <div class="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <div class="flex items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3">
+                <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-success-soft text-success-strong">
+                    <x-icon name="check-circle" size="4" />
+                </span>
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">Екипът е създаден</p>
+                    <p class="text-xs text-muted">Версия <span class="tabular-nums" x-text="state.activation?.version || ''"></span> е активна.</p>
+                </div>
+            </div>
+
+            <div class="flex items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3">
+                <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      :class="activationDone('directors') ? 'bg-success-soft text-success-strong' : 'bg-info-soft text-info-strong'">
+                    <x-icon name="check-circle" size="4" x-show="activationDone('directors')" />
+                    <x-icon name="arrow-path" size="4" class="animate-spin" x-show="! activationDone('directors')" x-cloak />
+                </span>
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">Директорите правят първи преглед</p>
+                    <p class="text-xs text-muted">
+                        <span class="tabular-nums" x-text="state.activation?.directors_reviewed || 0"></span>/<span class="tabular-nums" x-text="state.activation?.directors_total || 0"></span>
+                        отдела са прегледани.
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3">
+                <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      :class="activationDone('decisions') ? 'bg-success-soft text-success-strong' : 'bg-info-soft text-info-strong'">
+                    <x-icon name="check-circle" size="4" x-show="activationDone('decisions')" />
+                    <x-icon name="sparkles" size="4" x-show="! activationDone('decisions')" x-cloak />
+                </span>
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">Подготвят се първи предложения</p>
+                    <p class="text-xs text-muted">
+                        <span x-show="(state.activation?.pending_decisions || 0) === 0">
+                            <span class="tabular-nums" x-text="state.activation?.seed_tasks_generating || 0"></span> задачи се подготвят.
+                        </span>
+                        <span x-show="(state.activation?.pending_decisions || 0) > 0" x-cloak>
+                            <span class="tabular-nums" x-text="state.activation.pending_decisions"></span> чакат одобрение.
+                        </span>
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3">
+                <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      :class="activationDone('avatars') ? 'bg-success-soft text-success-strong' : 'bg-surface-subtle text-muted'">
+                    <x-icon name="check-circle" size="4" x-show="activationDone('avatars')" />
+                    <x-icon name="photo" size="4" x-show="! activationDone('avatars')" x-cloak />
+                </span>
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">Аватарите се рисуват</p>
+                    <p class="text-xs text-muted">
+                        <span class="tabular-nums" x-text="state.activation?.avatar_ready || 0"></span>/<span class="tabular-nums" x-text="state.activation?.members_total || 0"></span>
+                        готови<span x-show="(state.activation?.avatar_failed || 0) > 0" x-cloak>,
+                            <span class="text-danger-strong"><span class="tabular-nums" x-text="state.activation.avatar_failed"></span> неуспешни</span></span>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
     {{-- Банер: задачи, чакащи знание (§2-етапни задачи) --}}
     <a href="{{ route('client.org.decisions') }}" x-show="(state.task_counts.needs_knowledge || 0) > 0" x-cloak
        class="flex items-center gap-3 rounded-xl border border-char-amber-soft bg-char-amber-soft/40 px-4 py-3 transition hover:border-char-amber">
@@ -169,7 +257,8 @@ function dashboardLive(initial) {
             clearTimeout(this.timer);
             if (document.hidden) return;
             const hasActive = this.state.active_runs && this.state.active_runs.length > 0;
-            this.timer = setTimeout(() => this.poll(), hasActive ? 2500 : 8000);
+            const hasActivation = this.state.activation && this.state.activation.active;
+            this.timer = setTimeout(() => this.poll(), (hasActive || hasActivation) ? 2500 : 8000);
         },
         async poll() {
             this.polling = true;
@@ -179,6 +268,21 @@ function dashboardLive(initial) {
             } catch (e) { /* тих inline провал — без reload */ }
             this.polling = false;
             this.schedule();
+        },
+        activationDone(step) {
+            const a = this.state.activation || {};
+            if (step === 'directors') return (a.directors_total || 0) > 0 && (a.directors_reviewed || 0) >= (a.directors_total || 0);
+            if (step === 'decisions') return (a.pending_decisions || 0) > 0;
+            if (step === 'avatars') return (a.members_total || 0) > 0 && (a.avatar_pending || 0) === 0;
+            return false;
+        },
+        activationText() {
+            const a = this.state.activation || {};
+            if ((a.pending_decisions || 0) > 0) return 'Първите реални предложения са готови за преглед.';
+            if ((a.directors_reviewed || 0) < (a.directors_total || 0)) return 'Директорите мислят върху първите задачи за своите асистенти.';
+            if ((a.seed_tasks_generating || 0) > 0) return 'Подготвят се първите задачи и flow планове.';
+            if ((a.avatar_pending || 0) > 0) return 'Портретите се довършват отделно, а екипът вече може да работи.';
+            return 'Активацията е почти готова.';
         },
     };
 }

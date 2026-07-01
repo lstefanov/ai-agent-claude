@@ -100,7 +100,7 @@ class DesignController extends Controller
         return response()->json([
             'ok' => true,
             'version' => $version->version,
-            'redirect' => route('client.org.roster'),
+            'redirect' => route('client.org.dashboard'),
         ]);
     }
 

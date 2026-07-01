@@ -233,7 +233,7 @@ return [
             'timeout' => 900,
             'nice' => 0,
         ],
-        // Дългите org LLM jobs (planning/interview/research/tick/review/avatar/chat/
+        // Дългите org LLM jobs (planning/interview/research/tick/review/chat/
         // scheduled task) — отделно от flows (само node execution) и default (1 проц,
         // 900s) (§0.5.8). tries=1: org services правят собствени retry-та.
         'supervisor-org' => [
@@ -250,6 +250,21 @@ return [
             'timeout' => 1200,
             'nice' => 0,
         ],
+        // Бавните ComfyUI портрети са отделени, за да не блокират първите director ticks.
+        'supervisor-org-avatars' => [
+            'connection' => 'redis',
+            'queue' => ['org-avatars'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'minProcesses' => 1,
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 600,
+            'nice' => 5,
+        ],
     ],
 
     'environments' => [
@@ -265,6 +280,10 @@ return [
                 'minProcesses' => 1,
                 'maxProcesses' => 2,
             ],
+            'supervisor-org-avatars' => [
+                'minProcesses' => 1,
+                'maxProcesses' => 1,
+            ],
         ],
 
         'local' => [
@@ -276,6 +295,10 @@ return [
                 'maxProcesses' => 1,
             ],
             'supervisor-org' => [
+                'minProcesses' => 1,
+                'maxProcesses' => 1,
+            ],
+            'supervisor-org-avatars' => [
                 'minProcesses' => 1,
                 'maxProcesses' => 1,
             ],
