@@ -51,6 +51,17 @@
                     {{-- Готови опции + „Друго" (текстът на въпроса е в балона по-горе). --}}
                     <template x-if="msg.question && !msg.answered">
                         <div class="mt-2 ml-1 border border-line rounded-xl p-3 space-y-2 bg-surface">
+                            <template x-if="msg.question.reason">
+                                <p class="text-xs text-muted flex items-start gap-1.5">
+                                    <x-icon name="light-bulb" size="4" class="text-accent shrink-0 mt-0.5" />
+                                    <span>
+                                        <span x-text="msg.question.reason"></span>
+                                        <template x-if="msg.question.confidence !== null && msg.question.confidence !== undefined">
+                                            <span class="text-muted" x-text="' · увереност ' + Math.round(Number(msg.question.confidence) * 100) + '%'"></span>
+                                        </template>
+                                    </span>
+                                </p>
+                            </template>
                             <template x-if="msg.question.input_type !== 'radio'">
                                 <p class="text-xs text-muted flex items-center gap-1">
                                     <x-icon name="check-circle" size="4" class="text-accent" />Избери всички, които важат
@@ -167,8 +178,9 @@ function interview(cfg) {
             this.scroll();
         },
         mkMsg(role, content, question = null) {
+            const defaults = question && Array.isArray(question.default_values) ? question.default_values.map(String) : [];
             return { uid: ++this.uid, role, content, question, answered: false, failed: false,
-                     selected: [], otherChecked: false, other: '' };
+                     selected: [...new Set(defaults)], otherChecked: false, other: '' };
         },
         pushBot(content, question = null, failed = false) {
             const m = this.mkMsg('assistant', content, question);

@@ -74,8 +74,10 @@ async function generateAgentField(fieldName, btn) {
     const originalHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = 'Генерира…';
+    // Scoped URL: фирмата идва от route binding (server-side), не от тялото на заявката.
+    const generateUrl = '{{ route('companies.agent-templates.generate-field', $company) }}';
     try {
-        const resp = await fetch('/ai/generate-agent-field', {
+        const resp = await fetch(generateUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

@@ -3,7 +3,9 @@
 namespace App\Jobs\Org;
 
 use App\Models\Company;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\OrgPlannerService;
+use App\Support\ModelLevel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -34,7 +36,7 @@ class GenerateOrgAdditionJob implements ShouldQueue
         public string $token,
     ) {}
 
-    public function handle(OrgPlannerService $planner): void
+    public function handle(OrgPlannerService $planner, BillableOperationService $billable): void
     {
         $key = "org_add_{$this->token}";
 
@@ -46,16 +48,38 @@ class GenerateOrgAdditionJob implements ShouldQueue
         }
 
         try {
+            // Ръчно разширяване на екипа е best-effort (origin=manual); LLM call-ът върви
+            // през centralния wrapper за пълна company/context атрибуция и settle.
             if ($this->kind === 'department') {
-                $department = $planner->designSingleDepartment(
+                $department = $billable->run(
+                    $this->companyId,
+                    'org_planning',
                     $company,
-                    null,
-                    (array) ($this->payload['existing_domains'] ?? []),
-                    (array) ($this->payload['custom'] ?? []),
+                    fn () => $planner->designSingleDepartment(
+                        $company,
+                        null,
+                        (array) ($this->payload['existing_domains'] ?? []),
+                        (array) ($this->payload['custom'] ?? []),
+                    ),
+                    opKey: $this->job?->uuid(),
+                    level: ModelLevel::fromRequest((string) config('organization.manager.level', 'ultra')),
+                    origin: 'manual',
                 );
                 Cache::put($key, ['status' => 'completed', 'department' => $department, 'updated_at' => now()->timestamp], now()->addMinutes(20));
             } else {
-                $assistant = $planner->designSingleAssistant($company, (array) ($this->payload['department'] ?? []), (array) ($this->payload['existing'] ?? []));
+                $assistant = $billable->run(
+                    $this->companyId,
+                    'org_planning',
+                    $company,
+                    fn () => $planner->designSingleAssistant(
+                        $company,
+                        (array) ($this->payload['department'] ?? []),
+                        (array) ($this->payload['existing'] ?? []),
+                    ),
+                    opKey: $this->job?->uuid(),
+                    level: ModelLevel::fromRequest((string) config('organization.manager.level', 'ultra')),
+                    origin: 'manual',
+                );
                 Cache::put($key, ['status' => 'completed', 'assistant' => $assistant, 'updated_at' => now()->timestamp], now()->addMinutes(20));
             }
         } catch (\Throwable $e) {

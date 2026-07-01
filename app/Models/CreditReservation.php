@@ -14,8 +14,16 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class CreditReservation extends Model
 {
     protected $fillable = [
-        'company_id', 'context_type', 'origin', 'subject_type', 'subject_id',
-        'estimated_credits', 'spent_credits', 'status', 'idempotency_key',
+        'company_id', 'context_type', 'model_level', 'origin', 'subject_type', 'subject_id',
+        'estimated_credits', 'spent_credits', 'status', 'outcome', 'billing_meta',
+        'idempotency_key', 'settled_at', 'refunded_at', 'failed_at',
+    ];
+
+    protected $casts = [
+        'billing_meta' => 'array',
+        'settled_at' => 'datetime',
+        'refunded_at' => 'datetime',
+        'failed_at' => 'datetime',
     ];
 
     public function company(): BelongsTo

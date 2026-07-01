@@ -6,18 +6,17 @@ use App\Models\Company;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\Http;
 use Laravel\Socialite\Facades\Socialite;
 
 /**
- * OAuth flow за MCP конекторите — глобален FlowAI app (Google/Slack). Записва
- * encrypted токени в company_connectors.
+ * OAuth flow за MCP конекторите — глобален FlowAI app (Google). Записва encrypted
+ * токени в company_connectors.
  *
- * STATELESS: company+service пътуват в КРИПТИРАН `state` параметър (round-trip
- * през доставчика), НЕ в сесия. Така callback-ът работи дори когато redirect URI
- * е на друг домейн (Google отхвърля .local → ползваме flowai.local.com, друг
- * origin от APP_URL flowai.local → сесията там е празна). Криптирането с APP_KEY
- * прави state-а tamper-proof + носи изтичане.
+ * STATELESS: company+service+origin пътуват в КРИПТИРАН `state` параметър
+ * (round-trip през доставчика), НЕ в сесия. Така единственият callback
+ * (регистрираният redirect URI на flowai.local.com) обслужва и админ, и клиентския
+ * портал (различен субдомейн/сесия) — `origin` решава къде да върнем. Криптирането
+ * с APP_KEY прави state-а tamper-proof + носи изтичане.
  */
 class OAuthController extends Controller
 {
@@ -40,15 +39,40 @@ class OAuthController extends Controller
             'type' => 'google_drive',
             'scopes' => ['https://www.googleapis.com/auth/drive'],
         ],
+        'google_docs' => [
+            'type' => 'google_docs',
+            'scopes' => [
+                'https://www.googleapis.com/auth/documents',
+                'https://www.googleapis.com/auth/drive.readonly',
+            ],
+        ],
+        'google_calendar' => [
+            'type' => 'google_calendar',
+            'scopes' => [
+                'https://www.googleapis.com/auth/calendar.readonly',
+                'https://www.googleapis.com/auth/calendar.events',
+            ],
+        ],
     ];
-
-    private const SLACK_SCOPES = ['channels:read', 'channels:history', 'chat:write', 'files:write'];
 
     // ─────────────────────────── Google ───────────────────────────
 
+    /** Админ старт: фирмата идва от route-binding (админът действа върху всяка фирма). */
     public function googleRedirect(Company $company, Request $request): RedirectResponse
     {
-        $service = (string) $request->query('service', 'gmail');
+        return $this->startGoogleOAuth($company, (string) $request->query('service', 'gmail'), 'admin');
+    }
+
+    /** Клиентски старт: фирмата идва от сесията (никога от URL). */
+    public function clientGoogleRedirect(Request $request): RedirectResponse
+    {
+        $company = Company::findOrFail((int) session('client_company_id'));
+
+        return $this->startGoogleOAuth($company, (string) $request->query('service', 'gmail'), 'client');
+    }
+
+    private function startGoogleOAuth(Company $company, string $service, string $origin): RedirectResponse
+    {
         $cfg = self::GOOGLE_SERVICES[$service] ?? self::GOOGLE_SERVICES['gmail'];
 
         return Socialite::driver('google')
@@ -57,7 +81,7 @@ class OAuthController extends Controller
             ->with([
                 'access_type' => 'offline',
                 'prompt' => 'consent',
-                'state' => $this->encodeState($company->id, $service),
+                'state' => $this->encodeState($company->id, $service, $origin),
             ])
             ->redirect();
     }
@@ -75,17 +99,17 @@ class OAuthController extends Controller
         }
 
         $service = (string) $state['s'];
+        $origin = (string) $state['o'];
         $type = self::GOOGLE_SERVICES[$service]['type'] ?? 'gmail';
-        $back = $this->backToConnectors($company);
 
         if ($request->query('error')) {
-            return redirect($back)->with('success', 'Връзката с Google е отказана: '.$request->query('error'));
+            return $this->fail($company, $origin, 'Връзката с Google е отказана: '.$request->query('error'));
         }
 
         try {
             $user = Socialite::driver('google')->stateless()->user();
         } catch (\Throwable $e) {
-            return redirect($back)->with('success', 'Google OAuth грешка: '.$e->getMessage());
+            return $this->fail($company, $origin, 'Google OAuth грешка: '.$e->getMessage());
         }
 
         $email = $user->getEmail();
@@ -105,7 +129,7 @@ class OAuthController extends Controller
             ],
         );
 
-        return redirect($back)->with('success', ucfirst(str_replace('google_', 'Google ', $type))." свързан: {$email}");
+        return $this->success($company, $origin, $type, (string) $email);
     }
 
     private function googleGrantedScopes(object $user, string $service): array
@@ -115,77 +139,20 @@ class OAuthController extends Controller
         return $scope !== '' ? explode(' ', $scope) : (self::GOOGLE_SERVICES[$service]['scopes'] ?? []);
     }
 
-    // ─────────────────────────── Slack ───────────────────────────
-
-    public function slackRedirect(Company $company): RedirectResponse
-    {
-        $url = 'https://slack.com/oauth/v2/authorize?'.http_build_query([
-            'client_id' => config('services.slack.oauth.client_id'),
-            'scope' => implode(',', self::SLACK_SCOPES),
-            'redirect_uri' => config('services.slack.oauth.redirect'),
-            'state' => $this->encodeState($company->id, 'slack'),
-        ]);
-
-        return redirect()->away($url);
-    }
-
-    public function slackCallback(Request $request): RedirectResponse
-    {
-        $state = $this->decodeState((string) $request->query('state', ''));
-        if ($state === null) {
-            return redirect()->route('companies.index')->with('success', 'OAuth връзката изтече или е невалидна — опитай пак.');
-        }
-
-        $company = Company::find($state['c']);
-        if (! $company) {
-            return redirect()->route('companies.index')->with('success', 'Фирмата не е намерена.');
-        }
-        $back = $this->backToConnectors($company);
-
-        if ($request->query('error')) {
-            return redirect($back)->with('success', 'Връзката със Slack е отказана: '.$request->query('error'));
-        }
-
-        $res = Http::asForm()->post('https://slack.com/api/oauth.v2.access', [
-            'client_id' => config('services.slack.oauth.client_id'),
-            'client_secret' => config('services.slack.oauth.client_secret'),
-            'code' => $request->query('code'),
-            'redirect_uri' => config('services.slack.oauth.redirect'),
-        ]);
-
-        if (! $res->json('ok', false)) {
-            return redirect($back)->with('success', 'Slack грешка: '.$res->json('error', 'unknown'));
-        }
-
-        $team = (string) $res->json('team.name', 'Slack');
-
-        $company->connectors()->updateOrCreate(
-            ['connector_type' => 'slack', 'display_name' => $team],
-            [
-                'auth_type' => 'oauth2',
-                'credentials' => ['access_token' => $res->json('access_token')], // bot token, не изтича
-                'scopes' => explode(',', (string) $res->json('scope', implode(',', self::SLACK_SCOPES))),
-                'status' => 'active',
-                'last_error' => null,
-            ],
-        );
-
-        return redirect($back)->with('success', "Slack свързан: {$team}");
-    }
-
     // ─────────────────────────── helpers ───────────────────────────
 
     /** Криптиран state (tamper-proof + изтичане), пътува през доставчика. */
-    private function encodeState(int $companyId, string $service): string
+    private function encodeState(int $companyId, string $service, string $origin = 'admin'): string
     {
         return Crypt::encryptString(json_encode([
             'c' => $companyId,
             's' => $service,
+            'o' => $origin,
             'e' => now()->addMinutes(15)->timestamp,
         ]));
     }
 
-    /** @return array{c:int,s:string}|null */
+    /** @return array{c:int,s:string,o:string}|null */
     private function decodeState(string $state): ?array
     {
         if ($state === '') {
@@ -201,11 +168,36 @@ class OAuthController extends Controller
             return null;
         }
 
-        return ['c' => (int) $data['c'], 's' => (string) ($data['s'] ?? 'gmail')];
+        return [
+            'c' => (int) $data['c'],
+            's' => (string) ($data['s'] ?? 'gmail'),
+            'o' => (string) ($data['o'] ?? 'admin'),
+        ];
+    }
+
+    /** Успешен връзка — админ: flash на callback хоста; клиент: ?connected на портала. */
+    private function success(Company $company, string $origin, string $type, string $email): RedirectResponse
+    {
+        if ($origin === 'client') {
+            return redirect(route('client.org.integrations').'?connected='.urlencode($type));
+        }
+
+        return redirect($this->backToConnectors($company))
+            ->with('success', ucfirst(str_replace('google_', 'Google ', $type))." свързан: {$email}");
+    }
+
+    /** Провал/отказ — същият split като success(). */
+    private function fail(Company $company, string $origin, string $msg): RedirectResponse
+    {
+        if ($origin === 'client') {
+            return redirect(route('client.org.integrations').'?error='.urlencode($msg));
+        }
+
+        return redirect($this->backToConnectors($company))->with('success', $msg);
     }
 
     /**
-     * Релативен URL към connectors страницата — остава на ХОСТА на callback-а
+     * Релативен URL към админ connectors страницата — остава на ХОСТА на callback-а
      * (flowai.local.com), за да оцелее flash съобщението (същата сесия/домейн),
      * вместо route() който сочи към APP_URL (друг домейн).
      */

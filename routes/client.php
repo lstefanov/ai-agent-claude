@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Client;
+use App\Http\Controllers\OAuthController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -137,8 +138,15 @@ Route::middleware('client_auth')->group(function () {
         Route::post('chat/send', [Client\Org\ChatController::class, 'send'])->name('client.org.chat.send');
         Route::get('chat/status/{token}', [Client\Org\ChatController::class, 'status'])->name('client.org.chat.status');
 
-        // Фаза 5: интеграции рейл (конектори като инвентар).
+        // Фаза 5: интеграции рейл — свързване/управление на конектори (Google OAuth).
+        // Фирмата идва ВИНАГИ от сесията (никога от URL); {connector} се скоупва в контролера.
         Route::get('integrations', [Client\Org\IntegrationsController::class, 'index'])->name('client.org.integrations');
+        Route::get('integrations/data', [Client\Org\IntegrationsController::class, 'data'])->name('client.org.integrations.data');
+        Route::delete('integrations/{connector}', [Client\Org\IntegrationsController::class, 'destroy'])->name('client.org.integrations.destroy');
+        Route::post('integrations/{connector}/test', [Client\Org\IntegrationsController::class, 'test'])->name('client.org.integrations.test');
+        Route::get('integrations/{connector}/logs', [Client\Org\IntegrationsController::class, 'logs'])->name('client.org.integrations.logs');
+        // Клиентски Google OAuth старт — общият stateless callback (админ домейн) връща тук по origin.
+        Route::get('oauth/google/redirect', [OAuthController::class, 'clientGoogleRedirect'])->name('client.org.oauth.google.redirect');
 
         // Фаза 6: кредити & планове (Stripe drop-in зад PaymentProvider).
         Route::get('billing', [Client\Org\BillingController::class, 'index'])->name('client.org.billing');

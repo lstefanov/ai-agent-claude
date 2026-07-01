@@ -27,6 +27,8 @@ class OrgReviewService
         private PersonaService $personas,
         private MemberMemoryService $memory,
         private GeneratorService $generator,
+        private MemberLifecycleService $lifecycle,
+        private OrgProposalService $proposals,
     ) {}
 
     /**
@@ -50,14 +52,13 @@ class OrgReviewService
             if (! $member) {
                 continue;
             }
-            $stats = $this->memory->runStats($member);
+            // Стаж/изпитателен/задачи + KPI — без тях нов член (0 runs, „няма данни" qa) изглежда
+            // неразличим от хроничен слаб служител и бива предложен за съкращение по погрешка.
             $state[] = [
                 'member_id' => $member->id,
                 'name' => $member->persona?->name ?? $member->display_name,
                 'role' => $a->title,
-                'runs' => $stats['runs'],
-                'avg_qa' => $stats['avg_qa'],
-            ];
+            ] + $this->lifecycle->context($member);
         }
 
         $pains = (array) ($company->businessProfile?->pain_points ?? []);
@@ -89,7 +90,10 @@ class OrgReviewService
                 continue;
             }
 
-            $ids[] = $this->createProposal($company, $manager, $p, $type, $assistantMembers)->id;
+            // Funnel-ът може да върне null (напр. блокирано съкращение на нов член) → пропусни.
+            if ($rec = $this->createProposal($company, $manager, $p, $type, $assistantMembers)) {
+                $ids[] = $rec->id;
+            }
         }
 
         // Детерминистичен под: нищо предложено, но има болки → една задача по водещата болка.
@@ -121,20 +125,19 @@ class OrgReviewService
         return ['proposals' => $ids, 'summary' => $summary];
     }
 
-    /** Създава durable org_proposal(pending) за Кутията — само структурни (hire/fire/mandate). */
-    private function createProposal(Company $company, $manager, array $p, string $type, Collection $assistantMembers): OrgProposal
+    /**
+     * Създава durable org_proposal(pending) за Кутията — само структурни (hire/fire/mandate).
+     * През funnel-а (OrgProposalService): може да върне null, ако guard-ът блокира (напр.
+     * съкращение на член в изпитателен срок / без реален шанс / с активна работа).
+     */
+    private function createProposal(Company $company, $manager, array $p, string $type, Collection $assistantMembers): ?OrgProposal
     {
-        return OrgProposal::create([
-            'company_id' => $company->id,
-            'type' => $type,
-            'payload' => [
-                'title' => (string) $p['title'],
-                'description' => (string) ($p['description'] ?? $p['title']),
-                'target_member_id' => $this->resolveMemberId($company, $p['target_member_id'] ?? null, $assistantMembers),
-                'proposed_by' => $manager->persona?->name ?? 'Управителя',
-                'proposed_by_member_id' => $manager->id,
-            ],
-            'base_org_version_id' => $company->active_org_version_id,
+        return $this->proposals->create($company, $type, [
+            'title' => (string) $p['title'],
+            'description' => (string) ($p['description'] ?? $p['title']),
+            'target_member_id' => $this->resolveMemberId($company, $p['target_member_id'] ?? null, $assistantMembers),
+            'proposed_by' => $manager->persona?->name ?? 'Управителя',
+            'proposed_by_member_id' => $manager->id,
         ]);
     }
 
@@ -178,23 +181,16 @@ class OrgReviewService
             return false;   // няма на кого да възложим задачата
         }
 
-        OrgProposal::create([
-            'company_id' => $company->id,
-            'type' => 'task',
-            'payload' => [
-                'title' => (string) $p['title'],
-                'description' => (string) ($p['description'] ?? $p['title']),
-                'org_member_id' => $owner->id,
-                'target_member_id' => $owner->id,
-                'act_mode' => 'draft',
-                'rationale' => (string) ($p['description'] ?? $p['title']),
-                'proposed_by' => $company->manager?->persona?->name ?? 'Управителя',
-                'proposed_by_member_id' => $company->manager?->id,
-            ],
-            'base_org_version_id' => $company->active_org_version_id,
-        ]);
-
-        return true;
+        return $this->proposals->create($company, 'task', [
+            'title' => (string) $p['title'],
+            'description' => (string) ($p['description'] ?? $p['title']),
+            'org_member_id' => $owner->id,
+            'target_member_id' => $owner->id,
+            'act_mode' => 'draft',
+            'rationale' => (string) ($p['description'] ?? $p['title']),
+            'proposed_by' => $company->manager?->persona?->name ?? 'Управителя',
+            'proposed_by_member_id' => $company->manager?->id,
+        ]) !== null;
     }
 
     /** Управителят предлага през персоната си (LLM); fallback при слаб модел. */
@@ -202,10 +198,21 @@ class OrgReviewService
     {
         $persona = $this->personas->compileSystemPrompt($manager);
         $policy = $this->personas->runtimePolicy($manager);
-        $system = trim($persona."\n\n".'Ти си Управителят. Прегледай състоянието на екипа и болките на '
-            .'бизнеса и предложи 1–3 КОНКРЕТНИ промени (нова задача/наемане/пенсиониране на слаб '
-            .'асистент/нов мандат), обосновани от данните. Слаб = малко runs или нисък qa. Върни САМО '
-            .'валиден JSON по схемата, на български. '.PromptData::NO_TECH_TERMS);
+        $graceDays = (int) config('organization.lifecycle.fire_grace_days', 14);
+        $minRuns = (int) config('organization.lifecycle.fire_min_runs', 3);
+        $lowQa = (float) config('organization.lifecycle.fire_low_qa_threshold', 40);
+        $system = trim($persona."\n\n".'Ти си Управителят. Прегледай състоянието на екипа (за всеки член: '
+            .'стаж в дни, дали е в изпитателен срок, брой активни задачи, брой изпълнения и средно качество) '
+            .'и болките на бизнеса, и предложи 1–3 КОНКРЕТНИ промени (нова задача/наемане/нов мандат/'
+            .'съкращение), обосновани от данните. '
+            .'ПРАВИЛА ЗА СЪКРАЩЕНИЕ (строги): предлагай съкращение САМО ако членът е имал СПРАВЕДЛИВ шанс — '
+            .'стаж поне '.$graceDays.' дни И поне '.$minRuns.' завършени изпълнения — И показва траен слаб '
+            .'резултат (средно качество под '.$lowQa.') ИЛИ системно проваля/пренебрегва възложените задачи. '
+            .'Липсата на данни за НОВ член (в изпитателен срок, малък стаж, 0 изпълнения, „няма данни" за '
+            .'качеството) НЕ е слабост — това е нормално начало. Никога не предлагай съкращение на член в '
+            .'изпитателен срок или на член без възложени задачи — вместо това му дай ЗАДАЧА по мандата му или '
+            .'смени мандата. Съкращението е последна мярка след доказано слабо представяне, не първа реакция. '
+            .'Върни САМО валиден JSON по схемата, на български. '.PromptData::NO_TECH_TERMS);
         $user = 'Екип: '.json_encode(PromptData::humanize($state), JSON_UNESCAPED_UNICODE)."\nБолки: ".implode('; ', $pains);
 
         try {

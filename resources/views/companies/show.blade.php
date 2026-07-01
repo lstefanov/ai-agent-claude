@@ -46,8 +46,8 @@
 </div>
 @endif
 
-{{-- База знания + Свързани системи --}}
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+{{-- База знания + Свързани системи + Статистика --}}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
     <a href="{{ route('companies.knowledge.index', $company) }}"
        class="group flex items-center gap-3 bg-surface border border-line rounded-xl px-5 py-4 hover:border-line-strong hover:shadow-card transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
         <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-info-soft text-info-strong shrink-0">
@@ -68,6 +68,18 @@
         <span class="min-w-0">
             <span class="block font-medium text-ink">Свързани системи</span>
             <span class="block text-xs text-muted truncate">Gmail, Notion, HTTP API — агентите действат в реални системи</span>
+        </span>
+        <x-icon name="arrow-right" size="4" class="ml-auto text-subtle group-hover:text-primary transition" />
+    </a>
+
+    <a href="{{ route('companies.stats.index', $company) }}"
+       class="group flex items-center gap-3 bg-surface border border-line rounded-xl px-5 py-4 hover:border-line-strong hover:shadow-card transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+        <span class="flex items-center justify-center w-10 h-10 rounded-lg bg-success-soft text-success-strong shrink-0">
+            <x-icon name="chart-bar" size="5" />
+        </span>
+        <span class="min-w-0">
+            <span class="block font-medium text-ink">Статистика</span>
+            <span class="block text-xs text-muted truncate">Разходи, кредити и история на потреблението</span>
         </span>
         <x-icon name="arrow-right" size="4" class="ml-auto text-subtle group-hover:text-primary transition" />
     </a>

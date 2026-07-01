@@ -14,7 +14,7 @@ use App\Models\CreditWallet;
  */
 class AutonomousBudgetService
 {
-    /** Нетен автономен разход днес = reserve − refund (origin=autonomous) от credit_ledger. */
+    /** Нетен автономен разход днес = reserve + overage − refund (origin=autonomous). */
     public function spentToday(int $companyId): int
     {
         $start = now()->startOfDay();
@@ -24,9 +24,10 @@ class AutonomousBudgetService
             ->where('created_at', '>=', $start);
 
         $reserved = (int) (clone $base)->where('type', 'reserve')->sum('amount');
+        $overage = (int) (clone $base)->where('type', 'overage')->sum('amount');
         $refunded = (int) (clone $base)->where('type', 'refund')->sum('amount');
 
-        return max(0, $reserved - $refunded);
+        return max(0, $reserved + $overage - $refunded);
     }
 
     /**

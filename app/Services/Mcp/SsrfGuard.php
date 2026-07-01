@@ -6,17 +6,16 @@ use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
 
 /**
- * SSRF политика за изходящи заявки от конекторите (HTTP API tool + сваляне на
- * attachment-и). Само разрешени схеми, блокирани hosts + private/loopback IP
- * диапазони (СЛЕД DNS резолюция), опционален domain whitelist. Конфиг:
- * config('mcp.http_api').
+ * SSRF политика за изходящи заявки от конекторите (напр. сваляне на attachment-и).
+ * Само разрешени схеми, блокирани hosts + private/loopback IP диапазони (СЛЕД
+ * DNS резолюция), опционален domain whitelist. Конфиг: config('mcp.ssrf').
  */
 class SsrfGuard
 {
     /** @throws InvalidArgumentException при нарушение на политиката */
     public static function assert(string $url, ?array $cfg = null): void
     {
-        $cfg ??= config('mcp.http_api');
+        $cfg ??= config('mcp.ssrf');
         $parts = parse_url($url);
         if ($parts === false || empty($parts['scheme']) || empty($parts['host'])) {
             throw new InvalidArgumentException("Невалиден URL: {$url}");

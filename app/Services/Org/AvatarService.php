@@ -4,11 +4,16 @@ namespace App\Services\Org;
 
 use App\Jobs\Org\GenerateMemberAvatarJob;
 use App\Models\Company;
+use App\Models\OrgMember;
 use App\Models\Persona;
 use App\Models\PersonaArchetype;
 use App\Services\ComfyUIService;
+use App\Services\Org\Billing\BillableOperationService;
+use App\Support\LlmRequestRecorder;
+use App\Support\ModelLevel;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * Портретният аватар на члена (§5.1) — ИЗЦЯЛО козметичен, не влияе на поведението
@@ -24,6 +29,7 @@ class AvatarService
     public function __construct(
         private ComfyUIService $comfy,
         private AvatarQualityGate $qualityGate,
+        private BillableOperationService $billable,
     ) {}
 
     /**
@@ -67,11 +73,12 @@ class AvatarService
     }
 
     /**
-     * Оркестрира портрета през ComfyUIService. Спрян ComfyUI → avatar_status='pending'
-     * (UI fallback инициали). Иначе детерминистичен workflow → стабилен файл
-     * avatars/member_{id}.png (URL постоянен между ре-рендери). Грешка → 'failed'. Идемпотентен.
+     * Оркестрира портрета през ComfyUIService с кредитно таксуване (best-effort, §A avatar).
+     * Спрян ComfyUI → avatar_status='pending' (UI fallback инициали). Иначе детерминистичен
+     * workflow → стабилен файл avatars/member_{id}.png (URL постоянен между ре-рендери).
+     * Грешка → 'failed'. Идемпотентен. $opToken осигурява idempotency при retry.
      */
-    public function generateFor(Persona $p): void
+    public function generateFor(Persona $p, string $opToken): void
     {
         if (! config('organization.persona.portraits')) {
             return;
@@ -87,55 +94,53 @@ class AvatarService
             return;
         }
 
-        try {
-            $prompt = $this->portraitPrompt($p);
-            $result = $this->renderWithQualityRetries($prompt, fn (int $seed) => $this->seedFor($p, $seed));
+        // Разрешаваме company_id и subject — Persona → OrgMember → company_id.
+        $orgMember = $p->orgMember()->first();
+        $companyId = $orgMember?->company_id;
 
-            if ($result === null) {
-                $p->update([
-                    'avatar_url' => null,
-                    'avatar_status' => 'failed',
-                    'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
-                        'quality_reason' => 'max_attempts_exceeded',
-                        'attempts' => (int) config('services.comfyui.portrait_max_attempts', 6),
-                    ]),
-                ]);
-                $this->clearMemberAvatar($p);
+        if (! $companyId) {
+            // Без фирмен контекст — продължаваме без billing (best-effort = safe).
+            $this->doGenerate($p);
 
-                return;
-            }
-
-            $disk = Storage::disk('public');
-            $dst = "avatars/member_{$p->org_member_id}.png";
-            $disk->put($dst, $disk->get($result['src']));
-            $stableUrl = $disk->url($dst);
-
-            $p->update([
-                'avatar_url' => $stableUrl,
-                'avatar_prompt' => $prompt,
-                'avatar_seed' => $result['seed'],
-                'avatar_status' => 'ready',
-                'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
-                    'checkpoint' => config('services.comfyui.portrait_checkpoint'),
-                    'prompt_id' => $result['prompt_id'],
-                    'attempts' => $result['attempt'],
-                    'quality_reason' => null,
-                ]),
-            ]);
-
-            $p->orgMember?->update(['avatar_url' => $stableUrl]);
-        } catch (\Throwable $e) {
-            Log::warning('[Avatar] generate failed for persona '.$p->id.': '.$e->getMessage());
-            $p->update([
-                'avatar_url' => null,
-                'avatar_status' => 'failed',
-                'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
-                    'quality_reason' => 'generation_exception',
-                    'error' => mb_substr($e->getMessage(), 0, 240),
-                ]),
-            ]);
-            $this->clearMemberAvatar($p);
+            return;
         }
+
+        $this->billable->run(
+            $companyId,
+            'avatar',
+            $orgMember,
+            function () use ($p) {
+                $start = (int) round(microtime(true) * 1000);
+
+                $this->doGenerate($p);
+
+                // Таксуваме САМО при успешно генериран портрет (W1) — провал → няма синтетичен
+                // ред → actualFor()=0 → settle(0) → пълен refund на резервацията.
+                if ($p->avatar_status !== 'ready') {
+                    return;
+                }
+
+                $durationMs = (int) round(microtime(true) * 1000) - $start;
+
+                // Синтетичен llm_requests ред (provider=comfyui) — actualFor() чете и го таксува
+                // по flat_costs.avatar (§B). cost_usd = реалната вътрешна цена (0 за локален ComfyUI).
+                LlmRequestRecorder::record(
+                    provider: 'comfyui',
+                    model: (string) config('services.comfyui.portrait_checkpoint', 'portrait'),
+                    kind: 'image',
+                    system: null,
+                    user: $p->avatar_prompt ?? null,
+                    response: null,
+                    options: ['persona_id' => $p->id],
+                    promptTokens: 0,
+                    completionTokens: 0,
+                    durationMs: $durationMs,
+                    costOverride: (float) config('billing.avatar_cost_usd', 0),
+                );
+            },
+            opKey: $opToken,
+            level: ModelLevel::fromRequest((string) config('billing.context_levels.avatar', 'medium')),
+        );
     }
 
     /**
@@ -155,7 +160,7 @@ class AvatarService
 
         $count = 0;
         foreach ($query->get() as $persona) {
-            GenerateMemberAvatarJob::dispatch($persona->id)->onQueue('org');
+            GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue('org');
             $count++;
         }
 
@@ -315,6 +320,63 @@ class AvatarService
         Log::warning('[Avatar] all attempts failed'.($lastReason ? ": {$lastReason}" : ''));
 
         return null;
+    }
+
+    /**
+     * Вътрешна имплементация на генерацията — без billing обвивка. Вика се от
+     * generateFor() вътре в $billable->run() или директно при липса на company_id.
+     */
+    private function doGenerate(Persona $p): void
+    {
+        try {
+            $prompt = $this->portraitPrompt($p);
+            $result = $this->renderWithQualityRetries($prompt, fn (int $seed) => $this->seedFor($p, $seed));
+
+            if ($result === null) {
+                $p->update([
+                    'avatar_url' => null,
+                    'avatar_status' => 'failed',
+                    'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
+                        'quality_reason' => 'max_attempts_exceeded',
+                        'attempts' => (int) config('services.comfyui.portrait_max_attempts', 6),
+                    ]),
+                ]);
+                $this->clearMemberAvatar($p);
+
+                return;
+            }
+
+            $disk = Storage::disk('public');
+            $dst = "avatars/member_{$p->org_member_id}.png";
+            $disk->put($dst, $disk->get($result['src']));
+            $stableUrl = $disk->url($dst);
+
+            $p->update([
+                'avatar_url' => $stableUrl,
+                'avatar_prompt' => $prompt,
+                'avatar_seed' => $result['seed'],
+                'avatar_status' => 'ready',
+                'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
+                    'checkpoint' => config('services.comfyui.portrait_checkpoint'),
+                    'prompt_id' => $result['prompt_id'],
+                    'attempts' => $result['attempt'],
+                    'quality_reason' => null,
+                ]),
+            ]);
+
+            $p->orgMember?->update(['avatar_url' => $stableUrl]);
+        } catch (\Throwable $e) {
+            Log::warning('[Avatar] generate failed for persona '.$p->id.': '.$e->getMessage());
+            $p->update([
+                'avatar_url' => null,
+                'avatar_status' => 'failed',
+                'avatar_meta' => array_merge(is_array($p->avatar_meta) ? $p->avatar_meta : [], [
+                    'quality_reason' => 'generation_exception',
+                    'error' => mb_substr($e->getMessage(), 0, 240),
+                ]),
+            ]);
+            $this->clearMemberAvatar($p);
+        }
     }
 
     private function clearMemberAvatar(Persona $p): void

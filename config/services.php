@@ -33,12 +33,6 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
-        // OAuth (MCP конектор) — глобален FlowAI Slack app.
-        'oauth' => [
-            'client_id' => env('SLACK_OAUTH_CLIENT_ID'),
-            'client_secret' => env('SLACK_OAUTH_CLIENT_SECRET'),
-            'redirect' => env('SLACK_OAUTH_REDIRECT_URI'),
-        ],
     ],
 
     'ollama' => [
@@ -269,14 +263,18 @@ return [
                 'provider' => env('EVAL_JUDGE_PROVIDER', 'gemini'),
                 'model' => env('EVAL_JUDGE_MODEL', 'gemini-3.1-flash-lite'),
             ],
-            // Интервюто на Управителя (онбординг). По подразбиране празно → пада към
-            // GENERATOR_PROVIDER (локален Ollama). Сложи ORG_INTERVIEW_PROVIDER/MODEL, за
-            // да го пуснеш на по-силен облачен модел (gpt-4o-mini) САМО за интервюто —
-            // планирането на flow-овете остава безплатно локално. Резолвва се през
-            // GeneratorService::chatJson(..., 'org_interview').
+            // Дълбокото бизнес проучване в онбординга. По подразбиране използва
+            // gpt-4o-mini за по-стабилно извличане на gaps/evidence; сменя се без
+            // да засяга основния Flow planner.
+            'org_research' => [
+                'provider' => env('ORG_RESEARCH_PROVIDER') ?: (env('ORG_DESIGN_PROVIDER') ?: 'openai'),
+                'model' => env('ORG_RESEARCH_MODEL') ?: (env('ORG_DESIGN_MODEL') ?: 'gpt-4o-mini'),
+            ],
+            // Интервюто на Управителя (онбординг). Пиннато е към gpt-4o-mini по default,
+            // защото това е представителен first-run UX и въпросите трябва да са стабилни.
             'org_interview' => [
-                'provider' => env('ORG_INTERVIEW_PROVIDER'),
-                'model' => env('ORG_INTERVIEW_MODEL'),
+                'provider' => env('ORG_INTERVIEW_PROVIDER') ?: 'openai',
+                'model' => env('ORG_INTERVIEW_MODEL') ?: 'gpt-4o-mini',
             ],
             // Създаването на организацията (онбординг): синтез на проблеми/нужди/възможности,
             // композиция на отделите и дизайн на персоните. Един ключ ORG_DESIGN_* за трите —

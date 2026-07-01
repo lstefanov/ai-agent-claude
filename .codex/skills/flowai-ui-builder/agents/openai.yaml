@@ -1,0 +1,4 @@
+interface:
+  display_name: "FlowAI UI Builder"
+  short_description: "UI workflow for FlowAI Blade and Tailwind screens"
+  default_prompt: "Use $flowai-ui-builder to build or polish a FlowAI Blade and Tailwind screen."

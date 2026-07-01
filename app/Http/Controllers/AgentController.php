@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Company;
+use App\Models\Flow;
 use App\Services\GeneratorService;
+use App\Services\Org\Billing\BillableOperationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * AI-assist endpoint for agent-template forms: generates a single field
@@ -12,12 +16,25 @@ use Illuminate\Http\Request;
  *
  * Agent pipelines themselves are planned by FlowPlannerService and edited as
  * graph nodes in the builder — there is no per-agent CRUD anymore.
+ *
+ * Два пътя:
+ *  - Scoped route `companies/{company}/agent-templates/generate-field`:
+ *    фирмата идва от route binding (не от тялото) — за company template формата.
+ *  - Global route `/ai/generate-agent-field` (builder):
+ *    фирмата се резолвира server-side от валидиран flow_id → flow->company_id.
+ *    Никога не четем company_id директно от тялото на заявката.
  */
 class AgentController extends Controller
 {
-    public function __construct(private GeneratorService $llm) {}
+    public function __construct(
+        private GeneratorService $llm,
+        private BillableOperationService $billable,
+    ) {}
 
-    public function generateAgentField(Request $request): JsonResponse
+    /**
+     * @param  Company|null  $company  Route binding при scoped route; null при global route.
+     */
+    public function generateAgentField(Request $request, ?Company $company = null): JsonResponse
     {
         $validated = $request->validate([
             'field' => 'required|in:role,system_prompt,prompt_template,qa_custom_prompt',
@@ -27,7 +44,15 @@ class AgentController extends Controller
             'role' => 'nullable|string|max:2000',
             'system_prompt' => 'nullable|string|max:5000',
             'prompt_template' => 'nullable|string|max:5000',
+            // flow_id се ползва server-side за атрибуция (builder path); НЕ company_id.
+            'flow_id' => 'nullable|exists:flows,id',
         ]);
+
+        // Server-side резолюция на фирмата — scoped route взима предимство.
+        $companyId = $company?->id
+            ?? (isset($validated['flow_id'])
+                ? Flow::find($validated['flow_id'])?->company_id
+                : null);
 
         $name = $validated['agent_name'];
         $type = $validated['agent_type'];
@@ -43,12 +68,23 @@ class AgentController extends Controller
             'qa_custom_prompt' => $this->buildQaPrompt($name, $type, $sysPrompt, $promptTmpl),
         };
 
+        $doAssist = fn () => $this->llm->assist(
+            systemPrompt: $systemPrompt,
+            userMessage: $userMessage,
+            options: ['temperature' => 0.3, 'num_predict' => 800]
+        );
+
         try {
-            $generated = $this->llm->assist(
-                systemPrompt: $systemPrompt,
-                userMessage: $userMessage,
-                options: ['temperature' => 0.3, 'num_predict' => 800]
-            );
+            // При наличен companyId — таксуваме кредити (best-effort); иначе admin/system path.
+            $generated = $companyId !== null
+                ? $this->billable->run(
+                    companyId: $companyId,
+                    contextType: 'text_assist',
+                    subject: null,
+                    work: $doAssist,
+                    opKey: (string) Str::uuid(),
+                )
+                : $doAssist();
         } catch (\Exception $e) {
             return response()->json(['error' => 'AI услугата не е достъпна. Провери ASSIST_PROVIDER и API ключа.'], 503);
         }

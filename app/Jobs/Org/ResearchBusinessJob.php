@@ -3,11 +3,9 @@
 namespace App\Jobs\Org;
 
 use App\Models\Company;
-use App\Services\Org\Billing\CreditMeterService;
-use App\Services\Org\Billing\InsufficientCreditsException;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\BusinessProfilerService;
-use App\Support\BillableUnit;
-use App\Support\LlmContext;
+use App\Support\LlmUsage;
 use App\Support\ModelLevel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,7 +30,7 @@ class ResearchBusinessJob implements ShouldQueue
 
     public function __construct(public int $companyId, public string $token) {}
 
-    public function handle(BusinessProfilerService $profiler, CreditMeterService $meter): void
+    public function handle(BusinessProfilerService $profiler, BillableOperationService $billable): void
     {
         $key = "org_research_{$this->token}";
         $company = Company::find($this->companyId);
@@ -42,44 +40,38 @@ class ResearchBusinessJob implements ShouldQueue
             return;
         }
 
-        // Best-effort резервация на 'research' контекста (онбординг → безплатно при недостиг).
-        $reservation = null;
+        // opKey: uuid на job-а (стабилен при retry); резервен — token уникален за онбординг сесия.
+        // origin не е подаден → 'manual' (default) → soft gate → best-effort при липса на кредити.
+        $opKey = $this->job?->uuid() ?? "research:{$this->token}";
+
         try {
-            $reservation = $meter->reserve(
-                $company->id, 'research', $company,
-                BillableUnit::estimateFor('research', ModelLevel::fromRequest(config('organization.manager.level'))),
+            $billable->run(
+                $company->id,
+                'research',
+                $company,
+                function () use ($profiler, $company, $key) {
+                    $onStage = fn (string $s) => Cache::put($key, ['status' => 'pending', 'stage' => $s, 'updated_at' => now()->timestamp], now()->addMinutes(20));
+
+                    $onStage('Проучвам сайта и източниците…');
+                    $profiler->research($company, $onStage);
+                    $profiler->queueKnowledgeIngest($company, $onStage);
+
+                    $onStage('Правя ситуационен анализ…');
+                    $analysis = $profiler->analyze($company);
+                    $research = (array) $company->businessProfile()->first()?->research;
+
+                    Cache::put($key, ['status' => 'completed', 'stage' => 'Готово', 'analysis' => $analysis, 'research' => $research, 'updated_at' => now()->timestamp], now()->addMinutes(20));
+                },
+                opKey: $opKey,
+                level: ModelLevel::fromRequest(config('organization.manager.level')),
+                origin: 'manual',
+                hardGate: false,
             );
-        } catch (InsufficientCreditsException) {
-            Log::info('[Research] best-effort (no credits) company '.$company->id);
-        }
-
-        if ($reservation) {
-            LlmContext::set([
-                'purpose' => 'org_research',
-                'company_id' => $company->id,
-                'context_type' => 'research',
-                'subject_type' => $company->getMorphClass(),
-                'subject_id' => $company->id,
-                'reservation_id' => $reservation->id,
-            ]);
-        }
-
-        try {
-            Cache::put($key, ['status' => 'pending', 'stage' => 'Проучвам сайта и източниците…', 'updated_at' => now()->timestamp], now()->addMinutes(20));
-            $profiler->research($company);
-
-            Cache::put($key, ['status' => 'pending', 'stage' => 'Правя ситуационен анализ…', 'updated_at' => now()->timestamp], now()->addMinutes(20));
-            $analysis = $profiler->analyze($company);
-
-            Cache::put($key, ['status' => 'completed', 'stage' => 'Готово', 'analysis' => $analysis, 'updated_at' => now()->timestamp], now()->addMinutes(20));
         } catch (\Throwable $e) {
             Log::error('[Research] failed: '.$e->getMessage());
             Cache::put($key, ['status' => 'failed', 'error' => 'Проучването се провали. Опитай пак.', 'updated_at' => now()->timestamp], now()->addMinutes(20));
         } finally {
-            if ($reservation) {
-                LlmContext::clear();
-                $meter->settle($reservation, $meter->actualFor($reservation));
-            }
+            LlmUsage::take();
         }
     }
 }

@@ -73,7 +73,8 @@ class BillingService
      */
     public function subscribe(Company $company, Plan $plan): Subscription
     {
-        $charged = $this->payments->charge($company, $plan->price_cents, ['plan' => $plan->key]);
+        $charged = $plan->price_cents === 0
+            || $this->payments->charge($company, $plan->price_cents, ['plan' => $plan->key]);
 
         $subscription = Subscription::updateOrCreate(
             ['company_id' => $company->id],

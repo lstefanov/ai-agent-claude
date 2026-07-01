@@ -76,7 +76,7 @@ class MemberController extends Controller
             'avatar_status' => 'pending',
             'avatar_meta' => $meta,
         ]);
-        GenerateMemberAvatarJob::dispatch($persona->id)->onQueue('org');
+        GenerateMemberAvatarJob::dispatch($persona->id, (string) Str::uuid())->onQueue('org');
 
         return response()->json(['ok' => true]);
     }

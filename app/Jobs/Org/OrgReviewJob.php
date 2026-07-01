@@ -4,11 +4,9 @@ namespace App\Jobs\Org;
 
 use App\Models\Company;
 use App\Services\Org\Billing\AutonomousBudgetService;
-use App\Services\Org\Billing\CreditMeterService;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Services\Org\Billing\InsufficientCreditsException;
 use App\Services\Org\OrgReviewService;
-use App\Support\BillableUnit;
-use App\Support\LlmContext;
 use App\Support\ModelLevel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -30,7 +28,7 @@ class OrgReviewJob implements ShouldQueue
 
     public function __construct(public int $companyId) {}
 
-    public function handle(OrgReviewService $review, CreditMeterService $meter, AutonomousBudgetService $budget): void
+    public function handle(OrgReviewService $review, BillableOperationService $billable, AutonomousBudgetService $budget): void
     {
         $company = Company::find($this->companyId);
         if (! $company || ! $company->active_org_version_id) {
@@ -47,38 +45,28 @@ class OrgReviewJob implements ShouldQueue
             return;
         }
 
-        $reservation = null;
+        // opKey: uuid на job-а (стабилен при retry); резервен — детерминистичен от company id.
+        $opKey = $this->job?->uuid() ?? "org_review:{$this->companyId}";
+
         try {
-            $reservation = $meter->reserve(
-                $company->id, 'org_planning', $company,
-                BillableUnit::estimateFor('org_planning', ModelLevel::fromRequest(config('organization.manager.level'))),
-                'autonomous',
+            $billable->run(
+                $company->id,
+                'org_planning',
+                $company,
+                function () use ($review, $company) {
+                    $review->review($company);
+                },
+                opKey: $opKey,
+                level: ModelLevel::fromRequest(config('organization.manager.level')),
+                origin: 'autonomous',
             );
         } catch (InsufficientCreditsException) {
-            Log::info('[OrgReview] best-effort (no credits) company '.$company->id);
-        }
-
-        if ($reservation) {
-            LlmContext::set([
-                'purpose' => 'org_review',
-                'company_id' => $company->id,
-                'context_type' => 'org_planning',
-                'subject_type' => $company->getMorphClass(),
-                'subject_id' => $company->id,
-                'reservation_id' => $reservation->id,
-            ]);
-        }
-
-        try {
-            $review->review($company);
+            // Автономен контекст е hard-gated: log и тих skip при недостатъчно кредити.
+            Log::info('[OrgReview] пропуснато (hard-gate, недостатъчно кредити), company '.$company->id);
         } catch (\Throwable $e) {
             Log::error('[OrgReview] failed: '.$e->getMessage());
         } finally {
             OrgReviewLock::release($this->companyId);
-            if ($reservation) {
-                LlmContext::clear();
-                $meter->settle($reservation, $meter->actualFor($reservation));
-            }
         }
     }
 }

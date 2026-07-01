@@ -1,0 +1,15 @@
+{
+  "name": "flowai",
+  "version": "0.2.0",
+  "description": "Project-specific skills for building and operating the FlowAI multi-agent workflow app (Laravel 12, PHP 8.2). Encodes service boundaries, billing rules, org mutation flow, planner hardening, and the repo's non-negotiable conventions.",
+  "author": {
+    "name": "Lub"
+  },
+  "keywords": [
+    "laravel",
+    "flowai",
+    "multi-agent",
+    "workflow",
+    "conventions"
+  ]
+}

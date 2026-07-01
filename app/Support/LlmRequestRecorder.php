@@ -56,6 +56,8 @@ class LlmRequestRecorder
                 'subject_type' => $ctx['subject_type'] ?? null,
                 'subject_id' => $ctx['subject_id'] ?? null,
                 'reservation_id' => $ctx['reservation_id'] ?? null,
+                // Групира редовете на ЕДНА операция дори когато няма резервация (unbilled).
+                'operation_id' => $ctx['operation_id'] ?? null,
 
                 'system_prompt' => $system,
                 'user_message' => $user,

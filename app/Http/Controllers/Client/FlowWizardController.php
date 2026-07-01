@@ -264,8 +264,11 @@ class FlowWizardController extends Controller
             return response()->json(['error' => 'AI услугата не е достъпна в момента.'], 503);
         }
 
+        // Фирмата се взима от сесията (server-side) — не от тялото на заявката.
+        $companyId = session('client_company_id') ? (int) session('client_company_id') : null;
+
         try {
-            $improved = $improver->improve((string) $request->input('title', ''), (string) $request->input('description'));
+            $improved = $improver->improve((string) $request->input('title', ''), (string) $request->input('description'), $companyId);
         } catch (\Throwable $e) {
             return response()->json(['error' => 'Не успяхме да подобрим описанието.'], 503);
         }

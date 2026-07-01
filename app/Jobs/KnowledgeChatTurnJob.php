@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Company;
 use App\Models\KnowledgeChatMessage;
 use App\Services\Knowledge\KnowledgeChatService;
+use App\Services\Org\Billing\BillableOperationService;
 use App\Support\LlmUsage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -36,7 +37,7 @@ class KnowledgeChatTurnJob implements ShouldQueue
         public int $replyMessageId,
     ) {}
 
-    public function handle(KnowledgeChatService $chat): void
+    public function handle(KnowledgeChatService $chat, BillableOperationService $billable): void
     {
         $cacheKey = "kb_chat_{$this->token}";
 
@@ -54,8 +55,16 @@ class KnowledgeChatTurnJob implements ShouldQueue
         $onStage = fn (string $stage) => $this->cacheMerge($cacheKey, ['status' => 'pending', 'stage' => $stage]);
 
         try {
-            // $reply->id → session_id за свързване на заявките със съобщението (popup „Детайли").
-            $result = $chat->turn($company, (string) $userMessage->content, (string) $userMessage->session, $onStage, $reply->id);
+            // Best-effort billing wrapper — own company/context attribution + settle/refund.
+            // opKey = reply id → уникален per ход (без idempotency reuse на subject).
+            $result = $billable->run(
+                $this->companyId,
+                'knowledge_chat',
+                $company,
+                // $reply->id → session_id за свързване на заявките със съобщението (popup „Детайли").
+                fn () => $chat->turn($company, (string) $userMessage->content, (string) $userMessage->session, $onStage, $reply->id),
+                opKey: "kchat:{$this->replyMessageId}",
+            );
 
             $reply->update([
                 'content' => $result['content'],

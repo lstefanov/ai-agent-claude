@@ -164,8 +164,9 @@ class TaskRunService
         ]);
 
         try {
+            // opKey = run id (уникален per пускане) → стабилен при retry, без idempotency reuse (0.1).
             $reservation = $this->meter->reserve(
-                $member->company_id, 'task_run', $run, BillableUnit::estimate($task), $origin,
+                $member->company_id, 'task_run', $run, BillableUnit::estimate($task), $origin, "run:{$run->id}",
             );
         } catch (InsufficientCreditsException $e) {
             $run->delete();   // без осиротял pending run
@@ -224,29 +225,36 @@ class TaskRunService
         }
         $companyId = $member->company_id;
 
-        // Генерацията е реален planner разход → резервирай ПРЕДИ диспечиране (block при недостиг).
-        $this->meter->reserve($companyId, 'generation', $task, BillableUnit::estimateGeneration($task), $origin);
-
-        $flow = $task->flow ?? Flow::create([
+        $existingFlow = $task->flow;
+        $flow = $existingFlow ?? Flow::create([
             'company_id' => $companyId,
             'name' => $task->title,
             'description' => $task->description,
             'status' => 'draft',
         ]);
 
+        // Generation резервацията се отваря в launcher-а (org → hard-gate, block при недостиг).
+        // Викаме ПРЕДИ да маркираме задачата 'generating' → при недостиг тя остава непокътната.
+        try {
+            $token = $this->launcher->launch(
+                $companyId, $flow->id, $task->title, $task->description,
+                $task->effectiveStarTier()->value,
+                minimalQa: $minimalQa, persist: true, assistantTaskId: $task->id, origin: $origin,
+            );
+        } catch (InsufficientCreditsException $e) {
+            if (! $existingFlow) {
+                $flow->delete();   // без осиротял draft flow при недостиг
+            }
+
+            throw $e;
+        }
+
         $task->update([
             'flow_id' => $flow->id,
             'status' => 'generating',
             'run_after_generate' => $runAfterGenerate,
+            'gen_token' => $token,
         ]);
-
-        $token = $this->launcher->launch(
-            $companyId, $flow->id, $task->title, $task->description,
-            $task->effectiveStarTier()->value,
-            minimalQa: $minimalQa, persist: true, assistantTaskId: $task->id,
-        );
-
-        $task->update(['gen_token' => $token]);
     }
 
     /**

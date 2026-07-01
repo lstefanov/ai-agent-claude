@@ -54,10 +54,10 @@ class KnowledgeChatService
         );
 
         // Свързваме заявките на този ход (Perplexity + синтез) със съобщението —
-        // session_id за popup-а „Детайли". Сетва се СЛЕД search(), защото неговият
-        // embedding презаписва LlmContext.
+        // session_id за popup-а „Детайли". Push/pop запазва billing frame-а от
+        // BillableOperationService (reservation_id + operation_id).
         if ($replyId !== null) {
-            LlmContext::set(['purpose' => 'knowledge_chat', 'company_id' => $company->id, 'session_id' => 'kbchat-'.$replyId]);
+            LlmContext::push(['purpose' => 'knowledge_chat', 'company_id' => $company->id, 'session_id' => 'kbchat-'.$replyId]);
         }
 
         try {
@@ -77,7 +77,7 @@ class KnowledgeChatService
             return $kb;
         } finally {
             if ($replyId !== null) {
-                LlmContext::clear();
+                LlmContext::pop();
             }
         }
     }
@@ -433,15 +433,13 @@ PROMPT;
     /** Извиква chat LLM-а в правилния контекст (cost tracking). */
     private function runCompose(Company $company, string $system, string $user, array $options = []): string
     {
-        // Merge — запазваме session_id (сетнат от job-а), за да се свърже и
-        // синтез-заявката със съобщението за popup-а „Детайли".
-        $prev = LlmContext::get();
-        LlmContext::set(array_merge($prev, ['purpose' => 'knowledge_chat', 'company_id' => $company->id]));
+        // Запазваме session_id + billing frame-а от текущия ход.
+        LlmContext::push(['purpose' => 'knowledge_chat', 'company_id' => $company->id]);
 
         try {
             return $this->composeAnswer($system, $user, $options);
         } finally {
-            LlmContext::set($prev);
+            LlmContext::pop();
         }
     }
 

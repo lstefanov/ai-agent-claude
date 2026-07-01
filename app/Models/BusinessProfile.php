@@ -64,12 +64,34 @@ class BusinessProfile extends Model
         foreach ((array) $this->pain_points as $pain) {
             $areas[] = (string) $pain;
         }
+        $research = (array) $this->research;
+        foreach ((array) ($research['suggested_areas'] ?? []) as $area) {
+            if (! is_array($area)) {
+                continue;
+            }
+            $label = trim((string) ($area['label'] ?? $area['domain'] ?? ''));
+            $reason = trim((string) ($area['reason'] ?? ''));
+            if ($label !== '') {
+                $areas[] = $reason !== '' ? "{$label}: {$reason}" : $label;
+            }
+        }
+        foreach ((array) data_get($research, 'report.likely_needs', []) as $need) {
+            $areas[] = (string) $need;
+        }
+        foreach ((array) data_get($research, 'report.automation_opportunities', []) as $opportunity) {
+            $areas[] = (string) $opportunity;
+        }
+        foreach (array_slice((array) ($research['gaps'] ?? []), 0, 6) as $gap) {
+            if (is_array($gap) && ! empty($gap['question'])) {
+                $areas[] = 'Да се изясни: '.(string) $gap['question'];
+            }
+        }
         // Синтезираните проблеми + нужди обогатяват композицията (§3-part understanding).
         foreach (array_merge((array) $this->problems, (array) $this->needs) as $item) {
             $areas[] = (string) $item;
         }
 
-        return array_values(array_unique(array_filter(array_map('trim', $areas))));
+        return array_slice(array_values(array_unique(array_filter(array_map('trim', $areas)))), 0, 40);
     }
 
     /**

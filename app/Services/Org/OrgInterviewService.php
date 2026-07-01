@@ -36,11 +36,14 @@ class OrgInterviewService
         // Фаза 1 — обзорът (без LLM): питаме за ВСИЧКИ области наведнъж.
         if (! array_key_exists('areas', $answers)) {
             $onStage && $onStage('Подготвям въпросите…');
+            $question = $this->sweepQuestion($profile);
 
             return [
                 'phase' => 'interview',
-                'reply' => 'За да сглобя точния екип, маркирай ВСИЧКИ области, в които бизнесът има предизвикателства или нужди — спокойно повече от една.',
-                'question' => $this->sweepQuestion(),
+                'reply' => $question['default_values'] !== []
+                    ? 'Проучването вече подсказа няколко вероятни области. Потвърди, махни или добави това, което е вярно за бизнеса.'
+                    : 'За да сглобя точния екип, маркирай ВСИЧКИ области, в които бизнесът има предизвикателства или нужди — спокойно повече от една.',
+                'question' => $question,
                 'recap' => [],
                 'cost_usd' => 0.0,
             ];
@@ -123,6 +126,7 @@ TXT;
 АКТИВНО: ако съобщението разкрива НОВА нужда или област (не сред вече покритите), върни phase="interview" + един структуриран въпрос с 3–5 опции (input_type="checkbox", allow_other=true).
 Иначе phase="ready" с кратък разговорен отговор в 1–3 изречения.
 Не повтаряй вече зададени въпроси от разговора.
+При въпрос без конкретен evidence контекст сложи reason=null, source_ids=[], confidence=null, default_values=[].
 TXT;
         } else {
             $system .= "\n".<<<'TXT'
@@ -228,20 +232,41 @@ TXT;
     // ── Фаза 1: обзор ─────────────────────────────────────────────────────
 
     /** Детерминистичен multi-select върху всички бизнес области (стабилен ключ `areas`). */
-    private function sweepQuestion(): array
+    private function sweepQuestion(BusinessProfile $profile): array
     {
         $options = [];
         foreach ($this->interviewAreas() as $domain => $label) {
             $options[] = ['value' => $domain, 'label' => $label];
         }
 
+        $suggested = $this->researchSuggestedAreas($profile);
+        $defaultValues = array_values(array_unique(array_map(
+            fn ($area) => (string) $area['domain'],
+            array_filter($suggested, fn ($area) => (bool) ($area['default'] ?? true)),
+        )));
+        $sourceIds = array_values(array_unique(array_merge(...array_map(
+            fn ($area) => (array) ($area['source_ids'] ?? []),
+            $suggested ?: [[]],
+        ))));
+        $confidence = $suggested === []
+            ? null
+            : round(max(array_map(fn ($area) => (float) ($area['confidence'] ?? 0.5), $suggested)), 2);
+
         return [
             'key' => 'areas',
-            'text' => 'В кои от тези области виждаш предизвикателства или нужди за бизнеса си?',
+            'text' => $defaultValues !== []
+                ? 'Това са областите, които проучването подсказа. Кои от тях да останат във фокус и какво още липсва?'
+                : 'В кои от тези области виждаш предизвикателства или нужди за бизнеса си?',
             'input_type' => 'checkbox',
             'options' => $options,
             'allow_other' => true,
             'other_label' => 'Друго (опиши)',
+            'reason' => $defaultValues !== []
+                ? 'Маркирах предварително областите, за които има публични сигнали или силни хипотези.'
+                : 'Публичните данни не стигат за уверени предположения, затова започвам с широк обзор.',
+            'source_ids' => array_slice($sourceIds, 0, 8),
+            'confidence' => $confidence,
+            'default_values' => $defaultValues,
         ];
     }
 
@@ -258,6 +283,114 @@ TXT;
         }
 
         return $areas;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function researchSuggestedAreas(BusinessProfile $profile): array
+    {
+        $known = $this->interviewAreas();
+        $out = [];
+
+        foreach ((array) data_get((array) $profile->research, 'suggested_areas', []) as $area) {
+            if (! is_array($area)) {
+                continue;
+            }
+            $domain = (string) ($area['domain'] ?? '');
+            if (! isset($known[$domain])) {
+                continue;
+            }
+            $out[] = [
+                'domain' => $domain,
+                'label' => $known[$domain],
+                'reason' => trim((string) ($area['reason'] ?? '')),
+                'source_ids' => array_values(array_filter(array_map('strval', (array) ($area['source_ids'] ?? [])))),
+                'confidence' => is_numeric($area['confidence'] ?? null) ? round(max(0, min(1, (float) $area['confidence'])), 2) : 0.55,
+                'default' => (bool) ($area['default'] ?? true),
+            ];
+        }
+
+        return $out;
+    }
+
+    private function researchContext(BusinessProfile $profile, ?string $domain = null): string
+    {
+        $research = (array) $profile->research;
+        $lines = [];
+        $sourceIds = [];
+
+        foreach ($this->researchSuggestedAreas($profile) as $area) {
+            if ($domain !== null && $area['domain'] !== $domain) {
+                continue;
+            }
+            $lines[] = '- Хипотеза: '.$area['label'].($area['reason'] !== '' ? ' — '.$area['reason'] : '');
+            $sourceIds = array_merge($sourceIds, (array) $area['source_ids']);
+        }
+
+        $gaps = [];
+        foreach ((array) ($research['gaps'] ?? []) as $gap) {
+            if (! is_array($gap)) {
+                continue;
+            }
+            $gapDomain = trim((string) ($gap['domain'] ?? ''));
+            if ($domain !== null && $gapDomain !== '' && $gapDomain !== $domain) {
+                continue;
+            }
+            $gaps[] = $gap;
+            $sourceIds = array_merge($sourceIds, (array) ($gap['source_ids'] ?? []));
+        }
+
+        foreach (array_slice($gaps, 0, 4) as $gap) {
+            $lines[] = '- Gap: '.(string) ($gap['question'] ?? $gap['reason'] ?? '');
+        }
+
+        foreach (array_slice((array) data_get($research, 'report.likely_needs', []), 0, 4) as $need) {
+            $need = trim((string) $need);
+            if ($need !== '') {
+                $lines[] = '- Вероятна нужда: '.$need;
+            }
+        }
+        foreach (array_slice((array) data_get($research, 'report.automation_opportunities', []), 0, 4) as $opportunity) {
+            $opportunity = trim((string) $opportunity);
+            if ($opportunity !== '') {
+                $lines[] = '- Възможна автоматизация: '.$opportunity;
+            }
+        }
+        foreach (array_slice((array) data_get($research, 'customer_voice.complaints', []), 0, 3) as $complaint) {
+            $complaint = trim((string) $complaint);
+            if ($complaint !== '') {
+                $lines[] = '- Клиентски сигнал: '.$complaint;
+            }
+        }
+
+        $evidence = $this->evidenceById($profile);
+        foreach (array_slice(array_values(array_unique($sourceIds)), 0, 5) as $sourceId) {
+            $item = $evidence[$sourceId] ?? null;
+            if (! $item) {
+                continue;
+            }
+            $snippet = trim((string) ($item['snippet'] ?? ''));
+            $title = trim((string) ($item['title'] ?? $sourceId));
+            $lines[] = '- Evidence '.$sourceId.': '.$title.($snippet !== '' ? ' — '.mb_substr($snippet, 0, 240) : '');
+        }
+
+        if ($lines === []) {
+            return 'Няма надеждни специфични публични сигнали за тази област. Питай за вътрешни цели, капацитет, bottlenecks, честота и желани автоматизации.';
+        }
+
+        return implode("\n", array_slice($lines, 0, 16));
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function evidenceById(BusinessProfile $profile): array
+    {
+        $out = [];
+        foreach ((array) data_get((array) $profile->research, 'evidence', []) as $item) {
+            if (is_array($item) && ! empty($item['id'])) {
+                $out[(string) $item['id']] = $item;
+            }
+        }
+
+        return $out;
     }
 
     // ── Фаза 2: задълбочаване ─────────────────────────────────────────────
@@ -309,6 +442,9 @@ TXT;
 - Формулирай в МНОЖЕСТВЕНО число („Кои от тези…?"). БЕЗ превъзходна степен, БЕЗ „кое е НАЙ-важно" —
   целта е ПЪЛНОТА на нуждите, не приоритизиране.
 - Питай САМО за областта по-долу. НЕ повтаряй вече зададени въпроси (списъкът е по-долу).
+- Ако проучването има хипотеза, формулирай като потвърждение/корекция: „Видях X — кои от тези са верни?".
+- Дай приоритет на вътрешни gaps: цели, капацитет, bottlenecks, бюджет/честота, желани автоматизации.
+- В question.reason обясни защо питаш; source_ids/default_values може да са [].
 - Върни САМО валиден JSON по схемата: phase="interview", попълни обекта `question`.
 TXT;
         $system .= "\n".PromptData::NO_TECH_TERMS;
@@ -316,6 +452,7 @@ TXT;
         $user = "Бизнес: {$company?->name} ({$company?->industry}).\n"
             .'Ситуационен анализ:'."\n".((string) $profile->situational_analysis ?: '(няма)')
             ."\n\n".'ОБЛАСТ ВЪВ ФОКУС: '.$label.($hint !== '' ? ' — '.$hint : '')
+            ."\n\n".'Данни от проучването за тази област:'."\n".$this->researchContext($profile, $domain)
             ."\n\n".'Вече зададени въпроси и отговори (НЕ повтаряй):'."\n".($asked !== '' ? $asked : '(няма)');
 
         try {
@@ -404,8 +541,12 @@ TXT;
                             ],
                         ],
                         'allow_other' => ['type' => 'boolean'],
+                        'reason' => ['type' => ['string', 'null']],
+                        'source_ids' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        'confidence' => ['type' => ['number', 'null']],
+                        'default_values' => ['type' => 'array', 'items' => ['type' => 'string']],
                     ],
-                    'required' => ['key', 'text', 'input_type', 'options', 'allow_other'],
+                    'required' => ['key', 'text', 'input_type', 'options', 'allow_other', 'reason', 'source_ids', 'confidence', 'default_values'],
                 ],
                 'recap' => ['type' => 'array', 'items' => ['type' => 'string']],
             ],
@@ -447,6 +588,10 @@ TXT;
             'options' => $options,
             'allow_other' => (bool) ($q['allow_other'] ?? true),
             'other_label' => 'Друго (опиши)',
+            'reason' => filled($q['reason'] ?? null) ? (string) $q['reason'] : null,
+            'source_ids' => array_values(array_filter(array_map('strval', (array) ($q['source_ids'] ?? [])))),
+            'confidence' => is_numeric($q['confidence'] ?? null) ? round(max(0, min(1, (float) $q['confidence'])), 2) : null,
+            'default_values' => $this->validDefaultValues((array) ($q['default_values'] ?? []), $options),
         ];
     }
 
@@ -459,5 +604,20 @@ TXT;
         $labels = mb_strtolower(implode(' ', array_column($options, 'label')));
 
         return (bool) preg_match('/(^|\W)(да|не|yes|no)(\W|$)/u', $labels);
+    }
+
+    /** @return array<int, string> */
+    private function validDefaultValues(array $values, array $options): array
+    {
+        $valid = array_fill_keys(array_map(fn ($opt) => (string) $opt['value'], $options), true);
+        $out = [];
+        foreach ($values as $value) {
+            $value = (string) $value;
+            if (isset($valid[$value])) {
+                $out[] = $value;
+            }
+        }
+
+        return array_values(array_unique($out));
     }
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "FlowAI Development"
+  short_description: "Engineering workflow for the FlowAI Laravel app"
+  default_prompt: "Use $flowai-development to plan, debug, or implement a FlowAI engineering change."
