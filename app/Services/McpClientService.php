@@ -115,6 +115,55 @@ class McpClientService
         }
     }
 
+    /**
+     * Read-only пълно сваляне на файл от конектор → байтове за ingest в базата
+     * знания. Минава през същия OAuth refresh + одит (connector_tool_logs) като
+     * callTool; никога не излага raw credentials. Хвърля, ако конекторът не
+     * поддържа сваляне. Връща ['mime','name','bytes','exported'].
+     */
+    public function downloadConnectorFile(CompanyConnector $connector, string $fileId): array
+    {
+        if ($connector->needsRefresh()) {
+            try {
+                $this->refreshOAuthToken($connector);
+            } catch (\Throwable $e) {
+                Log::warning("[MCP] OAuth refresh fail (connector {$connector->id}): {$e->getMessage()}");
+            }
+        }
+
+        $impl = $this->resolve($connector);
+        if (! method_exists($impl, 'downloadRaw')) {
+            throw new \RuntimeException('Този конектор не поддържа сваляне на файлове.');
+        }
+
+        $started = microtime(true);
+        $error = null;
+        $summary = '';
+
+        try {
+            $result = $impl->downloadRaw($fileId);
+            $summary = (string) ($result['name'] ?? '').' ('.strlen((string) ($result['bytes'] ?? '')).' bytes)';
+
+            return $result;
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
+            throw $e;
+        } finally {
+            ConnectorToolLog::create([
+                'company_id' => $connector->company_id,
+                'connector_id' => $connector->id,
+                'flow_run_id' => null,
+                'node_run_id' => null,
+                'tool' => 'drive.download_raw',
+                'params' => ['file_id' => $fileId],
+                'status' => $error === null ? 'ok' : 'error',
+                'result_summary' => mb_substr($summary, 0, 500),
+                'error' => $error,
+                'duration_ms' => (int) ((microtime(true) - $started) * 1000),
+            ]);
+        }
+    }
+
     /** Тества връзката + ъпдейтва статуса на конектора. */
     public function testConnection(CompanyConnector $connector): bool
     {

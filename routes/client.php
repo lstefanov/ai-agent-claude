@@ -117,10 +117,20 @@ Route::middleware('client_auth')->group(function () {
         Route::post('tasks/{task}/generate', [Client\Org\AssistantTaskController::class, 'generate'])->name('client.org.tasks.generate');
         Route::get('tasks/{task}/gen-status/{token}', [Client\Org\AssistantTaskController::class, 'genStatus'])->name('client.org.tasks.gen-status');
         Route::post('tasks/{task}/run', [Client\Org\AssistantTaskController::class, 'run'])->name('client.org.tasks.run');
-        // Гейт по знание (§2-етапни задачи): добави бележка, разреши уеб-търсене, провери достатъчност.
+        // Гейт по знание (§2-етапни задачи): многоизточников попъп „Добави знания".
         Route::post('tasks/{task}/knowledge/note', [Client\Org\AssistantTaskController::class, 'addKnowledgeNote'])->name('client.org.tasks.knowledge.note');
-        Route::post('tasks/{task}/knowledge/ack', [Client\Org\AssistantTaskController::class, 'ackKnowledge'])->name('client.org.tasks.knowledge.ack');
+        Route::post('tasks/{task}/knowledge/upload', [Client\Org\AssistantTaskController::class, 'uploadKnowledge'])->name('client.org.tasks.knowledge.upload');
+        Route::post('tasks/{task}/knowledge/url', [Client\Org\AssistantTaskController::class, 'addUrl'])->name('client.org.tasks.knowledge.url');
+        Route::get('tasks/{task}/knowledge/suggest-existing', [Client\Org\AssistantTaskController::class, 'suggestExisting'])->name('client.org.tasks.knowledge.suggest-existing');
+        Route::post('tasks/{task}/knowledge/link-existing', [Client\Org\AssistantTaskController::class, 'linkExisting'])->name('client.org.tasks.knowledge.link-existing');
+        Route::get('tasks/{task}/knowledge/connectors', [Client\Org\AssistantTaskController::class, 'connectorFiles'])->name('client.org.tasks.knowledge.connectors');
+        Route::get('tasks/{task}/knowledge/connector-options', [Client\Org\AssistantTaskController::class, 'connectorOptions'])->name('client.org.tasks.knowledge.connector-options');
+        Route::post('tasks/{task}/knowledge/connector-ingest', [Client\Org\AssistantTaskController::class, 'ingestConnectorFile'])->name('client.org.tasks.knowledge.connector-ingest');
+        Route::post('tasks/{task}/knowledge/research', [Client\Org\AssistantTaskController::class, 'webResearchStart'])->name('client.org.tasks.knowledge.research');
+        Route::post('tasks/{task}/knowledge/research-ingest', [Client\Org\AssistantTaskController::class, 'webResearchIngest'])->name('client.org.tasks.knowledge.research-ingest');
         Route::get('tasks/{task}/knowledge/status', [Client\Org\AssistantTaskController::class, 'knowledgeStatus'])->name('client.org.tasks.knowledge.status');
+        Route::post('tasks/{task}/knowledge/check', [Client\Org\AssistantTaskController::class, 'knowledgeCheck'])->name('client.org.tasks.knowledge.check');
+        Route::post('tasks/{task}/knowledge/proceed', [Client\Org\AssistantTaskController::class, 'knowledgeProceed'])->name('client.org.tasks.knowledge.proceed');
         Route::get('tasks', [Client\Org\TaskLogController::class, 'index'])->name('client.org.tasks.index');
         Route::get('live', [Client\Org\OrgGraphController::class, 'live'])->name('client.org.live');
 

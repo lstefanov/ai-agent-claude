@@ -13,8 +13,8 @@ use App\Models\KnowledgeGap;
 use App\Models\KnowledgePage;
 use App\Models\KnowledgeResource;
 use App\Services\Knowledge\KnowledgeConflictService;
+use App\Services\Knowledge\KnowledgeIntakeService;
 use App\Services\KnowledgeService;
-use App\Services\WebPageCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -412,13 +412,13 @@ class CompanyKnowledgeController extends Controller
     // ──────────────────────────────────────────────────────────────────────
 
     /** Качване на файлове/снимки — тип image при image/* mime, иначе upload. */
-    public function upload(Request $request, Company $company): JsonResponse
+    public function upload(Request $request, Company $company, KnowledgeIntakeService $intake): JsonResponse
     {
         $maxKb = (int) config('services.knowledge.max_file_mb', 20) * 1024;
 
         $request->validate([
             'files' => 'required|array|min:1',
-            'files.*' => "required|file|max:{$maxKb}|extensions:pdf,txt,md,docx,xlsx,csv,jpg,jpeg,png",
+            'files.*' => "required|file|max:{$maxKb}|extensions:pdf,txt,md,docx,xlsx,xls,csv,jpg,jpeg,png",
             'folder_id' => 'nullable|integer|exists:knowledge_folders,id',
         ]);
 
@@ -428,34 +428,14 @@ class CompanyKnowledgeController extends Controller
         $skipped = [];
 
         foreach ($request->file('files', []) as $file) {
-            $hash = hash_file('sha256', $file->getRealPath());
+            $resource = $intake->fromUpload($company, $file, ['folder_id' => $folderId]);
 
-            $duplicate = $company->knowledgeResources()
-                ->where('status', 'ready')
-                ->where('meta->file_sha256', $hash)
-                ->exists();
-
-            if ($duplicate) {
+            if ($resource === null) {
                 $skipped[] = $file->getClientOriginalName();
 
                 continue;
             }
 
-            $path = $file->store("knowledge/{$company->id}", 'local');
-
-            $resource = $company->knowledgeResources()->create([
-                'folder_id' => $folderId,
-                'type' => str_starts_with((string) $file->getMimeType(), 'image/') ? 'image' : 'upload',
-                'title' => pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
-                'original_name' => $file->getClientOriginalName(),
-                'mime' => $file->getMimeType(),
-                'size_bytes' => $file->getSize(),
-                'storage_path' => $path,
-                'status' => 'pending',
-                'meta' => ['file_sha256' => $hash],
-            ]);
-
-            IngestResourceJob::dispatch($resource->id);
             $created[] = $resource->id;
         }
 
@@ -463,7 +443,7 @@ class CompanyKnowledgeController extends Controller
     }
 
     /** Бележка, създадена през FlowAI (заглавие + текст). */
-    public function storeNote(Request $request, Company $company): JsonResponse
+    public function storeNote(Request $request, Company $company, KnowledgeIntakeService $intake): JsonResponse
     {
         $data = $request->validate([
             'title' => 'required|string|max:300',
@@ -471,15 +451,9 @@ class CompanyKnowledgeController extends Controller
             'folder_id' => 'nullable|integer|exists:knowledge_folders,id',
         ]);
 
-        $resource = $company->knowledgeResources()->create([
+        $resource = $intake->fromText($company, $data['title'], $data['content'], [
             'folder_id' => $this->validatedFolderId($request, $company),
-            'type' => 'note',
-            'title' => trim($data['title']),
-            'content' => $data['content'],
-            'status' => 'pending',
         ]);
-
-        IngestResourceJob::dispatch($resource->id);
 
         return response()->json(['id' => $resource->id], 201);
     }
@@ -511,34 +485,24 @@ class CompanyKnowledgeController extends Controller
     }
 
     /** URL ресурс — сайт или конкретна страница; обхожда се BFS на опашката. */
-    public function storeUrl(Request $request, Company $company): JsonResponse
+    public function storeUrl(Request $request, Company $company, KnowledgeIntakeService $intake): JsonResponse
     {
         $data = $request->validate([
             'url' => 'required|string|max:2048|url:http,https',
             'folder_id' => 'nullable|integer|exists:knowledge_folders,id',
         ]);
 
-        $normalized = app(WebPageCacheService::class)->normalizeUrl($data['url']);
-        if ($normalized === null) {
+        try {
+            $resource = $intake->fromUrl($company, $data['url'], [
+                'folder_id' => $this->validatedFolderId($request, $company),
+            ]);
+        } catch (\InvalidArgumentException) {
             return response()->json(['error' => 'Невалиден URL адрес.'], 422);
         }
 
-        $urlHash = hash('sha256', $normalized);
-
-        if ($company->knowledgeResources()->where('url_hash', $urlHash)->exists()) {
+        if ($resource === null) {
             return response()->json(['error' => 'Този URL вече е добавен като ресурс.'], 422);
         }
-
-        $resource = $company->knowledgeResources()->create([
-            'folder_id' => $this->validatedFolderId($request, $company),
-            'type' => 'url',
-            'title' => parse_url($normalized, PHP_URL_HOST).(parse_url($normalized, PHP_URL_PATH) ?: ''),
-            'url' => $normalized,
-            'url_hash' => $urlHash,
-            'status' => 'pending',
-        ]);
-
-        IngestUrlResourceJob::dispatch($resource->id);
 
         return response()->json(['id' => $resource->id], 201);
     }

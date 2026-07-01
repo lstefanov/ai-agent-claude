@@ -47,6 +47,19 @@ abstract class AbstractConnector implements McpConnectorInterface
         return array_map('strval', (array) ($this->credentials['scopes'] ?? []));
     }
 
+    /** Има ли конекторът някой от подадените OAuth scopes (case-insensitive). */
+    protected function hasScope(string ...$scopes): bool
+    {
+        $granted = array_map('strtolower', $this->grantedScopes());
+        foreach ($scopes as $scope) {
+            if (in_array(strtolower($scope), $granted, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Валидира Google access token през tokeninfo (за testConnection). */
     protected function googleTokenValid(?string $token): bool
     {

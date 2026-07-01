@@ -66,7 +66,7 @@ class DocumentTextExtractor
             $mime === 'application/pdf' || $ext === 'pdf',
             str_starts_with($mime, 'image/') || in_array($ext, ['jpg', 'jpeg', 'png'], true) => 'ocr',
             str_contains($mime, 'wordprocessingml') || $ext === 'docx' => 'docx',
-            str_contains($mime, 'spreadsheetml') || $ext === 'xlsx' => 'xlsx',
+            str_contains($mime, 'spreadsheetml') || $mime === 'application/vnd.ms-excel' || in_array($ext, ['xlsx', 'xls'], true) => 'xlsx',
             $mime === 'text/csv' || $ext === 'csv' => 'csv',
             str_starts_with($mime, 'text/') || in_array($ext, ['txt', 'md'], true) => 'text',
             default => 'unsupported',

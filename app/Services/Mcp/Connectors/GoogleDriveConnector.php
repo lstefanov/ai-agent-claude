@@ -104,6 +104,71 @@ class GoogleDriveConnector extends AbstractConnector
         }
     }
 
+    /**
+     * Read-only ПЪЛНО сваляне на файл (без 8000-char cap на getContent) — за
+     * ingest в базата знания. Google-native файлове се експортират: Docs→текст,
+     * Sheets→xlsx, Slides→pdf; бинарните се теглят сурово. Връща
+     * ['mime','name','bytes','exported'] (exported=true → съдържанието е текст).
+     */
+    public function downloadRaw(string $fileId): array
+    {
+        $fileId = trim($fileId);
+        if ($fileId === '') {
+            throw new \InvalidArgumentException('Липсва file_id');
+        }
+
+        $meta = $this->client()->acceptJson()->get(self::BASE."/files/{$fileId}", ['fields' => 'mimeType,name,size']);
+        if ($meta->failed()) {
+            throw new \RuntimeException("Drive метаданни HTTP {$meta->status()}: ".mb_substr($meta->body(), 0, 300));
+        }
+
+        $mime = (string) $meta->json('mimeType', '');
+        $name = (string) $meta->json('name', 'file');
+        $size = (int) $meta->json('size', 0);
+
+        $maxBytes = (int) config('services.knowledge.max_file_mb', 20) * 1024 * 1024;
+        if ($size > 0 && $size > $maxBytes) {
+            throw new \RuntimeException('Файлът е твърде голям ('.round($size / 1048576, 1).' MB).');
+        }
+
+        if (str_starts_with($mime, 'application/vnd.google-apps.')) {
+            [$exportMime, $ext, $exported] = match ($mime) {
+                'application/vnd.google-apps.document' => ['text/plain', '', true],
+                'application/vnd.google-apps.spreadsheet' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx', false],
+                'application/vnd.google-apps.presentation' => ['application/pdf', '.pdf', false],
+                default => ['text/plain', '', true],
+            };
+
+            $res = $this->client()->get(self::BASE."/files/{$fileId}/export", ['mimeType' => $exportMime]);
+            if ($res->failed()) {
+                throw new \RuntimeException("Drive export HTTP {$res->status()}: ".mb_substr($res->body(), 0, 300));
+            }
+
+            // Google-native файлове нямат 'size' в метаданните → провери реалния размер СЛЕД export.
+            $bytes = $this->guardSize($res->body(), $maxBytes);
+            $finalName = ($ext !== '' && ! str_ends_with(mb_strtolower($name), $ext)) ? $name.$ext : $name;
+
+            return ['mime' => $exportMime, 'name' => $finalName, 'bytes' => $bytes, 'exported' => $exported];
+        }
+
+        $res = $this->client()->get(self::BASE."/files/{$fileId}", ['alt' => 'media']);
+        if ($res->failed()) {
+            throw new \RuntimeException("Drive download HTTP {$res->status()}: ".mb_substr($res->body(), 0, 300));
+        }
+
+        return ['mime' => $mime, 'name' => $name, 'bytes' => $this->guardSize($res->body(), $maxBytes), 'exported' => false];
+    }
+
+    /** Пази срещу твърде голям сваленбайтов масив (когато метаданните нямат size). */
+    private function guardSize(string $bytes, int $maxBytes): string
+    {
+        if (strlen($bytes) > $maxBytes) {
+            throw new \RuntimeException('Файлът е твърде голям ('.round(strlen($bytes) / 1048576, 1).' MB).');
+        }
+
+        return $bytes;
+    }
+
     private function client(): PendingRequest
     {
         return Http::withToken((string) ($this->credentials['access_token'] ?? ''))->timeout(30);

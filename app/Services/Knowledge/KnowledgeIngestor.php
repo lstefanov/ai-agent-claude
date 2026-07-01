@@ -99,8 +99,9 @@ class KnowledgeIngestor
         }
 
         $llmContext = ['company_id' => $company->id, 'knowledge_resource_id' => $resource->id];
+        $audience = $this->audienceOf($resource);
 
-        $synth = $this->synthesizer->synthesizeDocument($company, $resource->title, $text, $llmContext);
+        $synth = $this->synthesizer->synthesizeDocument($company, $resource->title, $text, $llmContext, $audience);
 
         $sections = [];
         foreach ($this->chunker->chunk($synth['digest']) as $chunk) {
@@ -168,23 +169,36 @@ class KnowledgeIngestor
         $isFirst = $resource->ingested_at === null;
         $tag = $this->embeddings->providerTag();
         $llmContext = ['company_id' => $company->id, 'knowledge_resource_id' => $resource->id];
+        $audience = $this->audienceOf($resource);
 
-        $deadline = microtime(true) + self::CRAWL_BUDGET_SECONDS;
-        $progressTick = 0;
+        // Single-page режим (избран уеб-резултат от проучване) — само тази страница,
+        // без BFS краул и без „забравяне" на изчезнали страници.
+        $singlePage = (bool) ($resource->meta['single_page'] ?? false);
 
-        $pages = $this->crawl->crawlSiteBfs(
-            (string) $resource->url,
-            (int) config('services.knowledge.site_max_pages', 200),
-            bypassCache: $force,
-            deadlineTs: $deadline,
-            onProgress: function (int $parsed, int $discovered) use ($resource, &$progressTick) {
-                if (++$progressTick % 5 === 0) {
-                    $resource->update(['meta' => array_merge((array) $resource->meta, [
-                        'progress' => ['parsed' => $parsed, 'discovered' => $discovered],
-                    ])]);
-                }
-            },
-        );
+        if ($singlePage) {
+            $page = $this->crawl->fetchPage((string) $resource->url, $force);
+            $pages = $page !== null ? [$page] : [];
+            $partial = false;
+        } else {
+            $deadline = microtime(true) + self::CRAWL_BUDGET_SECONDS;
+            $progressTick = 0;
+
+            $pages = $this->crawl->crawlSiteBfs(
+                (string) $resource->url,
+                (int) config('services.knowledge.site_max_pages', 200),
+                bypassCache: $force,
+                deadlineTs: $deadline,
+                onProgress: function (int $parsed, int $discovered) use ($resource, &$progressTick) {
+                    if (++$progressTick % 5 === 0) {
+                        $resource->update(['meta' => array_merge((array) $resource->meta, [
+                            'progress' => ['parsed' => $parsed, 'discovered' => $discovered],
+                        ])]);
+                    }
+                },
+            );
+
+            $partial = microtime(true) >= $deadline;
+        }
 
         if ($pages === []) {
             throw new RuntimeException(
@@ -192,8 +206,6 @@ class KnowledgeIngestor
                 .' — провери дали crawl service-ът работи (scripts/start-services.sh status).'
             );
         }
-
-        $partial = microtime(true) >= $deadline;
 
         $existingByHash = $resource->pages()->get()->keyBy('url_hash');
         $seenHashes = [];
@@ -221,7 +233,7 @@ class KnowledgeIngestor
             }
 
             $synth = $this->synthesizer->synthesizePage(
-                $company, $page['url'], $page['title'], $page['meta_description'], $page['markdown'], $llmContext,
+                $company, $page['url'], $page['title'], $page['meta_description'], $page['markdown'], $llmContext, $audience,
             );
             $reusedDigests += $synth['reused'] ? 1 : 0;
 
@@ -283,8 +295,8 @@ class KnowledgeIngestor
         }
 
         // Изчезнали от сайта страници → "забравяне" (само при ПЪЛНО обхождане —
-        // частичен crawl не бива да трие истински страници).
-        if (! $partial && ! $force) {
+        // частичен crawl или single-page не бива да трият истински страници).
+        if (! $singlePage && ! $partial && ! $force) {
             foreach ($existingByHash as $urlHash => $existing) {
                 if (isset($seenHashes[$urlHash])) {
                     continue;
@@ -333,6 +345,12 @@ class KnowledgeIngestor
     }
 
     // ──────────────────────────────────────────────────────────────────────
+
+    /** own = данни за самата фирма; external = конкурентни/пазарни (не стават факти за фирмата). */
+    private function audienceOf(KnowledgeResource $resource): string
+    {
+        return ($resource->meta['provenance']['audience'] ?? 'own') === 'external' ? 'external' : 'own';
+    }
 
     /**
      * @param  array<int, array{content: string, meta: array<string, mixed>}>  $sections

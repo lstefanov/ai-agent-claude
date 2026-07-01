@@ -48,11 +48,12 @@ class KnowledgeSynthesizer
         ?string $metaDescription,
         string $markdown,
         array $llmContext = [],
+        string $audience = 'own',
     ): array {
         $urlHash = $this->cache->urlHash($url) ?? hash('sha256', $url);
         $contentHash = hash('sha256', trim($markdown));
 
-        if (($cached = $this->cachedDigest($urlHash, $contentHash)) !== null) {
+        if (($cached = $this->cachedDigest($urlHash, $contentHash, $audience)) !== null) {
             return $cached + ['reused' => true];
         }
 
@@ -69,10 +70,11 @@ class KnowledgeSynthesizer
             $context,
             PageContent::stripBoilerplate($markdown),
             $llmContext,
+            $audience,
         );
 
         if ($result['llm']) {
-            $this->storeDigest($urlHash, $contentHash, $result);
+            $this->storeDigest($urlHash, $contentHash, $result, $audience);
         }
 
         return ['digest' => $result['digest'], 'facts' => $result['facts'], 'reused' => false];
@@ -90,18 +92,19 @@ class KnowledgeSynthesizer
         string $title,
         string $text,
         array $llmContext = [],
+        string $audience = 'own',
     ): array {
         $contentHash = hash('sha256', trim($text));
         $urlHash = hash('sha256', 'doc:'.$contentHash);
 
-        if (($cached = $this->cachedDigest($urlHash, $contentHash)) !== null) {
+        if (($cached = $this->cachedDigest($urlHash, $contentHash, $audience)) !== null) {
             return $cached + ['reused' => true];
         }
 
-        $result = $this->synthesize($company, "Документ: {$title}", $text, $llmContext);
+        $result = $this->synthesize($company, "Документ: {$title}", $text, $llmContext, $audience);
 
         if ($result['llm']) {
-            $this->storeDigest($urlHash, $contentHash, $result);
+            $this->storeDigest($urlHash, $contentHash, $result, $audience);
         }
 
         return ['digest' => $result['digest'], 'facts' => $result['facts'], 'reused' => false];
@@ -205,7 +208,7 @@ PROMPT;
     // ──────────────────────────────────────────────────────────────────────
 
     /** @return array{digest: string, facts: array<int, array<string, mixed>>, llm: bool} */
-    private function synthesize(Company $company, string $sourceContext, string $content, array $llmContext): array
+    private function synthesize(Company $company, string $sourceContext, string $content, array $llmContext, string $audience = 'own'): array
     {
         $content = trim(mb_substr(trim($content), 0, self::MAX_INPUT_CHARS));
         $provider = $this->provider();
@@ -216,7 +219,22 @@ PROMPT;
 
         $categories = implode('|', KnowledgeFact::CATEGORIES);
 
-        $system = <<<PROMPT
+        // Външни/пазарни данни (конкуренти, уеб-проучване) НЕ бива да стават факти
+        // за самата фирма — синтезираме ги като данни за КОНКУРЕНТИ/пазара.
+        $system = $audience === 'external'
+            ? <<<PROMPT
+Ти си анализатор на ВЪНШНА/пазарна информация за фирмата "{$company->name}". Съдържанието е за КОНКУРЕНТИ и пазара — НЕ за самата фирма "{$company->name}".
+
+Върни:
+1. "digest" — синтезирано, плътно markdown резюме НА БЪЛГАРСКИ на полезната външна информация: конкурентни центрове/услуги/цени, пазарни данни, оферти. Не добавяй нищо, което го няма в съдържанието. Без увод и без коментари за задачата.
+2. "facts" — конкретни факти за КОНКУРЕНТИ/пазара. ЗАДЪЛЖИТЕЛНО category: "competitors" (или "other", ако не е за конкретен конкурент). Правила:
+   - name: кратко име (напр. "цена месечен абонамент - конкурент X");
+   - value: пълната стойност с валута/единици;
+   - location: град/обект, ако важи за конкретно място (иначе null);
+   - confidence: 0–1;
+   - САМО явно посочени факти. НИКОГА не приписвай тези данни на самата фирма "{$company->name}".
+PROMPT
+            : <<<PROMPT
 Ти си екстрактор на фирмени знания. Получаваш съдържанието на една страница/документ, свързани с фирмата "{$company->name}".
 
 Върни:
@@ -267,7 +285,7 @@ PROMPT;
 
             return [
                 'digest' => mb_substr(trim((string) ($json['digest'] ?? '')), 0, 12000),
-                'facts' => $this->sanitizeFacts((array) ($json['facts'] ?? [])),
+                'facts' => $this->sanitizeFacts((array) ($json['facts'] ?? []), $audience),
                 'llm' => true,
             ];
         } catch (\Throwable $e) {
@@ -285,7 +303,7 @@ PROMPT;
      *
      * @return array<int, array<string, mixed>>
      */
-    private function sanitizeFacts(array $raw): array
+    private function sanitizeFacts(array $raw, string $audience = 'own'): array
     {
         $facts = [];
         foreach ($raw as $fact) {
@@ -299,10 +317,18 @@ PROMPT;
             }
 
             $category = (string) ($fact['category'] ?? 'other');
+            $category = in_array($category, KnowledgeFact::CATEGORIES, true) ? $category : 'other';
+
+            // Външни данни никога не стават факти за собствената фирма — клампваме
+            // към competitors/other, каквото и да е предложил LLM-ът.
+            if ($audience === 'external' && ! in_array($category, ['competitors', 'other'], true)) {
+                $category = 'competitors';
+            }
+
             $location = trim((string) ($fact['location'] ?? ''));
 
             $facts[] = [
-                'category' => in_array($category, KnowledgeFact::CATEGORIES, true) ? $category : 'other',
+                'category' => $category,
                 'location' => $location !== '' ? mb_substr($location, 0, 150) : null,
                 'name' => mb_substr($name, 0, 300),
                 'value' => mb_substr($value, 0, 4000),
@@ -317,17 +343,19 @@ PROMPT;
         return $facts;
     }
 
-    private function paramsHash(): string
+    private function paramsHash(string $audience = 'own'): string
     {
-        return hash('sha256', $this->model().'|kb|v'.self::PROMPT_VERSION);
+        $suffix = $audience === 'external' ? '|ext' : '';
+
+        return hash('sha256', $this->model().'|kb|v'.self::PROMPT_VERSION.$suffix);
     }
 
     /** @return array{digest: string, facts: array<int, array<string, mixed>>}|null */
-    private function cachedDigest(string $urlHash, string $contentHash): ?array
+    private function cachedDigest(string $urlHash, string $contentHash, string $audience = 'own'): ?array
     {
         $row = WebPageDigest::where('url_hash', $urlHash)
             ->where('content_hash', $contentHash)
-            ->where('params_hash', $this->paramsHash())
+            ->where('params_hash', $this->paramsHash($audience))
             ->first();
 
         if (! $row) {
@@ -343,19 +371,19 @@ PROMPT;
 
         return [
             'digest' => (string) $payload['digest'],
-            'facts' => $this->sanitizeFacts((array) ($payload['facts'] ?? [])),
+            'facts' => $this->sanitizeFacts((array) ($payload['facts'] ?? []), $audience),
         ];
     }
 
     /** @param array{digest: string, facts: array<int, array<string, mixed>>} $result */
-    private function storeDigest(string $urlHash, string $contentHash, array $result): void
+    private function storeDigest(string $urlHash, string $contentHash, array $result, string $audience = 'own'): void
     {
         try {
             WebPageDigest::updateOrCreate(
                 [
                     'url_hash' => $urlHash,
                     'content_hash' => $contentHash,
-                    'params_hash' => $this->paramsHash(),
+                    'params_hash' => $this->paramsHash($audience),
                 ],
                 [
                     'model' => mb_substr($this->model(), 0, 100),

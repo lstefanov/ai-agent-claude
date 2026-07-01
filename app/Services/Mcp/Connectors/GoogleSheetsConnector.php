@@ -36,6 +36,32 @@ class GoogleSheetsConnector extends AbstractConnector
 
     public function listOptions(string $source, array $context = []): array
     {
+        // Разглеждане на spreadsheet-ите по име (Drive files.list) — изисква read scope
+        // за Drive (drive.metadata.readonly); без него върни [] → UI пада към ръчен ID.
+        if ($source === 'sheets_spreadsheets') {
+            if (! $this->hasScope(
+                'https://www.googleapis.com/auth/drive.metadata.readonly',
+                'https://www.googleapis.com/auth/drive.readonly',
+                'https://www.googleapis.com/auth/drive',
+            )) {
+                return [];
+            }
+            try {
+                $res = $this->client()->get('https://www.googleapis.com/drive/v3/files', [
+                    'q' => "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
+                    'orderBy' => 'modifiedTime desc',
+                    'pageSize' => 100,
+                    'fields' => 'files(id,name)',
+                ]);
+
+                return collect((array) $res->json('files', []))
+                    ->map(fn ($f) => ['value' => (string) ($f['id'] ?? ''), 'label' => (string) ($f['name'] ?? '')])
+                    ->filter(fn ($o) => $o['value'] !== '')->values()->all();
+            } catch (\Throwable) {
+                return [];
+            }
+        }
+
         if ($source !== 'sheets_tabs' || empty($context['spreadsheet_id'])) {
             return [];
         }

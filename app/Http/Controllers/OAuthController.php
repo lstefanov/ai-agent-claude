@@ -33,7 +33,11 @@ class OAuthController extends Controller
         ],
         'google_sheets' => [
             'type' => 'google_sheets',
-            'scopes' => ['https://www.googleapis.com/auth/spreadsheets'],
+            'scopes' => [
+                'https://www.googleapis.com/auth/spreadsheets',
+                // Read-only Drive метаданни → списък на spreadsheet-ите по име (browse).
+                'https://www.googleapis.com/auth/drive.metadata.readonly',
+            ],
         ],
         'google_drive' => [
             'type' => 'google_drive',

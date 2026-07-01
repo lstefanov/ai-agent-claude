@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cross-vendor "second opinion" reviewer for FlowAI.
 # Sends the current git diff (or PLAN.md) to a DIFFERENT vendor's model
-# (Codex / Cursor / Antigravity / local Ollama) and prints its findings —
+# (Codex / Cursor / Antigravity) and prints its findings —
 # vendor diversity catches bugs a single model misses.
 #
 # Usage:
@@ -11,9 +11,7 @@
 #   REVIEWER=codex scripts/ai-review.sh review     # force one vendor
 #   scripts/ai-review.sh --all review              # run every available vendor
 #
-# Vendor auto-detect order: codex -> cursor-agent -> agy -> llm (ollama).
-# Ollama endpoint is read from .env (OLLAMA_URL) or $OLLAMA_HOST; model via
-# $OLLAMA_REVIEW_MODEL (default qwen3:14b — you can `ollama pull qwen3-coder:30b`).
+# Vendor auto-detect order: codex -> cursor-agent -> agy.
 
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
@@ -42,41 +40,34 @@ PROMPT="$INSTRUCTION"$'\n\n'"$CONTENT"
 
 # --- config -----------------------------------------------------------------
 TIMEOUT="${AI_REVIEW_TIMEOUT:-300}"
-OLLAMA_REVIEW_MODEL="${OLLAMA_REVIEW_MODEL:-qwen3:14b}"
-if [ -z "${OLLAMA_HOST:-}" ] && [ -f .env ]; then
-  OLLAMA_HOST=$(grep -E '^OLLAMA_URL=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
-fi
-export OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 run_codex()  { codex exec --skip-git-repo-check "$PROMPT"; }
 run_cursor() { timeout "$TIMEOUT" cursor-agent -p "$PROMPT" --output-format text; }
 run_agy()    { agy -p "$PROMPT" --output-format text --print-timeout "${TIMEOUT}s"; }
-run_ollama() { printf '%s' "$PROMPT" | llm -m "$OLLAMA_REVIEW_MODEL"; }
 
 invoke() {
   case "$1" in
     codex)       have codex        && { echo "===== Codex ====="; run_codex; return 0; } ;;
     cursor)      have cursor-agent && { echo "===== Cursor ====="; run_cursor; return 0; } ;;
     antigravity) have agy          && { echo "===== Antigravity ====="; run_agy; return 0; } ;;
-    ollama)      have llm          && { echo "===== Ollama ($OLLAMA_REVIEW_MODEL @ $OLLAMA_HOST) ====="; run_ollama; return 0; } ;;
   esac
   return 1
 }
 
 # --- dispatch ---------------------------------------------------------------
 if [ -n "${REVIEWER:-}" ]; then
-  invoke "$REVIEWER" || { echo "Reviewer '$REVIEWER' не е наличен (codex/cursor/antigravity/ollama)."; exit 1; }
+  invoke "$REVIEWER" || { echo "Reviewer '$REVIEWER' не е наличен (codex/cursor/antigravity)."; exit 1; }
   exit 0
 fi
 
 if [ "$ALL" = 1 ]; then
   ran=0
-  for v in codex cursor antigravity ollama; do invoke "$v" && ran=1; echo; done
-  [ "$ran" = 1 ] || { echo "Няма наличен external reviewer (codex/cursor-agent/agy/llm)."; exit 1; }
+  for v in codex cursor antigravity; do invoke "$v" && ran=1; echo; done
+  [ "$ran" = 1 ] || { echo "Няма наличен external reviewer (codex/cursor-agent/agy)."; exit 1; }
   exit 0
 fi
 
-for v in codex cursor antigravity ollama; do invoke "$v" && exit 0; done
-echo "Няма наличен external reviewer. Инсталирай един от: codex, cursor-agent, agy, llm (+ llm-ollama)."
+for v in codex cursor antigravity; do invoke "$v" && exit 0; done
+echo "Няма наличен external reviewer. Инсталирай един от: codex, cursor-agent, agy."
 exit 1
